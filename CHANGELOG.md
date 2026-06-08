@@ -11,11 +11,20 @@
 
 ## [未发布] (Unreleased)
 
-> 本阶段产出均为**设计与文档**,不包含可运行的功能代码。
+> 设计与文档已定稿;**M1(P1–P9)代码已实现**——`./gradlew build` 编译 + 单元测试通过,但**尚未真机运行验证**(真机验证清单待执行)。
 
 ### 新增
 - 初始化项目骨架:`api` / `core`(`project:core`)/ `plugin` 三模块目录与基础构建配置(当前源码目录为空,从零开发)。
 - 新增开源许可证 [`LICENSE`](LICENSE):**MIT License**。
+- **M1 代码实现(P1–P9;编译 + 单测通过,真机验证待进行)**:
+  - **多平台骨架**:Bukkit 系 + BungeeCord 单 jar 多端;env 按模块下沉;IOC(`@Service`/`@Inject`)装配。
+  - **启动剖析(FR1)**:端到端总时长 + 各生命周期分段 + 逐插件启用间隔 + 启动画像 + 与上次对比。
+  - **JVM 指标(FR2.1)**:堆/非堆/内存池/GC(明细 + young·old)/线程 + 死锁/类加载/CPU/uptime/jvmArgs。
+  - **服务器 TPS/MSPT(FR2.2)**:多版本(Paper API / 低版本 NMS 反射 / 自采样)+ Folia 全局 N/A;MSPT p95/p99。
+  - **`/probe` 命令(FR4.1)**:health/startup/tps/gc/world/proxy 六子命令 + 中英 i18n + 只读 API(FR8.1)。
+  - **本地文件落盘(FR1.5)**:启动画像 JSON(TabooLib `Configuration` 序列化)+ `config.yml` 配置。
+  - **代理端基础**:总在线 + 各子服在线(BungeeCord)。
+  - 留 M2+:世界指标完整(FR2.3)、代理 ping/路由(FR2.5)、Prometheus(FR4.2)、Web(FR4.3)、告警(FR5)、Incision(FR7)。
 
 ### 变更
 - 确立技术选型与技术决策(详见架构文档 ADR-1 ~ ADR-10):

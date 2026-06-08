@@ -203,8 +203,10 @@
 
 以本地文件持久化,**不依赖数据库**。建议:启动画像每份一个 JSON;指标历史按 JSONL 行式追加、按日期/会话滚动。
 
-- **StartupProfile**(JSON):`serverId(可选实例标识), platform, mcVersion, jvmStartTime, totalMillis, phaseBreakdown, pluginTimings, worldTimings, jvmArgs, createdAt`
-- **MetricHistory**(JSONL,聚合后):`ts, tps1/5/15, msptAvg/P95/P99, heapUsed/Max, gcYoungCount, gcOldCount, threadCount, cpuProcess, onlinePlayers`(写入频率受控)
+- **StartupProfile**(JSON):`schemaVersion, serverId(恒有值,未配置时自动生成), platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, createdAtMs`
+- **MetricHistory**(JSONL,聚合后):`schemaVersion, ts, tps1/5/15, msptAvg/P95/P99, heapUsed/Max, gcYoungCount, gcOldCount, threadCount, cpuProcess, onlinePlayers`(写入频率受控;另含各 GC 收集器原始明细 gcCollectors)
+
+> 落盘根对象均含 `schemaVersion`(M1=1),用于格式演进与向后兼容。
 
 > 经统一存储 SPI 写入(见 FR8),默认实现为本地文件;原子写入(临时文件 + rename),可配保留策略与体积上限。
 

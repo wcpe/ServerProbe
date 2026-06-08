@@ -12,6 +12,10 @@ pluginManagement {
     }
 }
 
+rootProject.name = "ServerProbe"
+
 include("api")
 include("project:core")
+include("platform:platform-bukkit")
+include("platform:platform-bungee")
 include("plugin")

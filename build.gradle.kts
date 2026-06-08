@@ -11,6 +11,9 @@ plugins {
 }
 
 subprojects {
+    // 跳过纯容器项目(:platform、:project):它们无源码,不应应用插件,避免产出空 jar 与无意义的 IOC 诊断
+    if (childProjects.isNotEmpty()) return@subprojects
+
     apply<JavaPlugin>()
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "io.izzel.taboolib")
@@ -19,12 +22,8 @@ subprojects {
     configure<TabooLibExtension> {
         subproject = true
         env {
+            // 仅装公共 Basic;平台/功能 install 由各子模块在自身 build.gradle.kts 按需追加,避免平台污染
             install(Basic)
-            install(Bukkit)
-            install(BukkitUtil)
-            install(BukkitUI)
-            install(CommandHelper)
-            install(I18n)
         }
         version { taboolib = "6.3.0-afd75a7" }
     }
@@ -41,8 +40,7 @@ subprojects {
 
     dependencies {
         compileOnly(kotlin("stdlib"))
-        compileOnly("ink.ptms.core:v12004:12004:mapped")
-        compileOnly("ink.ptms.core:v12004:12004:universal")
+        // NMS(ink.ptms.core)下沉到需要 Bukkit/NMS API 的模块(platform-bukkit、plugin)按需引入
     }
 
 

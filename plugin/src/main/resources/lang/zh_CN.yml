@@ -1,0 +1,64 @@
+# ServerProbe 简体中文语言文件
+# 平铺键 + {0}/{1}... 占位;命令输出统一经 sendLang/asLangText 取用。
+
+# 通用占位
+command-na: "§7N/A"
+command-unlimited: "§7无上限"
+command-no-data: "§e尚无数据(采集中,请稍候)"
+command-server-only: "§e此为服务端指标;当前快照无服务器维度数据(代理端无 TPS/MSPT)。"
+
+# 帮助(主命令 /probe)
+command-help-header: "§6===== §eServerProbe 探针命令 §6====="
+command-help-health: "§a/probe health §7- 总体概览(TPS/MSPT/堆内存/在线/运行时长)"
+command-help-startup: "§a/probe startup §7- 最近一次启动画像(总时长/慢插件/世界耗时)"
+command-help-tps: "§a/probe tps §7- TPS(1/5/15 分钟)与 MSPT(avg/p95/p99)"
+command-help-gc: "§a/probe gc §7- GC 与堆/非堆/内存池"
+command-help-world: "§a/probe world §7- 世界指标(后续提供)"
+command-help-proxy: "§a/probe proxy §7- 代理端数据入口"
+
+# health 概览
+command-health-title: "§6===== §e总体概览 §6====="
+command-health-tps: "§7TPS(1分钟): §f{0}  §7MSPT(平均): §f{1}"
+command-health-heap: "§7堆内存: §f{0} §7/ §f{1}"
+command-health-cpu: "§7CPU: 进程 §f{0} §7/ 系统 §f{1}"
+command-health-players: "§7在线人数: §f{0}"
+command-health-uptime: "§7运行时长: §f{0}"
+
+# startup 启动画像
+command-startup-title: "§6===== §e最近启动画像 §6====="
+command-startup-none: "§e尚无启动画像(本次启动可能尚未生成,或服务器刚启动)。"
+command-startup-total: "§7端到端总时长: §f{0}"
+command-startup-plugins-title: "§7慢插件 Top-{0}(按启用耗时降序):"
+command-startup-plugins-empty: "§8  (无可用插件耗时数据)"
+command-startup-plugin-line: "§8  - §f{0} §7{1}"
+command-startup-worlds-title: "§7各世界加载耗时:"
+command-startup-worlds-empty: "§8  (无世界耗时数据)"
+command-startup-world-line: "§8  - §f{0} §7{1}"
+# 对比摘要内容为中文(由 StartupComparator 生成),M1 作为 {0} 原样填入;其内容 i18n 留 M2
+command-startup-compare: "§7与上次对比: §f{0}"
+command-startup-compare-none: "§8无基线对比(首次启动,尚无上一份画像)。"
+
+# tps 详情
+command-tps-title: "§6===== §eTPS / MSPT §6====="
+command-tps-line: "§7TPS  §71分钟: §f{0}  §75分钟: §f{1}  §715分钟: §f{2}"
+command-mspt-line: "§7MSPT §7平均: §f{0}  §7p95: §f{1}  §7p99: §f{2}"
+
+# gc 详情
+command-gc-title: "§6===== §eGC / 内存 §6====="
+command-gc-young: "§7GC 年轻代: §f{0} 次 §7/ §f{1}"
+command-gc-old: "§7GC 老年代: §f{0} 次 §7/ §f{1}"
+command-gc-heap: "§7堆内存: §f{0} §7/ §f{1}"
+command-gc-nonheap: "§7非堆内存: §f{0} §7/ §f{1}"
+command-gc-pools-title: "§7内存池:"
+command-gc-pool-line: "§8  - §f{0}§7: §f{1} §7/ §f{2}"
+
+# world 占位(P9 接入)
+command-world-pending: "§e世界指标将于后续提供(采集中)。"
+
+# proxy 代理端(总在线 + 各子服在线)
+command-proxy-server-side: "§e此为服务端,代理端请在 BungeeCord 执行 /probe proxy。"
+command-proxy-title: "§6===== §e代理端概览 §6====="
+command-proxy-total: "§7总在线: §f{0}"
+command-proxy-backends-title: "§7各子服在线:"
+command-proxy-backends-empty: "§8  (无子服)"
+command-proxy-backend-line: "§8  - §f{0}§7: §f{1}"
