@@ -4,6 +4,7 @@ import taboolib.common.platform.function.warning
 import top.wcpe.mc.plugin.serverprobe.api.collector.JvmMetricsCollector
 import top.wcpe.mc.plugin.serverprobe.api.collector.ProxyMetricsCollector
 import top.wcpe.mc.plugin.serverprobe.api.collector.ServerMetricsCollector
+import top.wcpe.mc.plugin.serverprobe.api.collector.WorldMetricsCollector
 import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.CopyOnWriteArrayList
@@ -14,11 +15,12 @@ import java.util.concurrent.CopyOnWriteArrayList
  * 在 core 与各平台模块之间充当解耦的装配点:core 不在编译期依赖任何平台实现,
  * 平台实现在运行时(各自就绪后)调用本中心的 `register` 完成自注册,从而实现服务发现。
  *
- * 持有四类组件:
+ * 持有五类组件:
  * - [JvmMetricsCollector]:JVM 指标采集器,P4(core 内通用实现)就绪后自注册;
  * - [ServerMetricsCollector]:服务器指标采集器,P5(platform-bukkit)就绪后自注册;
  * - [ServerTickSampler]:tick 采样器,P5(platform-bukkit)就绪后自注册;
- * - [ProxyMetricsCollector]:代理端指标采集器,P9(platform-bungee)就绪后自注册。
+ * - [ProxyMetricsCollector]:代理端指标采集器,P9(platform-bungee)就绪后自注册;
+ * - [WorldMetricsCollector]:世界指标采集器,M2(platform-bukkit)就绪后自注册。
  *
  * 并发模型:注册多发生于启动期、读取贯穿运行期且跨线程(编排任务为异步线程),
  * 读多写少,故底层用 [CopyOnWriteArrayList] 保证读无锁、写安全。
@@ -37,6 +39,9 @@ class ProbeRegistry {
 
     /** 代理端指标采集器集合。 */
     private val proxyCollectorList = CopyOnWriteArrayList<ProxyMetricsCollector>()
+
+    /** 世界指标采集器集合。 */
+    private val worldCollectorList = CopyOnWriteArrayList<WorldMetricsCollector>()
 
     /**
      * 注册一个 JVM 指标采集器;重复实例会被忽略。
@@ -83,6 +88,17 @@ class ProbeRegistry {
     }
 
     /**
+     * 注册一个世界指标采集器;重复实例会被忽略。
+     *
+     * @param collector 待注册的采集器。
+     */
+    fun register(collector: WorldMetricsCollector) {
+        if (!worldCollectorList.addIfAbsent(collector)) {
+            warning("重复注册世界指标采集器,已忽略:${collector.javaClass.name}")
+        }
+    }
+
+    /**
      * 已注册的 JVM 指标采集器只读视图。
      *
      * @return 当前已注册采集器的不可变快照副本。
@@ -113,4 +129,12 @@ class ProbeRegistry {
      */
     val proxyCollectors: List<ProxyMetricsCollector>
         get() = proxyCollectorList.toList()
+
+    /**
+     * 已注册的世界指标采集器只读视图。
+     *
+     * @return 当前已注册采集器的不可变快照副本。
+     */
+    val worldCollectors: List<WorldMetricsCollector>
+        get() = worldCollectorList.toList()
 }

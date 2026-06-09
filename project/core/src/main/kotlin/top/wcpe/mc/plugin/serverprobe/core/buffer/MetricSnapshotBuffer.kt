@@ -43,6 +43,19 @@ class MetricSnapshotBuffer {
     fun recent(limit: Int): List<MetricSnapshot> = buffer.snapshot(limit)
 
     /**
+     * 获取缓冲内时间戳不早于 [sinceMs] 的指标快照,按"新 → 旧"顺序返回(M2 FR8 扩面)。
+     *
+     * 取缓冲当前全量快照(经 [RingBuffer.snapshot] 以当前已存数为上限,得新→旧一致视图)后,
+     * 按 [MetricSnapshot.timestampMs] >= [sinceMs] 过滤。纯内存操作、不读盘:能回看的最早时刻
+     * 受缓冲容量限制(早于最旧一份的数据不在缓冲内,自然不会返回)。
+     *
+     * @param sinceMs 时间下界(epoch 毫秒,含)。
+     * @return 不早于 [sinceMs] 的快照列表(新→旧);无满足项时为空列表。
+     */
+    fun recentSince(sinceMs: Long): List<MetricSnapshot> =
+        buffer.snapshot(buffer.size()).filter { it.timestampMs >= sinceMs }
+
+    /**
      * 解析环形缓冲容量:取 [ProbeConfig.historyCapacity],非正时兜底为默认容量(防止 [RingBuffer] 构造抛错)。
      *
      * @return 有效容量(恒为正)。

@@ -7,6 +7,10 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.sampler
  * 集中收口分位算法,避免在两处复制粘贴(规范第 10 条第 5 项)。全部为无副作用纯函数。
  *
  * 所有输入为单 tick 耗时(纳秒),输出统一换算为毫秒(MSPT 习惯单位)。
+ *
+ * **与 core 的 `aggregator.Percentiles` 区分**:core 另有一份 `DoubleArray`(已是毫秒)版本,
+ * 用于跨快照对"周期代表值"再求分位。两者算法同形但输入类型/单位/数据口径不同,且 core 不依赖平台模块,
+ * 故各存一份(详见 core 版 KDoc)。本版专用于平台采样器的纳秒逐 tick 样本。
  */
 object Percentiles {
 

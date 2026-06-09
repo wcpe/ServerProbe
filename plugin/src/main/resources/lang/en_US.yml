@@ -13,7 +13,7 @@ command-help-health: "§a/probe health §7- Overview (TPS/MSPT/heap/players/upti
 command-help-startup: "§a/probe startup §7- Last startup profile (total/slow plugins/world timings)"
 command-help-tps: "§a/probe tps §7- TPS (1/5/15m) and MSPT (avg/p95/p99)"
 command-help-gc: "§a/probe gc §7- GC and heap/non-heap/memory pools"
-command-help-world: "§a/probe world §7- World metrics (coming soon)"
+command-help-world: "§a/probe world §7- World metrics (per-world chunks/entities/tile-entities)"
 command-help-proxy: "§a/probe proxy §7- Proxy data entry"
 
 # health overview
@@ -42,6 +42,12 @@ command-startup-compare-none: "§8No baseline (first startup, no previous profil
 command-tps-title: "§6===== §eTPS / MSPT §6====="
 command-tps-line: "§7TPS  §71m: §f{0}  §75m: §f{1}  §715m: §f{2}"
 command-mspt-line: "§7MSPT §7avg: §f{0}  §7p95: §f{1}  §7p99: §f{2}"
+# tps aggregation supplement (FR3.3, cross-snapshot stats over recent N snapshots)
+command-tps-agg-title: "§7— Recent Aggregation —"
+command-tps-agg-empty: "§8  (no aggregation data yet, collecting)"
+command-tps-agg-window: "§7Samples: §f{0}"
+command-tps-agg-tps: "§7TPS avg: §f{0}  §7MSPT p95: §f{1}  §7p99: §f{2}"
+command-tps-agg-gc: "§7GC rate(/s) §7young: §f{0}  §7old: §f{1}"
 
 # gc detail
 command-gc-title: "§6===== §eGC / Memory §6====="
@@ -52,8 +58,16 @@ command-gc-nonheap: "§7Non-heap: §f{0} §7/ §f{1}"
 command-gc-pools-title: "§7Memory pools:"
 command-gc-pool-line: "§8  - §f{0}§7: §f{1} §7/ §f{2}"
 
-# world placeholder (wired in P9)
-command-world-pending: "§eWorld metrics will be provided later (collecting)."
+# world metrics (per-world chunks/entities/tile-entities)
+command-world-title: "§6===== §eWorld Metrics §6====="
+command-world-line: "§8  - §f{0}§7: chunks §f{1} §7entities §f{2} §7tile-entities §f{3}"
+
+# alerts (FR5) in-game push. Placeholders: {0}=type {1}=value {2}=threshold
+alert-firing-warn: "§e[Alert] §6{0} §7warning: current §f{1}§7, threshold §f{2}"
+alert-firing-critical: "§c[Alert] §4{0} §7critical: current §f{1}§7, threshold §f{2}"
+alert-recovered: "§a[Recovered] §2{0} §7back to normal: current §f{1}§7, threshold §f{2}"
+# deadlock is event-type: {1} is the deadlocked thread count
+alert-deadlock: "§c[Alert] §4Detected §f{1} §4deadlocked thread(s), investigate now!"
 
 # proxy side (total online + per-backend online)
 command-proxy-server-side: "§eThis is the server side; run /probe proxy on BungeeCord for proxy data."

@@ -11,8 +11,10 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Inject
 
@@ -38,8 +40,8 @@ import top.wcpe.taboolib.ioc.annotation.Inject
  * **权限**:主命令 `serverprobe.command`;各子命令 `serverprobe.command.<sub>`。
  * `permissionMessage` 为纯文本(高版本 Paper 的 Adventure 链路下避免 legacy 色码告警)。
  *
- * **M1 占位说明**:proxy 子命令已于 P9 接入代理端真实数据(总在线 + 各子服在线);
- * world 子命令的世界/实体采集仍为占位,留后续接入(见各自子命令 KDoc)。
+ * **进度说明**:proxy 子命令已于 P9 接入代理端真实数据(总在线 + 各子服在线);
+ * world 子命令已于 M2 接入世界/实体采集(各世界区块/实体/方块实体数,见其子命令 KDoc)。
  */
 @CommandHeader(
     name = "probe",
@@ -134,6 +136,8 @@ object ProbeCommand {
                 return@execute
             }
             sendTps(sender, server.tick)
+            // 聚合补充行(FR3.3):对近 N 份快照做跨快照统计,窗口大小取配置
+            sendTpsAggregation(sender)
         }
     }
 
@@ -155,14 +159,26 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe world`:世界指标占位(M1 暂未采集)。
+     * `/probe world`:各世界指标(已加载区块数、实体数、方块实体数;FR2.3)。
      *
-     * **M1 占位**:世界/实体级指标采集在 P9 接入,当前仅返回"采集中"占位文案。
+     * 取 `latestSnapshot()?.server?.worlds`:server 为 null(代理端语义)时提示该端无此指标;
+     * worlds 为 null/空(世界采样尚未产出,采样周期独立于主采集)时提示"采集中"。
+     * Folia 受限项(实体/方块实体数为 -1)以 N/A 文案兜底。
      */
     @CommandBody(permission = "serverprobe.command.world")
     val world = subCommand {
         execute<ProxyCommandSender> { sender, _, _ ->
-            sender.sendLang("command-world-pending")
+            val snapshot = readApi.latestSnapshot()
+            if (snapshot == null) {
+                sender.sendLang("command-no-data")
+                return@execute
+            }
+            val server = snapshot.server
+            if (server == null) {
+                sender.sendLang("command-server-only")
+                return@execute
+            }
+            sendWorld(sender, server)
         }
     }
 
@@ -283,6 +299,84 @@ object ProbeCommand {
             ProbeFormat.msptOrNull(tick.msptP99) ?: na
         )
     }
+
+    /**
+     * 渲染 tps 的聚合补充行(FR3.3):对近 N 份快照统计 TPS 均值 / MSPT p95·p99 / GC young·old 速率。
+     *
+     * 取 [ProbeReadApi.aggregated],窗口大小取 [ProbeConfig.aggregationWindow]。优雅降级:
+     * 窗口内无任何快照(`windowSampleCount == 0`,如刚启动)时仅提示"暂无聚合数据";有快照但
+     * 单项不可计算(无 TPS 样本、GC 速率差分样本不足等)时该项以 N/A 兜底。
+     *
+     * @param sender 命令发送者。
+     */
+    private fun sendTpsAggregation(sender: ProxyCommandSender) {
+        val aggregated = readApi.aggregated(ProbeConfig.aggregationWindow())
+        sender.sendLang("command-tps-agg-title")
+        if (aggregated.windowSampleCount == 0) {
+            sender.sendLang("command-tps-agg-empty")
+            return
+        }
+        val na = sender.asLangText("command-na")
+        sender.sendLang("command-tps-agg-window", aggregated.windowSampleCount)
+        sender.sendLang(
+            "command-tps-agg-tps",
+            ProbeFormat.tpsOrNull(aggregated.tpsAvg) ?: na,
+            ProbeFormat.msptOrNull(aggregated.msptP95) ?: na,
+            ProbeFormat.msptOrNull(aggregated.msptP99) ?: na
+        )
+        sender.sendLang(
+            "command-tps-agg-gc",
+            gcRateText(aggregated.gcYoungRatePerSec, na),
+            gcRateText(aggregated.gcOldRatePerSec, na)
+        )
+    }
+
+    /**
+     * GC 速率文案:可计算时格式化为保留两位小数的"次/秒",不可计算(null,如样本不足/重启回绕)时为 N/A。
+     *
+     * @param rate GC 次数速率(次/秒);不可计算时为 null。
+     * @param na N/A 占位文案(由调用方经 i18n 取得,避免重复取值)。
+     * @return 可读的速率文案。
+     */
+    private fun gcRateText(rate: Double?, na: String): String =
+        rate?.let { String.format("%.2f", it) } ?: na
+
+    /**
+     * 渲染 world 详情:逐世界输出已加载区块数、实体数、方块实体数(FR2.3)。
+     *
+     * worlds 为 null(尚未采样,采样周期独立于主采集)或空时提示"采集中";Folia 受限项(实体/
+     * 方块实体数为 -1)以 N/A 文案兜底。
+     *
+     * @param sender 命令发送者。
+     * @param server 服务器指标(其 worlds 字段为世界明细)。
+     */
+    private fun sendWorld(sender: ProxyCommandSender, server: ServerMetrics) {
+        val worlds = server.worlds
+        if (worlds.isNullOrEmpty()) {
+            sender.sendLang("command-no-data")
+            return
+        }
+        sender.sendLang("command-world-title")
+        worlds.forEach { world ->
+            sender.sendLang(
+                "command-world-line",
+                world.name,
+                world.loadedChunks,
+                worldCountText(sender, world.entityCount),
+                worldCountText(sender, world.tileEntityCount)
+            )
+        }
+    }
+
+    /**
+     * 世界计数文案:-1(Folia 受限,N/A)时显示 N/A 文案,否则为原始数值字符串。
+     *
+     * @param sender 命令发送者(用于取 i18n 文案)。
+     * @param count 计数值;-1 表示该项不可用(N/A)。
+     * @return 可读的计数文案。
+     */
+    private fun worldCountText(sender: ProxyCommandSender, count: Int): String =
+        if (count < 0) sender.asLangText("command-na") else count.toString()
 
     /**
      * 渲染 gc 详情:GC young/old 聚合 + 堆/非堆 + 各内存池。

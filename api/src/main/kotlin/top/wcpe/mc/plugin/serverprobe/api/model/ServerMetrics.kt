@@ -10,10 +10,13 @@ package top.wcpe.mc.plugin.serverprobe.api.model
  * @property onlinePlayers 当前在线人数。
  * @property maxPlayers 最大可容纳人数。
  * @property uptimeMs 服务器运行时长(毫秒)。
+ * @property worlds 各世界运行时指标(FR2.3);默认 null 以保持 gson/Configuration 序列化向后兼容
+ *  (历史快照不含该字段),尚未采集到时亦为 null。
  */
 data class ServerMetrics(
     val tick: TickSample,
     val onlinePlayers: Int,
     val maxPlayers: Int,
-    val uptimeMs: Long
+    val uptimeMs: Long,
+    val worlds: List<WorldMetrics>? = null
 )

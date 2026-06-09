@@ -10,11 +10,110 @@ history-capacity: 360
 # 启动摘要中展示的慢插件榜条数(Top-N)。默认 5。
 startup-top-n: 5
 
+# 指标聚合(FR3.3):对近期历史做跨快照统计,用于 /probe tps 的聚合补充行。
+aggregation:
+  # 聚合窗口大小(份,每采集周期一份)。默认 12(约 1 分钟 @ 5 秒采集周期)。
+  window: 12
+
 # 实例名称:用于区分多个服务端实例。留空则自动生成稳定实例 ID(跨重启保持不变)。
 server-name: ""
 
 # 启动画像归档保留份数:每次启动落盘一份,超出后清理最旧的。默认 30。
 history-retention: 30
 
+# 历史指标落盘(FR3.2):把每次采集的快照按实例分目录、按自然日滚动追加到
+# data/metrics/<实例>/metrics-<yyyyMMdd>.jsonl(JSON Lines)。
+# 与上面的 history-capacity(内存缓冲)、history-retention(启动画像归档)相互独立、互不影响。
+history-file:
+  # 是否开启历史指标落盘。默认 true。
+  enabled: true
+  # 文件保留天数:按自然日,含当天在内保留最近 N 天,更早的文件清理。默认 7。
+  retention-days: 7
+  # 单实例历史文件总体积上限(MB):超出后从最旧文件起清理至达标,绝不删除当天文件。默认 200。
+  max-total-mb: 200
+
 # 是否输出 DEBUG 级调试日志。默认 false(关闭)。
 debug: false
+
+# 世界/实体采集(FR2.3)。
+# 世界采集需遍历所有世界与已加载区块,开销较高,故独立限频、采样后缓存。
+world:
+  # 世界指标采样周期(单位:tick;20 tick = 1 秒)。默认 600(约 30 秒)。
+  sample-period-ticks: 600
+  # 是否统计各世界按类型的实体分布。关闭后仅给出实体总数。默认 true。
+  entity-types: true
+
+# Prometheus /metrics 导出端点(FR4.2),对接 Grafana 长期看板与告警。
+# Bukkit 与 BungeeCord 各为独立进程、各起一个端点;同机部署两端请配置不同 port。
+# 安全默认:端点默认【关闭】,且默认仅本机(127.0.0.1)可访问。开放到外网前务必配置 token 与/或 IP 白名单。
+metrics:
+  # 是否开启 /metrics 端点。默认 false(关闭)。
+  enabled: false
+  # 绑定地址。默认 127.0.0.1(仅本机回环)。需被远程 Prometheus 抓取时可改 0.0.0.0,但务必同时设置 token 或 allowed-ips。
+  host: "127.0.0.1"
+  # 监听端口。默认 9940。
+  # 注:Windows 环境若此端口起服失败(报 Address already in use 但 netstat 无进程),可能撞系统动态保留端口
+  # (netsh int ipv4 show excludedportrange protocol=tcp 查看),换一个范围外端口即可;Linux 生产无此问题。
+  port: 9940
+  # 鉴权 token。留空=不启用 token 鉴权(此时仅靠下方 allowed-ips IP 白名单限制)。
+  # 非空时请求需携带请求头 Authorization: Bearer <token> 方可访问。
+  token: ""
+  # 允许访问的来源 IP 白名单(与 token 叠加生效)。默认仅本机,避免裸奔对外。
+  # 仅精确 IP 匹配,不支持 CIDR 网段;经 IPv6 回环访问需另填 IPv6 地址(如 ::1)。
+  allowed-ips:
+    - "127.0.0.1"
+
+# 告警引擎(FR5):每个采集周期对照规则判定指标是否越线,经各通道(日志/游戏内/Webhook)推送。
+# 安全/降噪默认:告警引擎默认【关闭】,需显式开启。
+alert:
+  # 是否开启告警引擎。默认 false(关闭)。
+  enabled: false
+
+  # 告警通道开关。
+  channels:
+    # 日志通道:写入控制台/日志文件(WARN/CRITICAL/恢复 分级)。默认 true。
+    log: true
+    # 游戏内通道:推送给在线 OP 或持 serverprobe.alert 权限的玩家(仅 Bukkit 端生效)。默认 true。
+    in-game: true
+    # Webhook 通道:把告警以 JSON POST 到外部地址(钉钉/飞书/企业微信/自建网关等)。
+    webhook:
+      # 是否开启 Webhook。默认 false。
+      enabled: false
+      # 回调地址。留空=不投递。注意:该地址可能含 token,请勿外泄(探针绝不把它写入日志)。
+      url: ""
+      # 连接/读取超时(毫秒)。默认 3000;过小将被兜底为下限。
+      timeout-ms: 3000
+
+  # 告警规则:每条含 threshold(阈值)、sustain-cycles(持续几个采集周期才触发,防抖)、
+  # level(级别:WARN / CRITICAL)、enabled(是否启用)。
+  rules:
+    # TPS(1 分钟)偏低 → 警告:低于 18 持续 3 周期。
+    tps-warn:
+      threshold: 18.0
+      sustain-cycles: 3
+      level: WARN
+      enabled: true
+    # TPS(1 分钟)过低 → 严重:低于 15 持续 3 周期。
+    tps-critical:
+      threshold: 15.0
+      sustain-cycles: 3
+      level: CRITICAL
+      enabled: true
+    # MSPT p95 过高 → 警告:高于 50ms 持续 3 周期。
+    mspt-p95:
+      threshold: 50.0
+      sustain-cycles: 3
+      level: WARN
+      enabled: true
+    # 堆内存占用率过高 → 警告:高于 90% 持续 3 周期。
+    heap-usage:
+      threshold: 90.0
+      sustain-cycles: 3
+      level: WARN
+      enabled: true
+    # 死锁(事件型)→ 严重:死锁线程数大于 0 即触发(持续 1 周期即立即)。
+    deadlock:
+      threshold: 0.0
+      sustain-cycles: 1
+      level: CRITICAL
+      enabled: true
