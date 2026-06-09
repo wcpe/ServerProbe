@@ -151,13 +151,82 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             ClassReader reader = new ClassReader(classfileBuffer);
             // COMPUTE_FRAMES + COMPUTE_MAXS：交由 ASM 重算栈映射帧与最大栈/局部表，
             // 免去手工维护，对插桩这类小改动最稳妥。
-            ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+            //
+            // 关键：必须用 FrameSafeClassWriter 而非裸 ClassWriter——COMPUTE_FRAMES 在合并两个
+            // 引用类型的栈帧时需求其最近公共父类，ASM 默认实现 getCommonSuperClass 会用
+            // Class.forName 真正加载这两个类。而 LibraryLoader#createLoader 的方法体引用了
+            // 库下载用的 Aether 类型（如 org.eclipse.aether.resolution.DependencyResult），这些类
+            // 对加载本 ClassWriter 的 system/agent ClassLoader 不可见 → forName 抛
+            // ClassNotFoundException → 帧计算抛 TypeNotPresentException → 被下方 catch 吞掉 →
+            // 返回 null → 该 hook 永不生效（这正是 libraryTimings 始终为空的真因）。
+            // FrameSafeClassWriter 优先用"被改写类自己的 ClassLoader"解析，再退化到 Object，彻底规避。
+            ClassWriter writer = new FrameSafeClassWriter(reader, loader);
             ClassVisitor visitor = new ProfilingClassVisitor(writer, className);
             reader.accept(visitor, ClassReader.EXPAND_FRAMES);
             return writer.toByteArray();
         } catch (Throwable ignored) {
             // 插桩失败时降级：返回 null 保留原始字节码，保证服务器正常启动。
             return null;
+        }
+    }
+
+    /**
+     * 帧计算安全的 {@link ClassWriter}：覆盖 {@link #getCommonSuperClass} 使其
+     * <b>不会因类型不可加载而抛异常</b>。
+     *
+     * <p>问题背景：{@link ClassWriter#COMPUTE_FRAMES} 在合并栈帧引用类型时要求两类型的最近公共父类，
+     * ASM 默认实现以 {@link Class#forName} 加载二者。被改写的服务器类（如 {@code LibraryLoader}）方法体
+     * 可能引用对本 {@code ClassWriter} 加载器不可见的第三方类型（如库下载用的 Aether 类），默认实现会
+     * {@code ClassNotFoundException} → 帧计算失败 → 整个插桩被降级丢弃。
+     *
+     * <p>两道防线：
+     * <ol>
+     *   <li>把解析委派给<b>被改写类自身的 {@link ClassLoader}</b>（{@code transform} 的 {@code loader} 参数）——
+     *       服务器类的那些第三方类型对它自己的加载器通常可见，多数情况下能算出真实公共父类；</li>
+     *   <li>万一仍解析不到（如 {@code loader} 为 {@code null} 的 bootstrap 类，或类确实缺失），
+     *       退化返回 {@code java/lang/Object}——它是所有引用类型的合法上界，
+     *       生成的帧偏保守但<b>字节码合法且能通过 JVM 校验</b>，绝不再抛异常。</li>
+     * </ol>
+     */
+    private static final class FrameSafeClassWriter extends ClassWriter {
+
+        /** 被改写类自身的 ClassLoader（可能为 {@code null}，表示 bootstrap ClassLoader）。 */
+        private final ClassLoader classLoader;
+
+        FrameSafeClassWriter(ClassReader classReader, ClassLoader classLoader) {
+            super(classReader, COMPUTE_FRAMES | COMPUTE_MAXS);
+            this.classLoader = classLoader;
+        }
+
+        /**
+         * {@inheritDoc}
+         *
+         * <p>用被改写类自身的加载器解析两类型并求最近公共父类；任何解析失败一律退化为
+         * {@code java/lang/Object}，保证 {@code COMPUTE_FRAMES} 永不因类型不可加载而中断插桩。
+         */
+        @Override
+        protected String getCommonSuperClass(String type1, String type2) {
+            try {
+                Class<?> c1 = Class.forName(type1.replace('/', '.'), false, classLoader);
+                Class<?> c2 = Class.forName(type2.replace('/', '.'), false, classLoader);
+                if (c1.isAssignableFrom(c2)) {
+                    return type1;
+                }
+                if (c2.isAssignableFrom(c1)) {
+                    return type2;
+                }
+                if (c1.isInterface() || c2.isInterface()) {
+                    return "java/lang/Object";
+                }
+                Class<?> common = c1;
+                do {
+                    common = common.getSuperclass();
+                } while (!common.isAssignableFrom(c2));
+                return common.getName().replace('.', '/');
+            } catch (Throwable ignored) {
+                // 类型不可加载（第三方/缺失/bootstrap）时退化到 Object：合法上界，绝不抛异常拖垮插桩。
+                return "java/lang/Object";
+            }
         }
     }
 
