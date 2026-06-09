@@ -18,6 +18,10 @@ taboolib {
 
         }
     }
+    // 将随 agent 打进二合一 jar 的 ASM 重定向到 agent 专属影子包，避免与服务器/其它插件自带的 ASM 冲突。
+    // TabooLib 打包阶段（taboolibMainTask）会用 ASM ClassRemapper 按此前缀改写全部 .class：
+    // 既改写 ASM 自身的包名，也同步改写 agent 类对 ASM 的全部引用，二者保持一致。
+    relocate("org.objectweb.asm", "top.wcpe.mc.plugin.serverprobe.agent.shadow.asm")
     env {
         install(Basic)
         install(Bukkit)
@@ -44,11 +48,26 @@ dependencies {
     taboo(project(":project:core"))
     taboo(project(":platform:platform-bukkit"))
     taboo(project(":platform:platform-bungee"))
+    // 启动期 agent 的字节码插桩依赖 ASM。用 taboo(...) 而非 compileOnly:
+    // taboo 既加入编译类路径(agent 纯 Java 需编译期可见 ASM),又把 ASM 的 class 实打实合并进二合一 jar,
+    // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。
+    taboo("org.ow2.asm:asm:9.7.1")
+    taboo("org.ow2.asm:asm-commons:9.7.1")
 }
 
 tasks {
     jar {
         archiveBaseName.set(rootProject.name)
+        // 声明二合一 jar 的 agent 入口。这些属性经 TabooLib 打包(taboolibMainTask)原样保留(实测):
+        // MANIFEST.MF 作为非 class 资源直接透传,不被 ASM 改写。
+        manifest {
+            attributes(
+                "Premain-Class" to "top.wcpe.mc.plugin.serverprobe.agent.ProbeAgent",
+                "Agent-Class" to "top.wcpe.mc.plugin.serverprobe.agent.ProbeAgent",
+                "Can-Retransform-Classes" to "true",
+                "Can-Redefine-Classes" to "true"
+            )
+        }
         // 将所有 project:* 子模块和 api 的编译输出打包进最终 JAR
         from(project(":api").sourceSets["main"].output)
         from(project(":project:core").sourceSets["main"].output)
@@ -66,4 +85,7 @@ tasks.withType<RunServer>().configureEach {
             languageVersion.set(JavaLanguageVersion.of(21))
         }
     )
+    // 真机验证 agent:二合一 jar 既是 plugins/ 插件又作 -javaagent 自挂载(premain 注入服务器启动流程);
+    // -javaagent 指向 jar 任务产物(runServer 依赖 jar,启动时该文件已就绪)。-Xmx2G 限堆避免本机内存紧张时 OOM。
+    jvmArgs("-Xmx2G", "-javaagent:${tasks.jar.get().archiveFile.get().asFile.absolutePath}")
 }

@@ -24,6 +24,8 @@
 
 方法级**精确**插桩作为**可选增强**保留:若启用,采用 **TabooLib Incision**(而非裸 ASM),且**默认关闭、需先 PoC 验证**(本仓库零真实用例,成熟度待验证),失败静默降级。
 
+> 注意区分:上表否决的是**运行时 self-attach**(Paper/JDK21+ 默认禁用)。ServerProbe 另提供一个**可选的启动期 premain agent**(命令行 `-javaagent:plugins/ServerProbe.jar` 手动启用,补加载前盲区,见[启动剖析指南](Startup-Profiling.md))——它走标准 `premain` 入口、**不是 self-attach**,不受 JEP 451 限制;默认不启用,失败静默降级。"主体不用 Java Agent"与"提供可选 premain agent 增强"并不矛盾。
+
 ---
 
 ### Q2:为什么 Folia 上 TPS 可能显示 N/A?

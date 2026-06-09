@@ -11,6 +11,8 @@ import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
+import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
+import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.startup.PhaseTimingRecorder
 import top.wcpe.mc.plugin.serverprobe.core.startup.StartupComparator
@@ -97,6 +99,13 @@ object StartupLoadListener {
      * 在延迟异步任务中装配并落库启动画像,最后输出摘要与对比。
      *
      * 此时已过 ACTIVE 打点,[StartupProfileBuilder.build] 经 [PhaseTimingRecorder] 取到的分段含 ACTIVE 段。
+     *
+     * **启动 agent 早期数据(A3)**:经 [AgentDataReader] 跨 ClassLoader 反射读出
+     * (premain 时基、逐插件 load/enable、库下载、主线程栈热点)——读取**先于**定格画像;
+     * 若 agent 已挂载,在读毕后立即 [AgentDataReader.stopStackSampler] 停采样(画像就此定格,
+     * 避免栈采样持续到运行期空耗)。读取与停采样均尽力而为:未挂载/失败时降级为
+     * [AgentStartupData.notAttached],不影响其余画像数据。随后并入 [StartupProfileBuilder.build]。
+     *
      * 落库前**先读取**上次画像([MetricStore.lastStartupProfile])用于对比(读在写前,避免被本次覆盖),
      * 随后写入持有者并落盘([MetricStore.saveStartupProfile])——本方法运行于延迟异步任务,落盘不阻塞主线程。
      * serverId 与编排层一致,经 [InstanceId] 解析(配置覆盖优先,否则稳定实例 ID)。
@@ -108,13 +117,19 @@ object StartupLoadListener {
     private fun buildAndStore(totalMs: Long, worldNames: List<String>, mcVersion: String) {
         val pluginTimings = parsePluginTimings()
         val worldTimings = worldNames.map { WorldTiming(it, WORLD_LOAD_MS_UNKNOWN) }
+        // 启动 agent 早期数据:先读出(热点取配置 Top-N),再停采样定格;未挂载/失败时降级为 notAttached
+        val agentData = AgentDataReader.read(ProbeConfig.startupTopN())
+        if (agentData.attached) {
+            AgentDataReader.stopStackSampler()
+        }
         val profile = profileBuilder.build(
             mcVersion = mcVersion,
             platform = ProbePlatform.BUKKIT,
             serverId = InstanceId.resolve(ProbeConfig.configuredServerName()),
             totalMs = totalMs,
             pluginTimings = pluginTimings,
-            worldTimings = worldTimings
+            worldTimings = worldTimings,
+            agentData = agentData
         )
         // 先读上次画像再落盘:读取须先于保存,否则会读到刚被覆盖的本次画像
         val previous = store.lastStartupProfile()
@@ -170,6 +185,10 @@ object StartupLoadListener {
      * 口径与 [LatestLogPluginTimingParser] 一致——耗时为"相邻 Enabling 行的时间差"近似,而非纯 onEnable 耗时,
      * 故摘要用词为"启用间隔近似",避免运维误读为单插件 onEnable 实测耗时。
      *
+     * **agent 增强行(A3)**:仅当 [StartupProfile.agentAttached] 为 true 时追加输出"库下载 Top-N"
+     * 与"主线程热点 Top-N"两行(N 同取 [ProbeConfig.startupTopN]),便于运维一眼看到首次启动的隐形大头
+     * 与主线程热点;未挂载时不打这两行(避免无意义空行)。
+     *
      * @param profile 本次启动画像。
      * @param pluginTimings 逐插件耗时。
      * @param comparisonSummary 与上一次启动的对比摘要(已由 [StartupComparator] 生成)。
@@ -181,10 +200,40 @@ object StartupLoadListener {
         val top = pluginTimings.sortedByDescending { it.enableMs }.take(topN)
         if (top.isEmpty()) {
             ProbeLogger.info("启用间隔近似 Top-$topN:无可用数据(未解析到插件启用耗时)")
+        } else {
+            val summary = top.joinToString(separator = " | ") { "${it.name} ${formatSeconds(it.enableMs)}" }
+            ProbeLogger.info("启用间隔近似 Top-$topN:$summary")
+        }
+        logAgentSummary(profile, topN)
+    }
+
+    /**
+     * 输出 agent 增强摘要行(库下载 Top-N、主线程热点 Top-N);agent 未挂载时直接返回不打印。
+     *
+     * 库下载耗时与栈热点均为 agent 独有数据(日志解析无从得知),故仅在挂载时呈现;
+     * 列表为空(挂载但无库下载/未采到热点)时给出"无数据"提示行,与既有摘要风格一致。
+     *
+     * @param profile 本次启动画像(含 agent 字段)。
+     * @param topN 取前若干(与慢插件榜同取 [ProbeConfig.startupTopN])。
+     */
+    private fun logAgentSummary(profile: StartupProfile, topN: Int) {
+        if (!profile.agentAttached) {
             return
         }
-        val summary = top.joinToString(separator = " | ") { "${it.name} ${formatSeconds(it.enableMs)}" }
-        ProbeLogger.info("启用间隔近似 Top-$topN:$summary")
+        val libraries = profile.libraryTimings.orEmpty().sortedByDescending { it.loadMs }.take(topN)
+        if (libraries.isEmpty()) {
+            ProbeLogger.info("库下载 Top-$topN:无库下载记录")
+        } else {
+            val summary = libraries.joinToString(separator = " | ") { "${it.name} ${formatSeconds(it.loadMs)}" }
+            ProbeLogger.info("库下载 Top-$topN:$summary")
+        }
+        val hotspots = profile.mainThreadHotspots.orEmpty().take(topN)
+        if (hotspots.isEmpty()) {
+            ProbeLogger.info("主线程热点 Top-$topN:无采样数据")
+        } else {
+            val summary = hotspots.joinToString(separator = " | ") { "${it.frame} ${it.sampleCount}" }
+            ProbeLogger.info("主线程热点 Top-$topN:$summary")
+        }
     }
 
     /**

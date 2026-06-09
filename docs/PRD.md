@@ -75,11 +75,13 @@
 ## 5. 技术选型决策(核心)
 
 ### 5.1 探针实现路线
-**主体 = 纯 API + JMX(`java.lang.management`) + 平台原生 API + 采样,不引入 Java Agent、不裸写 ASM。** 方法级精确插桩作为**可选增强**;若启用,采用 **TabooLib Incision**(而非裸 ASM),且**默认关闭、需先 PoC 验证**(taboolib 本仓库零真实用例,成熟度待验证)。
+**主体 = 纯 API + JMX(`java.lang.management`) + 平台原生 API + 采样,主体不用 Java Agent、不裸写 ASM。** 在此之上提供两类**可选增强**:
+- **启动期 premain agent(可选,手动启用)**:命令行 `-javaagent:plugins/ServerProbe.jar` 启用,补 ServerProbe 自身加载前的盲区(逐插件精确耗时、库下载、主线程栈采样)。它是**启动期命令行 premain**,**不是被本表否决的运行时 self-attach**,不受 JEP 451 限制(详见架构文档 §13 / ADR-11);默认不启用,失败静默降级。
+- **方法级精确插桩(可选)**:若启用,采用 **TabooLib Incision**(而非裸 ASM),且**默认关闭、需先 PoC 验证**(taboolib 本仓库零真实用例,成熟度待验证)。
 
-依据(三方案对比):
+依据(三方案对比;此处否决的是**运行时 self-attach**,非启动期 premain):
 
-| 维度 | 裸 ASM + Java Agent | TabooLib Incision | **纯 API + JMX + 采样(主体)** |
+| 维度 | 裸 ASM + 运行时 self-attach Agent | TabooLib Incision | **纯 API + JMX + 采样(主体)** |
 |---|---|---|---|
 | 实现成本 | 最高 | 中 | **最低** |
 | MC 上可用性 | ❌ self-attach 在 Paper/JDK21+ 默认失效 | ⚠️ 有 JVMTI 兜底,本仓库零用例 | ✅ 稳定 |
@@ -88,6 +90,7 @@
 | 运行开销 | 高 | 高 | **极低** |
 
 > 探针 90%+ 指标用现成稳定 API 即可,**连 spark 都不用 Java Agent**。
+> 注:上表否决的"self-attach"指**运行时自挂载**;**启动期命令行 premain agent** 走标准 `premain` 入口、不受 JEP 451 约束,作为可选增强专补加载前盲区(见 §5.4 / FR1 / 架构 §13)。
 
 ### 5.2 多版本兼容机制(依赖 TabooLib)
 - **版本判断**:`MinecraftVersion`(`major`/`minor`/`isUniversal`/`isHigherOrEqual` 等),`isUniversal = major≥1.17`。
@@ -145,7 +148,8 @@
 - **FR1.4** 启动分段耗时(CONST/INIT/LOAD/ENABLE/ACTIVE)。
 - **FR1.5** 启动画像**落盘为本地文件**,与上次/基线对比,标注每项 Δ。
 - **FR1.6** 慢启动告警(总时长 > 基线 ×1.5)。
-- **验收**:`/probe startup` 输出含总时长、慢插件 Top-N、各世界耗时、与上次对比。
+- **FR1.7(可选增强,需手动启用)** **premain Java Agent 补加载前盲区**:命令行加 `-javaagent:plugins/ServerProbe.jar` 后,额外提供 ① 逐插件 load/enable **精确耗时**(纳秒级,优于日志解析,且覆盖本插件之前加载的插件)② **库下载耗时**(`LibraryLoader`,1.17+)③ **主线程栈采样**(抓启动期"无日志卡顿"热点)。属**启动期 premain**、非被否决的运行时 self-attach(见 §5.1 / 架构 §13);默认不启用,不加参数则纯插件模式照常工作,启用失败静默降级。M5 先 Bukkit 端,Folia 栈采样降级 N/A。**当前仅 1.21.4 Paper 单端真机验证。**
+- **验收**:`/probe startup` 输出含总时长、慢插件 Top-N、各世界耗时、与上次对比;启用 `-javaagent` 后,逐插件耗时由日志秒级口径升级为精确纳秒级。
 
 ### FR2 运维指标采集(P0/P1)
 - **FR2.1 JVM(P0)**:堆/非堆内存、各内存池、GC 次数与耗时(young/old)、线程数/死锁、类加载、进程&系统 CPU、uptime、启动参数。**全版本+全平台通用**。
@@ -153,7 +157,7 @@
 - **FR2.3 世界(P1,Bukkit)**:按世界的区块数、实体数(按类型)、方块实体数(限频);**Folia 用 `callRegion{}`**。
 - **FR2.4 网络(P1)**:在线人数、ping 分布。(流量/数据包速率需 Netty 注入,P2)
 - **FR2.5 代理端(P1,BungeeCord)**:总在线、各后端子服在线数、子服 ping/可达性、玩家路由、每玩家 ping、JVM 全套。
-- **FR2.6 插件运行时归因(P2)**:事件监听/调度任务耗时(本插件自采)。**各插件 CPU 占比/火焰图不自研,建议并用 [spark](https://spark.lucko.me)**。
+- **FR2.6 插件运行时归因(P2)**:事件监听/调度任务耗时(本插件自采)。**各插件 CPU 占比/火焰图不自研,建议并用 [spark](https://spark.lucko.me)**。注:**启动期**主线程栈采样已由可选 premain agent 特化提供(见 FR1.7,抓启动期"无日志卡顿"热点);此处指**运行期**的常态 CPU 归因。
 - **约束**:采集周期可配;主线程只做轻量取值(MSPT 仅 `nanoTime`);聚合/遍历异步或限频;调度走 `submit`。
 
 ### FR3 存储与聚合(P0)

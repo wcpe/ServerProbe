@@ -241,6 +241,10 @@ object ProbeCommand {
     /**
      * 渲染 startup 启动画像。
      *
+     * 基础段(总时长 / 慢插件 / 世界耗时 / 对比)对全部画像呈现;**agent 增强段**(A3)按
+     * [StartupProfile.agentAttached] 分支:挂载时追加库下载 Top-N、主线程热点 Top-N 与 agent 精确逐插件
+     * load/enable Top-N;未挂载时给出一行启用提示([sendAgentSection])。
+     *
      * @param sender 命令发送者。
      * @param profile 最近一次启动画像。
      */
@@ -267,6 +271,10 @@ object ProbeCommand {
                 sender.sendLang("command-startup-world-line", timing.name, ProbeFormat.seconds(timing.loadMs))
             }
         }
+
+        // agent 增强段(A3):挂载时展示库下载 / 主线程热点 / agent 精确逐插件耗时;未挂载时一行启用提示
+        sendAgentSection(sender, profile, topN)
+
         // 与上次启动的 Δ 对比:启动时已由监听器算出并存入内存,此处直接取用;无上一份(首次启动)时给出提示。
         // 注:对比摘要内容由 StartupComparator 生成,目前为中文;M1 作为 {0} 原样填入,其内容 i18n 留 M2。
         val comparison = readApi.lastStartupComparisonSummary()
@@ -274,6 +282,61 @@ object ProbeCommand {
             sender.sendLang("command-startup-compare", comparison)
         } else {
             sender.sendLang("command-startup-compare-none")
+        }
+    }
+
+    /**
+     * 渲染 startup 的 agent 增强段(A3)。
+     *
+     * **未挂载**([StartupProfile.agentAttached] 为 false):仅输出一行提示,引导运维在启动命令加
+     * `-javaagent:plugins/ServerProbe.jar` 以获取库下载 / 主线程热点等更早期数据。
+     *
+     * **已挂载**:依次输出——
+     * - 库下载 Top-N(按耗时降序;来自 [StartupProfile.libraryTimings]);
+     * - 主线程热点 Top-N(按命中降序,agent 已排序;来自 [StartupProfile.mainThreadHotspots]);
+     * - agent 精确逐插件 enable Top-N(按 onEnable 耗时降序;来自 [StartupProfile.agentPluginEnableTimings],
+     *   精度高于日志解析的慢插件榜)。
+     *
+     * 各列表为 null/空时以对应"空"文案兜底。
+     *
+     * @param sender 命令发送者。
+     * @param profile 最近一次启动画像。
+     * @param topN 展示条数(取 [ProbeConfig.startupTopN])。
+     */
+    private fun sendAgentSection(sender: ProxyCommandSender, profile: StartupProfile, topN: Int) {
+        if (!profile.agentAttached) {
+            sender.sendLang("command-startup-agent-absent")
+            return
+        }
+
+        sender.sendLang("command-startup-libs-title", topN)
+        val libraries = profile.libraryTimings.orEmpty().sortedByDescending { it.loadMs }.take(topN)
+        if (libraries.isEmpty()) {
+            sender.sendLang("command-startup-libs-empty")
+        } else {
+            libraries.forEach { timing ->
+                sender.sendLang("command-startup-lib-line", timing.name, ProbeFormat.seconds(timing.loadMs))
+            }
+        }
+
+        sender.sendLang("command-startup-hotspots-title", topN)
+        val hotspots = profile.mainThreadHotspots.orEmpty().take(topN)
+        if (hotspots.isEmpty()) {
+            sender.sendLang("command-startup-hotspots-empty")
+        } else {
+            hotspots.forEach { hotspot ->
+                sender.sendLang("command-startup-hotspot-line", hotspot.frame, hotspot.sampleCount)
+            }
+        }
+
+        sender.sendLang("command-startup-agent-plugins-title", topN)
+        val agentPlugins = profile.agentPluginEnableTimings.orEmpty().sortedByDescending { it.enableMs }.take(topN)
+        if (agentPlugins.isEmpty()) {
+            sender.sendLang("command-startup-agent-plugins-empty")
+        } else {
+            agentPlugins.forEach { timing ->
+                sender.sendLang("command-startup-agent-plugin-line", timing.name, ProbeFormat.seconds(timing.enableMs))
+            }
         }
     }
 

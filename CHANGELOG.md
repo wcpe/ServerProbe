@@ -11,7 +11,7 @@
 
 ## [未发布] (Unreleased)
 
-> 设计与文档已定稿;**M1(P1–P9)与 M2(M2-1~6)代码均已实现**——`./gradlew build` 编译 + 单元测试通过,并已在 **1.21.4 Paper 单端真机验证全通过**(其他端 1.8 / Folia / BungeeCord 仅编译通过,M2 功能未逐一真机);**全程零新增第三方依赖**;尚未发布、未经生产环境验证。
+> 设计与文档已定稿;**M1(P1–P9)、M2(M2-1~6)与 M5 启动期 agent 增强代码均已实现**——`./gradlew build` 编译 + 单元测试通过,并已在 **1.21.4 Paper 单端真机验证全通过**(其他端 1.8 / Folia / BungeeCord 仅编译通过,M2 / agent 功能未逐一真机);M1 + M2 **零新增第三方依赖**,**M5 agent 增强引入唯一新依赖 ASM**(可选、需手动 `-javaagent` 启用,relocate 隔离);尚未发布、未经生产环境验证。
 
 ### 新增
 - 初始化项目骨架:`api` / `core`(`project:core`)/ `plugin` 三模块目录与基础构建配置(当前源码目录为空,从零开发)。
@@ -34,10 +34,19 @@
   - **告警引擎(FR5)**:内置枚举规则(TPS 偏低 / 过低、MSPT p95 过高、堆占用率过高、死锁)+ 防抖(持续 N 周期才触发)与恢复状态机;三通道输出——日志 / 游戏内 / Webhook(Webhook 走 JDK `HttpURLConnection`)。安全默认为关闭。
   - 坚持"探针不成事故源":各导出 / 落盘 / 告警通道全异步或限频、失败静默降级,真机印证 Prometheus 端口被占用时优雅降级、不影响插件启用。
   - 留 M3+:Web 面板(FR4.3)、CPU 采样归因(FR2.6)、Incision 方法级插桩(FR7)。
+- **M5 启动期 agent 增强(可选,需手动 `-javaagent` 启用;1.21.4 Paper 单端真机验证通过)**:
+  - **形态——二合一 jar**:同一个 `ServerProbe.jar` 既是 `plugins/` 插件、又可作 `-javaagent`;启动命令加 `-javaagent:plugins/ServerProbe.jar` 启用,**不加则纯插件模式照常工作**,功能完整。
+  - **premain 注入服务器启动流程**:由 JVM 在 `main` 之前经标准 `premain` 入口加载,**不是被 ADR-1 否决的运行时 self-attach**,不受 JEP 451 限制(Paper + JDK21/24 零警告)。专补 ServerProbe 自身加载前的盲区(FR1.7)。
+  - **逐插件精确耗时**:premain `ClassFileTransformer` 插桩 Bukkit `SimplePluginManager`,纳秒级 load/enable 计时,优于日志解析的秒级,且覆盖本插件之前加载的插件(真机:ServerProbe onEnable 精确 0.3s vs 日志 1.0s)。
+  - **库下载耗时**:插桩 `LibraryLoader.createLoader`(1.17+),量化插件依赖在线下载耗时。
+  - **主线程栈采样**:按线程名 `"Server thread"` 周期抓栈,抓启动期"无日志卡顿"热点(真机:首位 `ClassLoader.loadClass`,455 次)。
+  - **唯一新增第三方依赖 = ASM**(relocate 到 `...agent.shadow.asm` 隔离);跨 ClassLoader 通道经 `appendToBootstrapClassLoaderSearch` 把极薄的 `ProbeAgentBridge` 放 bootstrap CL,供插桩字节码 / 插件反射 / 栈采样共享同一份数据;premain 顶层 `catch(Throwable)` 兜底,失败静默降级,绝不崩 JVM。
+  - **范围(诚实)**:M5 先 Bukkit 端;Folia 主线程栈采样降级标 N/A(无单一主线程,引导用 spark),插件计时复用 Bukkit 路径;BungeeCord 推迟。**仅 1.21.4 Paper 单端真机验证,其他端(1.8 / Folia / BungeeCord)未逐一真机。**
+  - 详见架构文档 ADR-11 / §13。
 
 ### 变更
-- 确立技术选型与技术决策(详见架构文档 ADR-1 ~ ADR-10):
-  - **探针主体 = 纯 API + JMX(`java.lang.management`)+ 平台原生 API + 采样**,不引入 Java Agent、不裸写 ASM(只读优先,绝不成为事故源)。
+- 确立技术选型与技术决策(详见架构文档 ADR-1 ~ ADR-11):
+  - **探针主体 = 纯 API + JMX(`java.lang.management`)+ 平台原生 API + 采样**,主体不用 Java Agent、不裸写 ASM(只读优先,绝不成为事故源);被否决的是**运行时 self-attach**,而非启动期命令行 premain(后者作为 M5 可选增强补加载前盲区,见 ADR-11)。
   - **字节码插桩 / Incision 仅作架构预留**:首期不启用,引入前必须先 PoC 验证,默认关闭、失败静默降级。
   - **核心 Java 8 字节码**:保证产物可被 1.8–1.21.x 所有 JRE 加载;仅必须直接引用高版本 NMS 类型的胶水才独立抬 toolchain。
   - **多版本 + 多平台方案**:依赖 TabooLib `MinecraftVersion` / `nmsProxy` / `@PlatformSide` 三件套,覆盖 Bukkit 系 1.8–1.21.11(含 Folia)+ BungeeCord,**单 jar 多端**;遵循"先通用,跑不通再拆胶水"原则。

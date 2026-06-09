@@ -1,12 +1,17 @@
 package top.wcpe.mc.plugin.serverprobe.core.startup
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
+import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 
 /**
  * [StartupProfileBuilder] 单元测试。
@@ -32,8 +37,8 @@ class StartupProfileBuilderTest {
             worldTimings = worldTimings
         )
 
-        // schemaVersion:M1 固定为 1
-        assertEquals(1, profile.schemaVersion, "schemaVersion 应固定为 1")
+        // schemaVersion:A3 起为 2(随 agent 增强字段加入而升版)
+        assertEquals(2, profile.schemaVersion, "schemaVersion 应为 2")
 
         // 入参透传:serverId/platform/mcVersion/totalMs/pluginTimings/worldTimings 原样回填
         assertEquals("test-server", profile.serverId, "serverId 应透传")
@@ -58,5 +63,67 @@ class StartupProfileBuilderTest {
             profile.phaseTimings,
             "phaseTimings 应来自 PhaseTimingRecorder"
         )
+
+        // 未传 agentData(默认 null):agent 增强字段全部降级为默认(向后兼容,等同旧档)
+        assertFalse(profile.agentAttached, "未传 agentData 时 agentAttached 应为 false")
+        assertNull(profile.premainNanos, "未挂载时 premainNanos 应为 null")
+        assertNull(profile.agentPluginLoadTimings, "未挂载时 agentPluginLoadTimings 应为 null")
+        assertNull(profile.agentPluginEnableTimings, "未挂载时 agentPluginEnableTimings 应为 null")
+        assertNull(profile.libraryTimings, "未挂载时 libraryTimings 应为 null")
+        assertNull(profile.mainThreadHotspots, "未挂载时 mainThreadHotspots 应为 null")
+    }
+
+    /** agent 已挂载时,各 agent 增强字段应从 [AgentStartupData] 透传填入画像。 */
+    @Test
+    fun `build agent 挂载时增强字段透传`() {
+        val agentLoad = listOf(PluginTiming("Alpha", 50L))
+        val agentEnable = listOf(PluginTiming("Alpha", 1200L), PluginTiming("Beta", 800L))
+        val libraries = listOf(LibraryTiming("Alpha", 3000L))
+        val hotspots = listOf(StackHotspot("a.b.C#m", 120L), StackHotspot("d.E#n", 88L))
+        val agentData = AgentStartupData(
+            attached = true,
+            premainNanos = 987_654L,
+            jvmStartTimeMs = 1_700_000_000_000L,
+            loadTimings = agentLoad,
+            enableTimings = agentEnable,
+            libraryTimings = libraries,
+            hotspots = hotspots
+        )
+
+        val profile = StartupProfileBuilder().build(
+            mcVersion = "1.21.4",
+            platform = ProbePlatform.BUKKIT,
+            serverId = "test-server",
+            totalMs = 12_345L,
+            pluginTimings = emptyList(),
+            worldTimings = emptyList(),
+            agentData = agentData
+        )
+
+        assertTrue(profile.agentAttached, "agent 挂载时 agentAttached 应为 true")
+        assertEquals(987_654L, profile.premainNanos, "premainNanos 应透传")
+        assertEquals(agentLoad, profile.agentPluginLoadTimings, "agentPluginLoadTimings 应透传")
+        assertEquals(agentEnable, profile.agentPluginEnableTimings, "agentPluginEnableTimings 应透传")
+        assertEquals(libraries, profile.libraryTimings, "libraryTimings 应透传")
+        assertEquals(hotspots, profile.mainThreadHotspots, "mainThreadHotspots 应透传")
+    }
+
+    /** agent 数据 attached=false 时,即使传入也应按未挂载降级(防御"读到了但未真正挂载")。 */
+    @Test
+    fun `build agent 未挂载数据降级为默认`() {
+        val profile = StartupProfileBuilder().build(
+            mcVersion = "1.21.4",
+            platform = ProbePlatform.BUKKIT,
+            serverId = "test-server",
+            totalMs = 1L,
+            pluginTimings = emptyList(),
+            worldTimings = emptyList(),
+            agentData = AgentStartupData.notAttached()
+        )
+
+        assertFalse(profile.agentAttached, "attached=false 的数据应使 agentAttached 为 false")
+        assertNull(profile.premainNanos, "未挂载降级时 premainNanos 应为 null")
+        assertNull(profile.libraryTimings, "未挂载降级时 libraryTimings 应为 null")
+        assertNull(profile.mainThreadHotspots, "未挂载降级时 mainThreadHotspots 应为 null")
     }
 }

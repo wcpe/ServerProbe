@@ -28,6 +28,7 @@
 ## 核心特性
 
 - **启动性能剖析** ✅ 已实现(待生产验证) —— 端到端启动总时长(`ServerLoadEvent` − JVM 启动时刻)、逐插件启用间隔耗时、逐世界加载耗时、生命周期分段(CONST/INIT/LOAD/ENABLE/ACTIVE)耗时,并与上次对比。
+- **启动期 agent(可选,premain 注入,补加载前盲区)** ✅ 1.21.4 真机(可选增强,需手动启用) —— 启动命令加 `-javaagent:plugins/ServerProbe.jar` 后,额外提供逐插件 load/enable 精确耗时(纳秒级,覆盖本插件之前加载的插件)、库下载耗时、主线程栈采样(抓启动期"无日志卡顿"热点)。属**启动期 premain**(非运行时 self-attach,不受 JEP 451 限制);**不加参数则纯插件模式照常工作**,启用失败静默降级。M5 先 Bukkit 端(Folia 栈采样降级 N/A,BungeeCord 推迟);唯一新依赖 ASM。部署见[下文](#启动期-agent可选)。
 - **运维指标采集** ——
   - **JVM** ✅ 已实现(待生产验证):堆 / 非堆内存、各内存池、GC(明细 + young/old)、线程数 / 死锁、类加载、进程 & 系统 CPU、uptime、启动参数(全版本 + 全平台通用)。
   - **服务器(Bukkit)** ✅ 已实现(待生产验证):TPS(1/5/15min)、MSPT(均值 + p95/p99)、在线人数、运行时长;多版本兼容(Paper API / 低版本 NMS / 自采样),Folia 全局 N/A。
@@ -70,6 +71,20 @@
 1. 将构建出的 `ServerProbe-*.jar` 放入服务端的 `plugins/` 目录(代理端放入 BungeeCord 的 `plugins/`)。
 2. 重启服务端,首次启动会生成默认配置。
 3. 使用 `/probe …` 命令查看探针数据(详见[命令概览](#命令概览))。
+
+### 启动期 agent(可选)
+
+ServerProbe 是**二合一 jar**——同一个 `ServerProbe.jar` 既是 `plugins/` 下的插件,又可作 `-javaagent`。**默认无需任何额外操作**,丢进 `plugins/` 即是功能完整的纯插件。
+
+若想额外采集 ServerProbe **自身加载之前**的盲区(逐插件精确耗时、库下载、主线程栈采样),在**启动命令**里加一行 `-javaagent` 指向同一个 jar 即可:
+
+```bash
+java -javaagent:plugins/ServerProbe.jar -jar paper.jar
+```
+
+- **手动启用**:必须自己改启动命令/脚本;**不加这行则纯插件模式照常工作**,所有既有能力不受影响。
+- **为何安全**:这是**启动期命令行 premain**(`main` 之前由 JVM 加载),**不是运行时 self-attach**,在 Paper + JDK21/24 上零警告、不受 JEP 451 限制;premain 顶层兜底,启用失败一律静默降级,不会崩 JVM。
+- **当前边界(诚实标注)**:仅 **1.21.4 Paper 单端真机验证**;M5 先 Bukkit 端(Folia 无单一主线程,主线程栈采样降级标 N/A;BungeeCord 推迟);引入唯一新依赖 ASM(已 relocate 隔离)。其他端(1.8 / Folia / BungeeCord)尚未逐一真机。
 
 ### 作为开发者
 
