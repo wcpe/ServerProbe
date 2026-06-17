@@ -123,15 +123,21 @@ public final class ProbeAgent {
     }
 
     /**
-     * 停止主线程栈采样（由 A3 插件就绪后调用，避免采样持续到运行期）。
+     * 停止启动期采样并关闭采集窗口（由插件就绪后调用，把采集严格收敛在启动期）。
      *
-     * <p>幂等且空安全：未启动或已停止时调用均无副作用。
+     * <p>两件事：① 停止栈采样守护线程；② 经 {@link ProbeAgentBridge#closeStartupWindow()} 关闭启动窗口，
+     * 此后被插桩方法在<b>运行期</b>的调用不再被记录——杜绝 {@code registerEvents}/{@code loadConfiguration} 等
+     * 运行期高频方法持续向时间线/聚合表追加导致的内存泄漏。
+     *
+     * <p>幂等且空安全：未启动或已停止时调用均无副作用（关窗为置 volatile 标志，可重复调用）。
      */
     public static void stopStackSampler() {
         StartupStackSampler sampler = stackSampler;
         if (sampler != null) {
             sampler.stop();
         }
+        // 即便采样器未启动，也要关闭采集窗口，确保插桩字节码在运行期不再记录。
+        ProbeAgentBridge.closeStartupWindow();
     }
 
     /**

@@ -5,6 +5,7 @@ import taboolib.common.platform.command.CommandBody
 import taboolib.common.platform.command.CommandHeader
 import taboolib.common.platform.command.mainCommand
 import taboolib.common.platform.command.subCommand
+import taboolib.common.platform.function.getDataFolder
 import taboolib.module.lang.asLangText
 import taboolib.module.lang.sendLang
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
@@ -12,11 +13,13 @@ import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Inject
+import java.io.File
 
 /**
  * `/probe` 运维探针命令(FR4.1,M1 用户可见核心)。
@@ -74,6 +77,7 @@ object ProbeCommand {
             sender.sendLang("command-help-gc")
             sender.sendLang("command-help-world")
             sender.sendLang("command-help-proxy")
+            sender.sendLang("command-help-flamegraph")
         }
     }
 
@@ -207,6 +211,31 @@ object ProbeCommand {
     }
 
     /**
+     * `/probe flamegraph`:生成启动火焰图 & 瀑布图 HTML(M5)。
+     *
+     * 从 [ProbeReadApi.lastStartupProfile] 读取最近启动画像,
+     * 经 [FlamegraphExporter] 生成自包含 HTML(火焰图 + 时间线),
+     * 输出到 `data/flamegraph/` 目录。需挂载启动 agent 方有热点/时间线数据。
+     */
+    @CommandBody(permission = "serverprobe.command.flamegraph")
+    val flamegraph = subCommand {
+        execute<ProxyCommandSender> { sender, _, _ ->
+            val profile = readApi.lastStartupProfile()
+            if (profile == null) {
+                sender.sendLang("command-startup-none")
+                return@execute
+            }
+            if (!profile.agentAttached) {
+                sender.sendLang("command-flamegraph-agent-absent")
+                return@execute
+            }
+            val dataDir = File(getDataFolder(), "flamegraph")
+            val file = FlamegraphExporter.export(profile, dataDir)
+            sender.sendLang("command-flamegraph-exported", file.absolutePath)
+        }
+    }
+
+    /**
      * 渲染 health 概览。
      *
      * server 维度(TPS/在线/运行时长)在代理端为 null,统一以 N/A 文案兜底,保证一条命令在任意端都有可读输出。
@@ -253,7 +282,13 @@ object ProbeCommand {
         sender.sendLang("command-startup-total", ProbeFormat.seconds(profile.totalMs))
 
         val topN = ProbeConfig.startupTopN()
-        val slowPlugins = profile.pluginTimings.sortedByDescending { it.enableMs }.take(topN)
+        // 慢插件榜择优:agent 挂载且有精确 onEnable 实测时优先用之(精度高于日志"启用间隔近似"),否则回退日志解析
+        val slowSource = if (profile.agentAttached && !profile.agentPluginEnableTimings.isNullOrEmpty()) {
+            profile.agentPluginEnableTimings!!
+        } else {
+            profile.pluginTimings
+        }
+        val slowPlugins = slowSource.sortedByDescending { it.enableMs }.take(topN)
         sender.sendLang("command-startup-plugins-title", topN)
         if (slowPlugins.isEmpty()) {
             sender.sendLang("command-startup-plugins-empty")
@@ -293,11 +328,12 @@ object ProbeCommand {
      *
      * **已挂载**:依次输出——
      * - 库下载 Top-N(按耗时降序;来自 [StartupProfile.libraryTimings]);
-     * - 主线程热点 Top-N(按命中降序,agent 已排序;来自 [StartupProfile.mainThreadHotspots]);
-     * - agent 精确逐插件 enable Top-N(按 onEnable 耗时降序;来自 [StartupProfile.agentPluginEnableTimings],
-     *   精度高于日志解析的慢插件榜)。
+     * - 主线程热点 Top-N(按命中降序;来自 [StartupProfile.mainThreadHotspots]);
+     * - 配置加载 / 事件注册 / 命令注册 Top-N(均为"命名项耗时",分别来自 [StartupProfile.configTimings] /
+     *   [StartupProfile.eventTimings] / [StartupProfile.commandTimings])。
      *
-     * 各列表为 null/空时以对应"空"文案兜底。
+     * 注:agent 精确逐插件 enable 耗时已在 [sendStartup] 的主"慢插件榜"中择优呈现(挂载时主榜即用之),
+     * 故此处不再单列,避免两份榜并列打架。各列表为 null/空时以对应"空"文案兜底。
      *
      * @param sender 命令发送者。
      * @param profile 最近一次启动画像。
@@ -329,13 +365,36 @@ object ProbeCommand {
             }
         }
 
-        sender.sendLang("command-startup-agent-plugins-title", topN)
-        val agentPlugins = profile.agentPluginEnableTimings.orEmpty().sortedByDescending { it.enableMs }.take(topN)
-        if (agentPlugins.isEmpty()) {
-            sender.sendLang("command-startup-agent-plugins-empty")
+        // config/event/command 三类聚合(agent 独有,与库下载同款"命名项耗时"形态),复用通用渲染
+        sendItemSection(sender, "command-startup-configs-title", profile.configTimings, topN)
+        sendItemSection(sender, "command-startup-events-title", profile.eventTimings, topN)
+        sendItemSection(sender, "command-startup-commands-title", profile.commandTimings, topN)
+    }
+
+    /**
+     * 渲染一类"命名项耗时"的 Top-N 区段(配置加载/事件注册/命令注册)。
+     *
+     * 标题经 [titleKey] 本地化(带 {0}=topN);各项用通用行 `command-startup-item-line`({0}=名,{1}=耗时),
+     * 为空时输出 `command-startup-item-empty`。三类结构同构,故复用同一渲染消除重复。
+     *
+     * @param sender 命令发送者。
+     * @param titleKey 区段标题的语言键。
+     * @param timings 该维度耗时列表(可空)。
+     * @param topN 展示条数。
+     */
+    private fun sendItemSection(
+        sender: ProxyCommandSender,
+        titleKey: String,
+        timings: List<StartupItemTiming>?,
+        topN: Int
+    ) {
+        sender.sendLang(titleKey, topN)
+        val items = timings.orEmpty().sortedByDescending { it.costMs }.take(topN)
+        if (items.isEmpty()) {
+            sender.sendLang("command-startup-item-empty")
         } else {
-            agentPlugins.forEach { timing ->
-                sender.sendLang("command-startup-agent-plugin-line", timing.name, ProbeFormat.seconds(timing.enableMs))
+            items.forEach { timing ->
+                sender.sendLang("command-startup-item-line", timing.name, ProbeFormat.seconds(timing.costMs))
             }
         }
     }

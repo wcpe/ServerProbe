@@ -63,13 +63,18 @@ class StartupProfileBuilder {
             agentPluginLoadTimings = if (agentAttached) agentData?.loadTimings else null,
             agentPluginEnableTimings = if (agentAttached) agentData?.enableTimings else null,
             libraryTimings = if (agentAttached) agentData?.libraryTimings else null,
-            mainThreadHotspots = if (agentAttached) agentData?.hotspots else null
+            mainThreadHotspots = if (agentAttached) agentData?.hotspots else null,
+            timelineEvents = if (agentAttached) agentData?.timelineEvents else null,
+            threadStacks = if (agentAttached) agentData?.threadStacks else null,
+            configTimings = if (agentAttached) agentData?.configTimings else null,
+            eventTimings = if (agentAttached) agentData?.eventTimings else null,
+            commandTimings = if (agentAttached) agentData?.commandTimings else null
         )
     }
 
     private companion object {
 
-        /** 落盘/画像格式版本号,A3 起为 2(M1 = 1)。 */
-        private const val SCHEMA_VERSION = 2
+        /** 落盘/画像格式版本号,M5 起为 3(A3 = 2,M1 = 1)。 */
+        private const val SCHEMA_VERSION = 3
     }
 }

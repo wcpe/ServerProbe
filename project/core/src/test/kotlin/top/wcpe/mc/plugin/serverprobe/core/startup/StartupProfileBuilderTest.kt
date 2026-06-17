@@ -7,9 +7,13 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
+import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
 import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 
@@ -17,8 +21,7 @@ import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
  * [StartupProfileBuilder] 单元测试。
  *
  * [StartupProfileBuilder.build] 仅依赖 `java.lang.management.*` 与 [PhaseTimingRecorder],无 [top.wcpe.taboolib.ioc.annotation.Inject]
- * 字段,可直接实例化、不经 IOC 容器验证。断言聚焦"装配结果各字段对齐 api 契约":固定值、入参透传、
- * 取自运行时 JVM 的不变量、分段来自 recorder。
+ * 字段,可直接实例化、不经 IOC 容器验证。断言聚焦"装配结果各字段对齐 api 契约"。
  */
 class StartupProfileBuilderTest {
 
@@ -37,10 +40,10 @@ class StartupProfileBuilderTest {
             worldTimings = worldTimings
         )
 
-        // schemaVersion:A3 起为 2(随 agent 增强字段加入而升版)
-        assertEquals(2, profile.schemaVersion, "schemaVersion 应为 2")
+        // schemaVersion:M5 起为 3
+        assertEquals(3, profile.schemaVersion, "schemaVersion 应为 3")
 
-        // 入参透传:serverId/platform/mcVersion/totalMs/pluginTimings/worldTimings 原样回填
+        // 入参透传
         assertEquals("test-server", profile.serverId, "serverId 应透传")
         assertEquals(ProbePlatform.BUKKIT, profile.platform, "platform 应透传")
         assertEquals("1.21.4", profile.mcVersion, "mcVersion 应透传")
@@ -48,15 +51,12 @@ class StartupProfileBuilderTest {
         assertEquals(pluginTimings, profile.pluginTimings, "pluginTimings 应透传")
         assertEquals(worldTimings, profile.worldTimings, "worldTimings 应透传")
 
-        // 取自运行时 JVM 的字段:jvmArgs 恒非 null;jvmStartTimeMs 为绝对时间戳应为正
+        // 取自运行时 JVM 的字段
         assertNotNull(profile.jvmArgs, "jvmArgs 不应为 null")
         assertTrue(profile.jvmStartTimeMs > 0, "jvmStartTimeMs 应大于 0")
-
-        // createdAtMs 为生成时刻(epoch 毫秒)应为正
         assertTrue(profile.createdAtMs > 0, "createdAtMs 应大于 0")
 
-        // phaseTimings 取自 PhaseTimingRecorder:非 null,且等于 recorder 当前快照(运行时实际打点值,不约束具体取值)。
-        // 列表静态类型即 List<PhaseTiming>,与 recorder 快照相等已同时锁定"来源 + 元素类型"。
+        // phaseTimings 取自 PhaseTimingRecorder
         assertNotNull(profile.phaseTimings, "phaseTimings 不应为 null")
         assertEquals(
             PhaseTimingRecorder.phaseTimings(),
@@ -71,15 +71,27 @@ class StartupProfileBuilderTest {
         assertNull(profile.agentPluginEnableTimings, "未挂载时 agentPluginEnableTimings 应为 null")
         assertNull(profile.libraryTimings, "未挂载时 libraryTimings 应为 null")
         assertNull(profile.mainThreadHotspots, "未挂载时 mainThreadHotspots 应为 null")
+        assertNull(profile.timelineEvents, "未挂载时 timelineEvents 应为 null")
+        assertNull(profile.threadStacks, "未挂载时 threadStacks 应为 null")
+        assertNull(profile.configTimings, "未挂载时 configTimings 应为 null")
+        assertNull(profile.eventTimings, "未挂载时 eventTimings 应为 null")
+        assertNull(profile.commandTimings, "未挂载时 commandTimings 应为 null")
     }
 
-    /** agent 已挂载时,各 agent 增强字段应从 [AgentStartupData] 透传填入画像。 */
+    /** agent 已挂载时,各 agent 增强字段(含 M5 时间线/折叠栈/配置·事件·命令)应从 [AgentStartupData] 透传填入画像。 */
     @Test
     fun `build agent 挂载时增强字段透传`() {
         val agentLoad = listOf(PluginTiming("Alpha", 50L))
         val agentEnable = listOf(PluginTiming("Alpha", 1200L), PluginTiming("Beta", 800L))
         val libraries = listOf(LibraryTiming("Alpha", 3000L))
         val hotspots = listOf(StackHotspot("a.b.C#m", 120L), StackHotspot("d.E#n", 88L))
+        val timeline = listOf(TimelineEvent("enable", "Alpha", 1_000L, 2_000L))
+        val threadStacks = listOf(
+            ThreadStackProfile("Server thread", listOf(FoldedStack(listOf("a.A#x", "b.B#y"), 42L)))
+        )
+        val configs = listOf(StartupItemTiming("config.yml", 30L))
+        val events = listOf(StartupItemTiming("Alpha", 15L))
+        val commands = listOf(StartupItemTiming("give", 5L))
         val agentData = AgentStartupData(
             attached = true,
             premainNanos = 987_654L,
@@ -87,7 +99,12 @@ class StartupProfileBuilderTest {
             loadTimings = agentLoad,
             enableTimings = agentEnable,
             libraryTimings = libraries,
-            hotspots = hotspots
+            hotspots = hotspots,
+            timelineEvents = timeline,
+            threadStacks = threadStacks,
+            configTimings = configs,
+            eventTimings = events,
+            commandTimings = commands
         )
 
         val profile = StartupProfileBuilder().build(
@@ -106,9 +123,15 @@ class StartupProfileBuilderTest {
         assertEquals(agentEnable, profile.agentPluginEnableTimings, "agentPluginEnableTimings 应透传")
         assertEquals(libraries, profile.libraryTimings, "libraryTimings 应透传")
         assertEquals(hotspots, profile.mainThreadHotspots, "mainThreadHotspots 应透传")
+        // M5 非空透传:时间线 / 折叠栈 / 配置·事件·命令
+        assertEquals(timeline, profile.timelineEvents, "timelineEvents 应非空透传")
+        assertEquals(threadStacks, profile.threadStacks, "threadStacks 应非空透传")
+        assertEquals(configs, profile.configTimings, "configTimings 应非空透传")
+        assertEquals(events, profile.eventTimings, "eventTimings 应非空透传")
+        assertEquals(commands, profile.commandTimings, "commandTimings 应非空透传")
     }
 
-    /** agent 数据 attached=false 时,即使传入也应按未挂载降级(防御"读到了但未真正挂载")。 */
+    /** agent 数据 attached=false 时,即使传入也应按未挂载降级。 */
     @Test
     fun `build agent 未挂载数据降级为默认`() {
         val profile = StartupProfileBuilder().build(
@@ -125,5 +148,6 @@ class StartupProfileBuilderTest {
         assertNull(profile.premainNanos, "未挂载降级时 premainNanos 应为 null")
         assertNull(profile.libraryTimings, "未挂载降级时 libraryTimings 应为 null")
         assertNull(profile.mainThreadHotspots, "未挂载降级时 mainThreadHotspots 应为 null")
+        assertNull(profile.threadStacks, "未挂载降级时 threadStacks 应为 null")
     }
 }

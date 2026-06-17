@@ -13,36 +13,33 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.commons.AdviceAdapter;
 
 /**
- * 启动剖析插桩转换器（{@link ClassFileTransformer}）——统一承载启动期三个耗时 hook。
+ * 启动剖析插桩转换器（{@link ClassFileTransformer}）——统一承载启动期七个耗时 hook。
  *
- * <p>按 {@code className} 分支命中以下三个目标方法，非目标类一律返回 {@code null}（JVM 沿用原始字节码，零开销）：
+ * <p>按 {@code className} 分支命中目标方法，非目标类一律返回 {@code null}（JVM 沿用原始字节码，零开销）。
+ * 命中的方法在入口存 nanoTime、在出口取 nanoTime，统一调用 {@link ProbeAgentBridge#recordSpan} 上报
+ * （type、name、起止纳秒）。七个 hook：
  * <ul>
- *   <li>{@code org/bukkit/plugin/SimplePluginManager#enablePlugin(Lorg/bukkit/plugin/Plugin;)V}：
- *       插件 enable 耗时；插件名取<b>入参</b> {@code Plugin#getName()}。</li>
- *   <li>{@code org/bukkit/plugin/SimplePluginManager#loadPlugin(Ljava/io/File;)Lorg/bukkit/plugin/Plugin;}：
- *       插件 load 耗时；入口仅有 {@code File}，插件名只能取<b>返回值</b> {@code Plugin#getName()}，
- *       且仅在返回非 {@code null} 时记录（异常出口返回值未定，跳过）。</li>
- *   <li>{@code org/bukkit/plugin/java/LibraryLoader#createLoader(Lorg/bukkit/plugin/PluginDescriptionFile;)Ljava/lang/ClassLoader;}：
- *       库下载/加载耗时；插件名取<b>入参</b> {@code PluginDescriptionFile#getName()}。
- *       <b>该类在 Minecraft 1.8–1.16 不存在</b>——transformer 仅在类被加载时命中，低版本根本不加载该类，
- *       对应分支自然永不触发，无需任何特殊版本判断。</li>
+ *   <li>{@code SimplePluginManager#enablePlugin}：插件 enable 耗时（入参 {@code Plugin}）。</li>
+ *   <li>{@code SimplePluginManager#loadPlugin}：插件 load 耗时（返回值 {@code Plugin}，非 null 才记）。</li>
+ *   <li>{@code LibraryLoader#createLoader}（1.17+）：库下载/加载耗时（入参 {@code PluginDescriptionFile}）。</li>
+ *   <li>{@code CraftServer#createWorld}：世界创建耗时（入参 {@code WorldCreator}）。{@code CraftServer} 类名
+ *       含/不含版本号包名（{@code org/bukkit/craftbukkit/CraftServer} 或 {@code .../v1_x/CraftServer}），故按
+ *       <b>后缀 {@code /CraftServer}</b> 匹配——不再用宽前缀 {@code org/bukkit/craftbukkit}（那会让整包数百个类
+ *       都进入 ASM 全量重写，白付帧重算开销）。</li>
+ *   <li>{@code YamlConfiguration#loadConfiguration(File)}（静态）：配置加载耗时（入参 {@code File}）。</li>
+ *   <li>{@code SimplePluginManager#registerEvents}：事件注册耗时（第二参 {@code Plugin}）。</li>
+ *   <li>{@code SimpleCommandMap#register}：命令注册耗时（第三参 {@code Command}）。</li>
  * </ul>
- * 上述三个 hook 点的方法描述符在各自存在的版本区间内稳定。
- *
- * <p><b>现代 Paper 盲区</b>：本阶段（A2）仅做上述主 hook。现代 Paper 的新插件体系仍以
- * {@code SimplePluginManager} 作为入口垫片，故主 hook 应能覆盖；{@code PaperPluginInstanceManager}
- * 等 Paper 内部类的选配 hook 留待 A4 真机确认后再决定，避免过早为不稳定的内部类引入复杂度。
  *
  * <p><b>插桩字节码对 {@link ProbeAgentBridge} 的引用必须能在 bootstrap ClassLoader 上解析</b>：注入点位于
- * {@code SimplePluginManager} / {@code LibraryLoader} 等<b>服务器类</b>，由服务器/Paper 的 ClassLoader 加载，
- * <b>看不到</b> system ClassLoader（{@code -javaagent} jar 所在）上的 {@code ProbeAgentBridge}。因此
- * {@link ProbeAgent#bootstrap} 在注册本转换器<b>之前</b>先由 {@link BootstrapBridgeInstaller} 把 agent 包
- * （含 {@code ProbeAgentBridge}）挂到 bootstrap ClassLoader；运行期注入字节码里的 {@code ProbeAgentBridge}
- * 符号引用便经双亲委派向上命中 bootstrap 那一份（与 agent 自有写入同一份），不再 {@code NoClassDefFoundError}。
+ * {@code SimplePluginManager} / {@code LibraryLoader} / {@code CraftServer} 等<b>服务器类</b>，由服务器/Paper
+ * 的 ClassLoader 加载，<b>看不到</b> system ClassLoader 上的 {@code ProbeAgentBridge}。因此
+ * {@link ProbeAgent#bootstrap} 在注册本转换器<b>之前</b>先经 {@link BootstrapBridgeInstaller} 把数据桥挂到
+ * bootstrap ClassLoader；运行期注入字节码里的 {@code ProbeAgentBridge} 符号引用便经双亲委派命中 bootstrap 那一份。
  *
  * <p>本类对 ASM 的引用在打包阶段会被 TabooLib relocate 改写到
- * {@code top.wcpe.mc.plugin.serverprobe.agent.shadow.asm}，故运行期由 system ClassLoader 加载到的是
- * relocate 后的 ASM，不与服务器/其它插件自带 ASM 冲突。
+ * {@code top.wcpe.mc.plugin.serverprobe.agent.shadow.asm}，故运行期加载到的是 relocate 后的 ASM，不与服务器/
+ * 其它插件自带 ASM 冲突。
  */
 public final class StartupProfilingTransformer implements ClassFileTransformer {
 
@@ -51,14 +48,15 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             "top/wcpe/mc/plugin/serverprobe/agent/ProbeAgentBridge";
 
     /**
-     * 单个 hook 的不可变描述：目标类/方法/描述符 + 插件名取值策略 + 上报到数据桥的方法名。
+     * 单个 hook 的不可变描述：目标类/方法/描述符 + 取名策略 + 时间线类型。
      *
-     * <p>用配置对象承载三个 hook 的差异点（取名来源、上报目标），使 {@link TimingAdvice} 得以复用同一套
-     * 计时插桩逻辑，避免为每个 hook 复制粘贴一份增强器。
+     * <p>用配置对象承载各 hook 的差异点（取名来源、取名方法、类匹配模式、type 标签），使 {@link TimingAdvice}
+     * 得以复用同一套计时插桩逻辑，避免为每个 hook 复制粘贴增强器。所有 hook 出口统一调用
+     * {@link ProbeAgentBridge#recordSpan}，故不再需要逐 hook 的上报方法名。
      */
     private enum HookTarget {
 
-        /** SimplePluginManager#enablePlugin：取入参 Plugin 的名字，记入 enable 表。 */
+        /** SimplePluginManager#enablePlugin：取入参 Plugin 的名字，type=enable。 */
         PLUGIN_ENABLE(
                 "org/bukkit/plugin/SimplePluginManager",
                 "enablePlugin",
@@ -66,9 +64,11 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
                 NameSource.ARG0,
                 "org/bukkit/plugin/Plugin",
                 true,
-                "recordPluginEnable"),
+                "getName",
+                false,
+                "enable"),
 
-        /** SimplePluginManager#loadPlugin：取返回值 Plugin 的名字（非 null 才记），记入 load 表。 */
+        /** SimplePluginManager#loadPlugin：取返回值 Plugin 的名字（非 null 才记），type=load。 */
         PLUGIN_LOAD(
                 "org/bukkit/plugin/SimplePluginManager",
                 "loadPlugin",
@@ -76,14 +76,15 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
                 NameSource.RETURN_VALUE,
                 "org/bukkit/plugin/Plugin",
                 true,
-                "recordPluginLoad"),
+                "getName",
+                false,
+                "load"),
 
         /**
-         * LibraryLoader#createLoader（1.17+）：取入参 PluginDescriptionFile 的名字，记入 library 表。
+         * LibraryLoader#createLoader（1.17+）：取入参 PluginDescriptionFile 的名字，type=library。
          *
-         * <p>注意 {@code PluginDescriptionFile} 是 <b>final 类</b>（非接口），其 {@code getName()}
-         * 必须以 {@code invokevirtual} 调用——故此 hook 的 {@code interfaceCall} 为 {@code false}，
-         * 与上面两个以 {@code Plugin}（接口）取名的 hook 不同。
+         * <p>{@code PluginDescriptionFile} 是 <b>final 类</b>（非接口），其 {@code getName()} 须以
+         * {@code invokevirtual} 调用——故 {@code interfaceCall} 为 {@code false}。
          */
         LIBRARY_LOAD(
                 "org/bukkit/plugin/java/LibraryLoader",
@@ -92,40 +93,120 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
                 NameSource.ARG0,
                 "org/bukkit/plugin/PluginDescriptionFile",
                 false,
-                "recordLibraryLoad");
+                "getName",
+                false,
+                "library"),
 
-        /** 取插件名的来源：入参 0 或方法返回值。 */
+        /**
+         * CraftServer#createWorld：取入参 WorldCreator 的名字，type=worldCreate。
+         *
+         * <p>className 取后缀 {@code /CraftServer}，按 {@code endsWith} 匹配（{@code suffixMatch=true}），
+         * 兼容含/不含版本号的两种包名，且不波及同包其它类。
+         */
+        WORLD_CREATE(
+                "/CraftServer",
+                "createWorld",
+                "(Lorg/bukkit/WorldCreator;)Lorg/bukkit/World;",
+                NameSource.ARG0,
+                "org/bukkit/WorldCreator",
+                false,
+                "name",
+                true,
+                "worldCreate"),
+
+        /** YamlConfiguration#loadConfiguration（静态）：取入参 File 的名字，type=configLoad。 */
+        CONFIG_LOAD(
+                "org/bukkit/configuration/file/YamlConfiguration",
+                "loadConfiguration",
+                "(Ljava/io/File;)Lorg/bukkit/configuration/file/YamlConfiguration;",
+                NameSource.ARG0,
+                "java/io/File",
+                false,
+                "getName",
+                false,
+                "configLoad"),
+
+        /** SimplePluginManager#registerEvents：取第二参 Plugin 的名字，type=eventRegister。 */
+        EVENT_REGISTER(
+                "org/bukkit/plugin/SimplePluginManager",
+                "registerEvents",
+                "(Lorg/bukkit/event/Listener;Lorg/bukkit/plugin/Plugin;)V",
+                NameSource.ARG1,
+                "org/bukkit/plugin/Plugin",
+                true,
+                "getName",
+                false,
+                "eventRegister"),
+
+        /** SimpleCommandMap#register：取第三参 Command 的名字，type=commandRegister。Command 是抽象类，invokevirtual。 */
+        COMMAND_REGISTER(
+                "org/bukkit/command/SimpleCommandMap",
+                "register",
+                "(Ljava/lang/String;Ljava/lang/String;Lorg/bukkit/command/Command;)Z",
+                NameSource.ARG2,
+                "org/bukkit/command/Command",
+                false,
+                "getName",
+                false,
+                "commandRegister");
+
+        /** 取名来源：入参索引或方法返回值。 */
         private enum NameSource {
-            /** 从方法第 0 个参数对象上调用 {@code getName()}。 */
+            /** 从方法第 0 个参数对象上调用取名方法。 */
             ARG0,
-            /** 从方法返回值对象上调用 {@code getName()}（需在出口对返回值做 null 保护）。 */
+            /** 从方法第 1 个参数对象上调用取名方法。 */
+            ARG1,
+            /** 从方法第 2 个参数对象上调用取名方法。 */
+            ARG2,
+            /** 从方法返回值对象上调用取名方法（需在出口对返回值做 null 保护）。 */
             RETURN_VALUE
         }
 
-        /** 目标类 JVM 内部名（'/' 分隔）。 */
+        /** 目标类 JVM 内部名（'/' 分隔）；{@code suffixMatch} 时为后缀（如 {@code /CraftServer}）。 */
         private final String className;
         /** 目标方法名。 */
         private final String methodName;
         /** 目标方法描述符。 */
         private final String descriptor;
-        /** 插件名取值来源。 */
+        /** 取名来源。 */
         private final NameSource nameSource;
-        /** 承载 {@code getName()} 的对象类型 JVM 内部名（入参或返回值的声明类型）。 */
+        /** 承载取名方法的对象类型 JVM 内部名（入参或返回值的声明类型）。 */
         private final String nameHolderInternalName;
-        /** {@code getName()} 是否为接口方法：true → {@code invokeinterface}，false → {@code invokevirtual}。 */
+        /** 取名方法是否为接口方法：true → {@code invokeinterface}，false → {@code invokevirtual}。 */
         private final boolean interfaceCall;
-        /** 上报到 {@link ProbeAgentBridge} 的静态方法名（签名统一为 {@code (Ljava/lang/String;J)V}）。 */
-        private final String bridgeMethod;
+        /** 在 nameHolder 上调用的取名方法名（如 "getName"、"name"）。 */
+        private final String nameMethodName;
+        /** 是否对 className 做后缀匹配（用于含版本号包名的 CraftServer）。 */
+        private final boolean suffixMatch;
+        /** 时间线事件类型标识（如 "enable"、"load"），传给 {@link ProbeAgentBridge#recordSpan}。 */
+        private final String timelineType;
 
         HookTarget(String className, String methodName, String descriptor, NameSource nameSource,
-                   String nameHolderInternalName, boolean interfaceCall, String bridgeMethod) {
+                   String nameHolderInternalName, boolean interfaceCall,
+                   String nameMethodName, boolean suffixMatch, String timelineType) {
             this.className = className;
             this.methodName = methodName;
             this.descriptor = descriptor;
             this.nameSource = nameSource;
             this.nameHolderInternalName = nameHolderInternalName;
             this.interfaceCall = interfaceCall;
-            this.bridgeMethod = bridgeMethod;
+            this.nameMethodName = nameMethodName;
+            this.suffixMatch = suffixMatch;
+            this.timelineType = timelineType;
+        }
+
+        /** 该 hook 是否命中给定类名。 */
+        boolean matchesClass(String className) {
+            return suffixMatch ? className.endsWith(this.className) : this.className.equals(className);
+        }
+
+        /** 根据 nameSource 返回对应的参数索引（仅 ARG* 有效）。 */
+        int argIndex() {
+            switch (nameSource) {
+                case ARG1: return 1;
+                case ARG2: return 2;
+                default: return 0;
+            }
         }
 
         /** 该 hook 是否命中给定方法（类名已在外层按 className 预筛）。 */
@@ -149,17 +230,9 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
         }
         try {
             ClassReader reader = new ClassReader(classfileBuffer);
-            // COMPUTE_FRAMES + COMPUTE_MAXS：交由 ASM 重算栈映射帧与最大栈/局部表，
-            // 免去手工维护，对插桩这类小改动最稳妥。
-            //
-            // 关键：必须用 FrameSafeClassWriter 而非裸 ClassWriter——COMPUTE_FRAMES 在合并两个
-            // 引用类型的栈帧时需求其最近公共父类，ASM 默认实现 getCommonSuperClass 会用
-            // Class.forName 真正加载这两个类。而 LibraryLoader#createLoader 的方法体引用了
-            // 库下载用的 Aether 类型（如 org.eclipse.aether.resolution.DependencyResult），这些类
-            // 对加载本 ClassWriter 的 system/agent ClassLoader 不可见 → forName 抛
-            // ClassNotFoundException → 帧计算抛 TypeNotPresentException → 被下方 catch 吞掉 →
-            // 返回 null → 该 hook 永不生效（这正是 libraryTimings 始终为空的真因）。
-            // FrameSafeClassWriter 优先用"被改写类自己的 ClassLoader"解析，再退化到 Object，彻底规避。
+            // COMPUTE_FRAMES + COMPUTE_MAXS：交由 ASM 重算栈映射帧与最大栈/局部表，对插桩这类小改动最稳妥。
+            // 必须用 FrameSafeClassWriter（而非裸 ClassWriter）规避 getCommonSuperClass 因类型不可加载抛异常，
+            // 否则插桩被降级丢弃（详见 FrameSafeClassWriter 文档）。
             ClassWriter writer = new FrameSafeClassWriter(reader, loader);
             ClassVisitor visitor = new ProfilingClassVisitor(writer, className);
             reader.accept(visitor, ClassReader.EXPAND_FRAMES);
@@ -174,19 +247,11 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
      * 帧计算安全的 {@link ClassWriter}：覆盖 {@link #getCommonSuperClass} 使其
      * <b>不会因类型不可加载而抛异常</b>。
      *
-     * <p>问题背景：{@link ClassWriter#COMPUTE_FRAMES} 在合并栈帧引用类型时要求两类型的最近公共父类，
-     * ASM 默认实现以 {@link Class#forName} 加载二者。被改写的服务器类（如 {@code LibraryLoader}）方法体
-     * 可能引用对本 {@code ClassWriter} 加载器不可见的第三方类型（如库下载用的 Aether 类），默认实现会
-     * {@code ClassNotFoundException} → 帧计算失败 → 整个插桩被降级丢弃。
-     *
-     * <p>两道防线：
-     * <ol>
-     *   <li>把解析委派给<b>被改写类自身的 {@link ClassLoader}</b>（{@code transform} 的 {@code loader} 参数）——
-     *       服务器类的那些第三方类型对它自己的加载器通常可见，多数情况下能算出真实公共父类；</li>
-     *   <li>万一仍解析不到（如 {@code loader} 为 {@code null} 的 bootstrap 类，或类确实缺失），
-     *       退化返回 {@code java/lang/Object}——它是所有引用类型的合法上界，
-     *       生成的帧偏保守但<b>字节码合法且能通过 JVM 校验</b>，绝不再抛异常。</li>
-     * </ol>
+     * <p>{@link ClassWriter#COMPUTE_FRAMES} 合并栈帧引用类型时要求最近公共父类，ASM 默认实现以
+     * {@link Class#forName} 加载二者。被改写的服务器类方法体可能引用对本 {@code ClassWriter} 加载器不可见的
+     * 第三方类型（如库下载用的 Aether 类），默认实现会 {@code ClassNotFoundException} → 帧计算失败 → 整个插桩
+     * 被降级丢弃。两道防线：① 委派给被改写类自身的 {@link ClassLoader} 解析；② 仍失败则退化返回
+     * {@code java/lang/Object}（合法上界，字节码合法且能通过校验），绝不再抛异常。
      */
     private static final class FrameSafeClassWriter extends ClassWriter {
 
@@ -198,12 +263,6 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             this.classLoader = classLoader;
         }
 
-        /**
-         * {@inheritDoc}
-         *
-         * <p>用被改写类自身的加载器解析两类型并求最近公共父类；任何解析失败一律退化为
-         * {@code java/lang/Object}，保证 {@code COMPUTE_FRAMES} 永不因类型不可加载而中断插桩。
-         */
         @Override
         protected String getCommonSuperClass(String type1, String type2) {
             try {
@@ -232,8 +291,11 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
 
     /** 是否存在命中该类名的 hook。 */
     private static boolean hasHookForClass(String className) {
+        if (className == null) {
+            return false;
+        }
         for (HookTarget hook : HookTarget.values()) {
-            if (hook.className.equals(className)) {
+            if (hook.matchesClass(className)) {
                 return true;
             }
         }
@@ -259,7 +321,7 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
             // 在本类的 hook 中查找命中当前方法者；命中即套增强器，否则透传。
             for (HookTarget hook : HookTarget.values()) {
-                if (hook.className.equals(className) && hook.matchesMethod(name, descriptor)) {
+                if (hook.matchesClass(className) && hook.matchesMethod(name, descriptor)) {
                     return new TimingAdvice(mv, access, name, descriptor, hook);
                 }
             }
@@ -268,18 +330,12 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
     }
 
     /**
-     * 通用计时增强器：入口存 nanoTime，出口算耗时并按 {@link HookTarget} 配置上报数据桥。
+     * 通用计时增强器：入口存 nanoTime，出口取 nanoTime 并按 {@link HookTarget} 配置上报数据桥。
      *
-     * <p>沿用 A1 的稳健做法：出口处先把 {@code costMs} 算好存入局部变量，再按"先名字、后耗时"的顺序压栈，
-     * 不做脆弱的操作数栈换位，也不破坏原方法出口栈（异常出口栈顶的异常对象保持原位，异常照常向上抛）。
-     *
-     * <p>{@link AdviceAdapter#onMethodExit(int)} 覆盖<b>所有</b>出口（正常 RETURN 与异常 ATHROW）。
-     * 对 {@code RETURN_VALUE} 取名的 hook（loadPlugin），出口分两种处理：
-     * <ul>
-     *   <li>异常出口（{@code ATHROW}）：返回值未定，<b>跳过</b>记录。</li>
-     *   <li>正常返回（{@code ARETURN}）：栈顶即返回的 {@code Plugin}，先 {@code dup} 一份做非 null 判断，
-     *       非 null 才取名上报，避免 {@code NullPointerException}。</li>
-     * </ul>
+     * <p>入口与出口各取一次原始 {@code System.nanoTime()}，<b>不在字节码里做毫秒除法</b>——精度损失留给数据桥
+     * 按需换算，时间线由此保留纳秒分辨率。{@link AdviceAdapter#onMethodExit(int)} 覆盖<b>所有</b>出口（正常
+     * RETURN 与异常 ATHROW）。对 {@code RETURN_VALUE} 取名的 hook（loadPlugin）：异常出口跳过；正常返回时用
+     * 局部变量中转返回值做非 null 判断后取名（避免 dup 跨分支导致栈帧不一致）。
      */
     private static final class TimingAdvice extends AdviceAdapter {
 
@@ -305,55 +361,61 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
 
         @Override
         protected void onMethodExit(int opcode) {
+            // 出口处取真实结束时刻（纳秒）。无论正常/异常出口都先取，存入局部供后续使用（异常路径仅多一次廉价取数）。
+            invokeStatic(Type.getType(System.class),
+                    new org.objectweb.asm.commons.Method("nanoTime", "()J"));
+            int endNanosLocal = newLocal(Type.LONG_TYPE);
+            storeLocal(endNanosLocal, Type.LONG_TYPE);
             if (hook.nameSource == HookTarget.NameSource.RETURN_VALUE) {
-                onReturnValueExit(opcode);
+                onReturnValueExit(opcode, endNanosLocal);
             } else {
-                onArgExit();
+                onArgExit(endNanosLocal);
             }
         }
 
         /**
-         * 入参取名（enablePlugin / createLoader）：所有出口路径都记录。
+         * 入参取名（enablePlugin / createLoader / registerEvents / 等）：所有出口路径都记录。
          *
-         * <p>不依赖出口栈内容，故正常与异常出口一致处理；从 {@code arg0} 取名最稳。
+         * @param endNanosLocal 出口结束时刻局部变量槽位
          */
-        private void onArgExit() {
-            int costMsLocal = computeCostMsLocal();
-            // bridgeMethod(arg0.getName(), costMs);
-            loadArg(0);
+        private void onArgExit(int endNanosLocal) {
+            // recordSpan(type, name, startNanos, endNanos);
+            push(hook.timelineType);
+            loadArg(hook.argIndex());
             invokeNameGetter();
-            loadLocal(costMsLocal, Type.LONG_TYPE);
-            invokeBridge();
+            loadLocal(startNanosLocal, Type.LONG_TYPE);
+            loadLocal(endNanosLocal, Type.LONG_TYPE);
+            invokeRecordSpan();
         }
 
         /**
          * 返回值取名（loadPlugin）：仅正常返回且返回非 null 时记录，异常出口跳过。
          *
-         * <p>为彻底规避"dup 副本跨分支"导致的栈映射帧不一致，这里改用<b>局部变量中转</b>：
-         * 把返回值存入局部 → 全程从局部读取做判空/取名/重新压回，出口栈始终只有一个 {@code ret}，
-         * 两条分支到 {@code ARETURN} 前的栈状态天然一致，最稳妥。
+         * <p>用局部变量中转返回值，全程从局部读取做判空/取名/重新压回，两条分支到 {@code ARETURN} 前栈状态天然一致。
          *
-         * @param opcode 出口字节码（{@code ARETURN}/{@code ATHROW} 等）
+         * @param opcode        出口字节码（{@code ARETURN}/{@code ATHROW} 等）
+         * @param endNanosLocal 出口结束时刻局部变量槽位
          */
-        private void onReturnValueExit(int opcode) {
+        private void onReturnValueExit(int opcode, int endNanosLocal) {
             // 异常出口：返回值未定，直接跳过（不动栈顶异常对象，保证异常正常抛出）。
             if (opcode != ARETURN) {
                 return;
             }
-            int costMsLocal = computeCostMsLocal();
             // 把待返回的 Plugin 从栈顶存入局部变量，栈清空；后续从局部读取，避免 dup 跨分支。
             Type pluginType = Type.getObjectType(hook.nameHolderInternalName);
             int retLocal = newLocal(pluginType);
             storeLocal(retLocal, pluginType);
 
-            // if (ret != null) { bridge(ret.getName(), costMs); }
+            // if (ret != null) { recordSpan(type, ret.getName(), startNanos, endNanos); }
             loadLocal(retLocal, pluginType);
             Label skip = new Label();
             ifNull(skip); // 消费这份引用，仅做判空
+            push(hook.timelineType);
             loadLocal(retLocal, pluginType);
             invokeNameGetter();
-            loadLocal(costMsLocal, Type.LONG_TYPE);
-            invokeBridge();
+            loadLocal(startNanosLocal, Type.LONG_TYPE);
+            loadLocal(endNanosLocal, Type.LONG_TYPE);
+            invokeRecordSpan();
             mark(skip);
 
             // 把返回值重新压回栈顶，交给原 ARETURN 返回；两条分支到此栈均为 [ret]。
@@ -361,31 +423,14 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
         }
 
         /**
-         * 计算 {@code costMs = (System.nanoTime() - start) / 1_000_000} 并存入新局部变量。
+         * 在栈顶对象上调用取名方法（如 {@code getName()}/{@code name()}），返回 {@code String}。
          *
-         * @return 存放 costMs 的局部变量槽位
-         */
-        private int computeCostMsLocal() {
-            invokeStatic(Type.getType(System.class),
-                    new org.objectweb.asm.commons.Method("nanoTime", "()J"));
-            loadLocal(startNanosLocal, Type.LONG_TYPE);
-            math(SUB, Type.LONG_TYPE);
-            push(1_000_000L);
-            math(DIV, Type.LONG_TYPE);
-            int costMsLocal = newLocal(Type.LONG_TYPE);
-            storeLocal(costMsLocal, Type.LONG_TYPE);
-            return costMsLocal;
-        }
-
-        /**
-         * 在栈顶对象上调用 {@code getName():String}。
-         *
-         * <p>按 hook 配置选择调用指令：接口（{@code Plugin}）走 {@code invokeinterface}，
-         * final 类（{@code PluginDescriptionFile}）走 {@code invokevirtual}，二者不可混用否则生成非法字节码。
+         * <p>接口（{@code Plugin}）走 {@code invokeinterface}，类（{@code PluginDescriptionFile}/{@code Command}/
+         * {@code File}/{@code WorldCreator}）走 {@code invokevirtual}，二者不可混用否则生成非法字节码。
          */
         private void invokeNameGetter() {
             org.objectweb.asm.commons.Method getName =
-                    new org.objectweb.asm.commons.Method("getName", "()Ljava/lang/String;");
+                    new org.objectweb.asm.commons.Method(hook.nameMethodName, "()Ljava/lang/String;");
             Type holder = Type.getObjectType(hook.nameHolderInternalName);
             if (hook.interfaceCall) {
                 invokeInterface(holder, getName);
@@ -394,10 +439,11 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             }
         }
 
-        /** 调用数据桥上报方法 {@code bridgeMethod(String, long)}（栈：name, costMs）。 */
-        private void invokeBridge() {
+        /** 调用数据桥 {@code recordSpan(String, String, long, long)}（栈：type, name, startNanos, endNanos）。 */
+        private void invokeRecordSpan() {
             invokeStatic(Type.getObjectType(BRIDGE_INTERNAL_NAME),
-                    new org.objectweb.asm.commons.Method(hook.bridgeMethod, "(Ljava/lang/String;J)V"));
+                    new org.objectweb.asm.commons.Method("recordSpan",
+                            "(Ljava/lang/String;Ljava/lang/String;JJ)V"));
         }
     }
 }

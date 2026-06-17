@@ -106,16 +106,17 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 
 ## 命令概览
 
-> ✅ 六命令均已实现(编译 + 单测通过,1.21.4 Paper 单端真机验证通过,待生产验证)。语法与输出以最终实现为准。
+> ✅ 七命令均已实现(编译 + 单测通过,1.21.4 Paper 单端真机验证通过,待生产验证)。语法与输出以最终实现为准。
 
 | 命令 | 作用 | 状态 |
 |---|---|---|
 | `/probe health` | 服务器健康总览(TPS/MSPT/内存/CPU/在线) | ✅ 已实现(待生产验证) |
-| `/probe startup` | 启动画像:总时长、慢插件 Top-N、各世界耗时、与上次对比 | ✅ 已实现(待生产验证) |
+| `/probe startup` | 启动画像:总时长、慢插件 Top-N、各世界耗时、与上次对比;挂载 agent 时附库下载/主线程热点/配置·事件·命令 Top-N | ✅ 已实现(待生产验证) |
 | `/probe tps` | TPS(1/5/15min)与 MSPT(均值 + p95/p99),附近期聚合行(均值/分位/GC 速率) | ✅ 已实现(待生产验证) |
 | `/probe gc` | GC(young/old)、堆 / 非堆 / 内存池 | ✅ 已实现(待生产验证) |
 | `/probe world` | 各世界区块数、实体数、方块实体数(Folia 仅区块数) | ✅ 已实现(待生产验证) |
 | `/probe proxy` | 代理端:总在线、各子服在线(ping/路由 🚧 规划中) | ✅ 已实现(待生产验证) |
+| `/probe flamegraph` | 导出启动**火焰图 + 嵌套时间线**自包含 HTML 到 `data/flamegraph/`(需 `-javaagent` 挂载启动 agent) | ✅ 已实现(待生产验证) |
 
 ---
 

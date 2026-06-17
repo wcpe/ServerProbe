@@ -18,6 +18,7 @@
 | `/probe gc` | GC 详情:young/old 次数与耗时、堆/内存池 | Bukkit / Bungee |
 | `/probe world` | 各世界负载:区块 / 实体(按类型)/ 方块实体 | Bukkit |
 | `/probe proxy` | 代理端总览:总在线、各子服在线 / ping / 路由 | Bungee |
+| `/probe flamegraph` | 导出启动火焰图 + 嵌套时间线自包含 HTML(需 `-javaagent` 启动 agent) | Bukkit |
 
 > 平台差异:代理端无世界 / TPS / MSPT 概念,`tps` / `world` 在代理端不可用;`proxy` 仅代理端可用。详见 [版本与平台兼容](Compatibility.md)。
 
@@ -102,6 +103,17 @@
    minigame在线 0    ping  --    不可达
 ```
 
+### `/probe flamegraph`
+用途:把最近一次启动画像导出为**自包含 HTML**(CSS/JS 全内联,离线可看),含两个视图:
+- **火焰图**:由多线程折叠栈生成的真正多层火焰图,宽度=调用路径采样占比、纵轴=调用深度,可切换线程、缩放(左键下钻/右键返回)、搜索帧名;
+- **时间线**:各 hook 事件按区间包含关系分泳道渲染的嵌套时间线(`enable` 区间内含其 `registerEvents`/`loadConfiguration`/`register` 子区间),X 轴为相对 premain 的真实时间。
+
+```
+[ServerProbe] 已生成火焰图: /path/to/server/plugins/ServerProbe/flamegraph/flamegraph-20260617_103200.html
+```
+
+> 前置条件:需在启动命令加 `-javaagent:plugins/ServerProbe.jar` 挂载启动 agent(否则无折叠栈/时间线数据,命令会提示启用方式)。详见 [启动剖析指南](Startup-Profiling.md)。
+
 ---
 
 ## 权限节点
@@ -117,6 +129,7 @@
 | `serverprobe.command.gc` | `/probe gc` | 运维 / 管理 |
 | `serverprobe.command.world` | `/probe world` | 运维 / 管理 |
 | `serverprobe.command.proxy` | `/probe proxy`(代理端) | 代理端管理 |
+| `serverprobe.command.flamegraph` | `/probe flamegraph`(导出启动火焰图 HTML) | 运维 / 管理 |
 | `serverprobe.admin` | 管理操作(配置 / 维护类,如有) | 仅管理员 |
 
 要点:

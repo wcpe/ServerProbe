@@ -8,6 +8,7 @@ import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.submit
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
@@ -116,12 +117,13 @@ object StartupLoadListener {
      */
     private fun buildAndStore(totalMs: Long, worldNames: List<String>, mcVersion: String) {
         val pluginTimings = parsePluginTimings()
-        val worldTimings = worldNames.map { WorldTiming(it, WORLD_LOAD_MS_UNKNOWN) }
         // 启动 agent 早期数据:先读出(热点取配置 Top-N),再停采样定格;未挂载/失败时降级为 notAttached
         val agentData = AgentDataReader.read(ProbeConfig.startupTopN())
         if (agentData.attached) {
             AgentDataReader.stopStackSampler()
         }
+        // 世界耗时:agent 挂载且测得 createWorld 耗时时择优用实测值,否则回退占位 0
+        val worldTimings = resolveWorldTimings(worldNames, agentData)
         val profile = profileBuilder.build(
             mcVersion = mcVersion,
             platform = ProbePlatform.BUKKIT,
@@ -139,6 +141,24 @@ object StartupLoadListener {
         profileHolder.set(profile)
         profileHolder.comparisonSummary = comparisonSummary
         store.saveStartupProfile(profile)
+    }
+
+    /**
+     * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld` 耗时时择优用实测值,否则回退占位 0。
+     *
+     * 以**实际加载的世界名**([worldNames])为准逐个回填 agent 实测耗时(精度远高于占位):agent 未测到的世界
+     * (理论上罕见)用 [WORLD_LOAD_MS_UNKNOWN] 占位。未挂载或无实测时整体回退为"世界名 + 占位 0"。
+     *
+     * @param worldNames 实际加载的世界名(主线程预取)。
+     * @param agentData 启动 agent 早期数据。
+     * @return 逐世界耗时列表。
+     */
+    private fun resolveWorldTimings(worldNames: List<String>, agentData: AgentStartupData): List<WorldTiming> {
+        if (!agentData.attached || agentData.worldTimings.isEmpty()) {
+            return worldNames.map { WorldTiming(it, WORLD_LOAD_MS_UNKNOWN) }
+        }
+        val measured = agentData.worldTimings.associate { it.name to it.loadMs }
+        return worldNames.map { WorldTiming(it, measured[it] ?: WORLD_LOAD_MS_UNKNOWN) }
     }
 
     /**
@@ -234,6 +254,26 @@ object StartupLoadListener {
             val summary = hotspots.joinToString(separator = " | ") { "${it.frame} ${it.sampleCount}" }
             ProbeLogger.info("主线程热点 Top-$topN:$summary")
         }
+        // 配置加载 / 事件注册 / 命令注册 Top-N(agent 独有,无数据则不打印,避免空行刷屏)
+        logItemTop("配置加载", profile.configTimings, topN)
+        logItemTop("事件注册", profile.eventTimings, topN)
+        logItemTop("命令注册", profile.commandTimings, topN)
+    }
+
+    /**
+     * 输出一类"命名项耗时"的 Top-N 摘要行(配置加载/事件注册/命令注册);列表为空则不打印。
+     *
+     * @param label 维度中文标签(如"配置加载")。
+     * @param timings 该维度耗时列表(可空)。
+     * @param topN 取前若干。
+     */
+    private fun logItemTop(label: String, timings: List<StartupItemTiming>?, topN: Int) {
+        val top = timings.orEmpty().sortedByDescending { it.costMs }.take(topN)
+        if (top.isEmpty()) {
+            return
+        }
+        val summary = top.joinToString(separator = " | ") { "${it.name} ${formatSeconds(it.costMs)}" }
+        ProbeLogger.info("$label Top-$topN:$summary")
     }
 
     /**

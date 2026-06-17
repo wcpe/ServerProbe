@@ -27,7 +27,7 @@
 
 ### 1.3 非目标(首期明确不做,防止范围蔓延)
 - 不做服务端内核(NMS)/DataFixerUpper 等 **bootstrap 阶段的逐方法级归因**(对普通插件不可见,需重型字节码织入)——首期以"整体时长对比"覆盖该层。
-- 不自研重型 CPU 采样分析器替代 [spark];深度 CPU 火焰图建议并用 spark(自研采样仅作 M3 轻量增强)。
+- 不自研重型 CPU 采样分析器替代 [spark];**运行期**深度 CPU 火焰图建议并用 spark(自研采样仅作 M3 轻量增强)。**例外**:**启动期(premain 窗口)**火焰图自研——spark 难介入 premain,而启动期恰是本项目首要场景(M5,`/probe flamegraph`,见 ADR-8)。
 - 不做玩家行为分析(属 Plan 领域)。
 - **首期不启用字节码插桩 / Incision**(仅预留架构 + PoC 验证)。
 
@@ -148,8 +148,8 @@
 - **FR1.4** 启动分段耗时(CONST/INIT/LOAD/ENABLE/ACTIVE)。
 - **FR1.5** 启动画像**落盘为本地文件**,与上次/基线对比,标注每项 Δ。
 - **FR1.6** 慢启动告警(总时长 > 基线 ×1.5)。
-- **FR1.7(可选增强,需手动启用)** **premain Java Agent 补加载前盲区**:命令行加 `-javaagent:plugins/ServerProbe.jar` 后,额外提供 ① 逐插件 load/enable **精确耗时**(纳秒级,优于日志解析,且覆盖本插件之前加载的插件)② **库下载耗时**(`LibraryLoader`,1.17+)③ **主线程栈采样**(抓启动期"无日志卡顿"热点)。属**启动期 premain**、非被否决的运行时 self-attach(见 §5.1 / 架构 §13);默认不启用,不加参数则纯插件模式照常工作,启用失败静默降级。M5 先 Bukkit 端,Folia 栈采样降级 N/A。**当前仅 1.21.4 Paper 单端真机验证。**
-- **验收**:`/probe startup` 输出含总时长、慢插件 Top-N、各世界耗时、与上次对比;启用 `-javaagent` 后,逐插件耗时由日志秒级口径升级为精确纳秒级。
+- **FR1.7(可选增强,需手动启用)** **premain Java Agent 补加载前盲区**:命令行加 `-javaagent:plugins/ServerProbe.jar` 后,额外提供 ① 逐插件 load/enable **精确耗时**(纳秒级,优于日志解析,且覆盖本插件之前加载的插件)② **库下载耗时**(`LibraryLoader`,1.17+)③ **世界创建 / 配置加载 / 事件注册 / 命令注册耗时**(插桩 `CraftServer.createWorld` / `YamlConfiguration.loadConfiguration` / `registerEvents` / `register`,逐项纳秒级)④ **多线程折叠栈采样**(`Server thread` / `Netty` / `ServerMain`,保留调用层级)⑤ **启动火焰图 + 嵌套时间线导出**(`/probe flamegraph` 把最近启动画像导出为**自包含 HTML**——CSS/JS 全内联、无 CDN——到 `data/flamegraph/`,含真正多层多线程火焰图(折叠栈逐层并树)+ 按区间包含关系分泳道的嵌套时间线;专注启动期、与运行期并用 spark 互补,见 ADR-8)。属**启动期 premain**、非被否决的运行时 self-attach(见 §5.1 / 架构 §13);采集严格收敛在启动窗口(插件就绪即关闭,杜绝运行期泄漏);默认不启用,不加参数则纯插件模式照常工作,启用失败静默降级。M5 先 Bukkit 端,Folia 栈采样降级 N/A。**当前仅 1.21.4 Paper 单端真机验证。**
+- **验收**:`/probe startup` 输出含总时长、慢插件 Top-N、各世界耗时、与上次对比;启用 `-javaagent` 后,逐插件耗时由日志秒级口径升级为精确纳秒级,世界/配置/事件/命令耗时与库下载/主线程热点一并呈现,`/probe flamegraph` 可导出火焰图+时间线 HTML。
 
 ### FR2 运维指标采集(P0/P1)
 - **FR2.1 JVM(P0)**:堆/非堆内存、各内存池、GC 次数与耗时(young/old)、线程数/死锁、类加载、进程&系统 CPU、uptime、启动参数。**全版本+全平台通用**。
