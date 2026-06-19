@@ -43,6 +43,7 @@
   - **多线程折叠栈采样**:对 `Server thread` / `Netty Server IO` / `ServerMain` 等关键线程 5ms 周期抓**完整调用栈**并以折叠栈(folded stack)聚合,保留父→子调用关系;主线程扁平热点榜由其派生。
   - **启动火焰图 + 嵌套时间线(`/probe flamegraph`)**:由折叠栈生成**真正的多层、多线程火焰图**(宽度=调用路径采样占比、纵轴=调用深度,支持线程切换/缩放/搜索),并由逐事件时间线生成**按区间包含关系分泳道的嵌套时间线**(父区间含其内部 register/config 子区间);输出为**自包含 HTML**(CSS/JS 全内联、无 CDN 依赖)到 `data/flamegraph/`。此火焰图**专注启动期**(premain 阶段 spark 难以介入),与"运行期 CPU 归因建议并用 spark"的既定方向不冲突。
   - **更精确的统计 + 不成事故源**:时间线时刻取真实出口 `nanoTime`(纳秒级、相对 premain),不再用毫秒反推;`/probe startup` 慢插件榜在挂载 agent 时择优用 agent 实测 onEnable;引入**启动窗口**标志,插件就绪即关闭采集,杜绝被插桩方法在运行期持续追加导致的内存泄漏。
+  - **HTTP/TCP 对外网络外呼监控(运行期常驻)**:插桩 `sun.net.www.protocol.http.HttpURLConnection.getInputStream`(覆盖 HTTP/HTTPS,含 TabooLib 依赖下载)与 `java.net.Socket.connect`(原始 TCP 兜底,去重),记录**哪个插件/哪段代码**发起了对外请求、目标 URL、响应码、耗时、(脱敏的)请求头与查询串;实时中文日志 + 落盘 `data/http/` + `/probe http` 回看 + 启动期外呼并入 `/probe flamegraph` 报告。**安全**:Authorization/Cookie/token 等敏感头与敏感查询参数由 agent 侧打码为 `***`,请求体不捕获;**不成事故源**:注入极简、逻辑全程 `try/catch` 兜底(经真实 JDK 类 + ASM `CheckClassAdapter` 校验合法),有界环形缓冲防泄漏,可配开关/限频。这正是定位"开服卡在依赖下载"类隐形瓶颈的利器(对应本轮发现的 TabooLib 下载卡顿)。
   - **唯一新增第三方依赖 = ASM**(relocate 到 `...agent.shadow.asm` 隔离);跨 ClassLoader 通道经 `appendToBootstrapClassLoaderSearch` 把极薄的 `ProbeAgentBridge` 放 bootstrap CL,供插桩字节码 / 插件反射 / 栈采样共享同一份数据;premain 顶层 `catch(Throwable)` 兜底,失败静默降级,绝不崩 JVM。
   - **范围(诚实)**:M5 先 Bukkit 端;Folia 主线程栈采样降级标 N/A(无单一主线程,引导用 spark),插件计时复用 Bukkit 路径;BungeeCord 推迟。**仅 1.21.4 Paper 单端真机验证,其他端(1.8 / Folia / BungeeCord)未逐一真机。**
   - 详见架构文档 ADR-11 / §13。

@@ -106,7 +106,7 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 
 ## 命令概览
 
-> ✅ 七命令均已实现(编译 + 单测通过,1.21.4 Paper 单端真机验证通过,待生产验证)。语法与输出以最终实现为准。
+> ✅ 八命令均已实现(编译 + 单测通过,1.21.4 Paper 单端真机验证通过,待生产验证)。语法与输出以最终实现为准。
 
 | 命令 | 作用 | 状态 |
 |---|---|---|
@@ -117,6 +117,7 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 | `/probe world` | 各世界区块数、实体数、方块实体数(Folia 仅区块数) | ✅ 已实现(待生产验证) |
 | `/probe proxy` | 代理端:总在线、各子服在线(ping/路由 🚧 规划中) | ✅ 已实现(待生产验证) |
 | `/probe flamegraph` | 导出启动**火焰图 + 嵌套时间线**自包含 HTML 到 `data/flamegraph/`(需 `-javaagent` 挂载启动 agent) | ✅ 已实现(待生产验证) |
+| `/probe http` | 查看近期**对外 HTTP/TCP 外呼**(哪个插件/代码触发、目标、响应码、耗时;需 `-javaagent`) | ✅ 已实现(待生产验证) |
 
 ---
 

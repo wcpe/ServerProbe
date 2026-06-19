@@ -19,6 +19,7 @@
 | `/probe world` | 各世界负载:区块 / 实体(按类型)/ 方块实体 | Bukkit |
 | `/probe proxy` | 代理端总览:总在线、各子服在线 / ping / 路由 | Bungee |
 | `/probe flamegraph` | 导出启动火焰图 + 嵌套时间线自包含 HTML(需 `-javaagent` 启动 agent) | Bukkit |
+| `/probe http` | 查看近期对外 HTTP/TCP 外呼:哪个插件/代码触发、目标、响应码、耗时(需 `-javaagent`) | Bukkit |
 
 > 平台差异:代理端无世界 / TPS / MSPT 概念,`tps` / `world` 在代理端不可用;`proxy` 仅代理端可用。详见 [版本与平台兼容](Compatibility.md)。
 
@@ -114,6 +115,17 @@
 
 > 前置条件:需在启动命令加 `-javaagent:plugins/ServerProbe.jar` 挂载启动 agent(否则无折叠栈/时间线数据,命令会提示启用方式)。详见 [启动剖析指南](Startup-Profiling.md)。
 
+### `/probe http`
+用途:回看最近的**对外网络外呼**(HTTP/HTTPS 经 `HttpURLConnection`,以及绕过它的原始 TCP 连接),定位"哪个插件、哪段代码在请求外部、目标是谁、耗时多少、响应如何"。运行期常驻监控,每条外呼亦实时打印日志并落盘 `data/http/`。
+
+```
+[ServerProbe] 近期外呼 (最近 6 条)
+ - [CoreLib] GET https://maven.aliyun.com/.../bcutil.xml (200, 137000ms) ← corelib.taboolib...RuntimeEnv#loadDependency
+ - [SomePlugin] POST https://api.example.com/report (200, 42ms) ← com.some.Reporter#flush
+```
+
+> 前置条件:需 `-javaagent:plugins/ServerProbe.jar`。**安全**:URL 查询串与请求头中的 Authorization/Cookie/token 等敏感项自动打码为 `***`;请求体不在捕获范围。可在 `config.yml` 的 `http-monitor` 段调整开关/控制台日志/落盘/请求头记录等。
+
 ---
 
 ## 权限节点
@@ -130,6 +142,7 @@
 | `serverprobe.command.world` | `/probe world` | 运维 / 管理 |
 | `serverprobe.command.proxy` | `/probe proxy`(代理端) | 代理端管理 |
 | `serverprobe.command.flamegraph` | `/probe flamegraph`(导出启动火焰图 HTML) | 运维 / 管理 |
+| `serverprobe.command.http` | `/probe http`(查看近期对外外呼) | 运维 / 管理 |
 | `serverprobe.admin` | 管理操作(配置 / 维护类,如有) | 仅管理员 |
 
 要点:
