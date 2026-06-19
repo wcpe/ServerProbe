@@ -33,6 +33,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
  * @property configTimings agent 实测的逐配置文件加载耗时(M5);未挂载时为空列表。
  * @property eventTimings agent 实测的逐插件事件注册耗时(M5);未挂载时为空列表。
  * @property commandTimings agent 实测的逐命令注册耗时(M5);未挂载时为空列表。
+ * @property sampleIntervalMs 栈采样周期(毫秒,M5);未挂载/未采样时为 0。
  */
 data class AgentStartupData(
     val attached: Boolean,
@@ -47,7 +48,8 @@ data class AgentStartupData(
     val worldTimings: List<WorldTiming> = emptyList(),
     val configTimings: List<StartupItemTiming> = emptyList(),
     val eventTimings: List<StartupItemTiming> = emptyList(),
-    val commandTimings: List<StartupItemTiming> = emptyList()
+    val commandTimings: List<StartupItemTiming> = emptyList(),
+    val sampleIntervalMs: Long = 0L
 ) {
 
     companion object {
@@ -72,7 +74,8 @@ data class AgentStartupData(
             worldTimings = emptyList(),
             configTimings = emptyList(),
             eventTimings = emptyList(),
-            commandTimings = emptyList()
+            commandTimings = emptyList(),
+            sampleIntervalMs = 0L
         )
     }
 }

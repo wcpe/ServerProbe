@@ -42,6 +42,7 @@ import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
  * @property configTimings agent 实测的逐配置文件加载耗时(M5);未挂载时为 null。
  * @property eventTimings agent 实测的逐插件事件注册耗时(M5);未挂载时为 null。
  * @property commandTimings agent 实测的逐命令注册耗时(M5);未挂载时为 null。
+ * @property sampleIntervalMs 栈采样周期(毫秒,M5);用于由"采样命中数 × 周期"估算各调用栈的墙钟耗时。未挂载时为 null。
  */
 data class StartupProfile(
     val schemaVersion: Int,
@@ -65,5 +66,6 @@ data class StartupProfile(
     val threadStacks: List<ThreadStackProfile>? = null,
     val configTimings: List<StartupItemTiming>? = null,
     val eventTimings: List<StartupItemTiming>? = null,
-    val commandTimings: List<StartupItemTiming>? = null
+    val commandTimings: List<StartupItemTiming>? = null,
+    val sampleIntervalMs: Long? = null
 )

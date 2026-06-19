@@ -66,7 +66,8 @@ object AgentDataReader {
                 worldTimings = parseWorldTimings(bridge.invokeString(GET_WORLD_TIMINGS)),
                 configTimings = parseItemTimings(bridge.invokeString(GET_CONFIG_TIMINGS)),
                 eventTimings = parseItemTimings(bridge.invokeString(GET_EVENT_TIMINGS)),
-                commandTimings = parseItemTimings(bridge.invokeString(GET_COMMAND_TIMINGS))
+                commandTimings = parseItemTimings(bridge.invokeString(GET_COMMAND_TIMINGS)),
+                sampleIntervalMs = bridge.invokeLong(GET_SAMPLE_INTERVAL_MS)
             )
         }.getOrElse {
             ProbeLogger.warn("读取启动 agent 数据失败,按未挂载降级:${it.message}")
@@ -259,6 +260,9 @@ object AgentDataReader {
 
     /** getter:JVM 启动时刻(epoch 毫秒)。 */
     private const val GET_JVM_START_TIME_MS = "getJvmStartTimeMs"
+
+    /** getter:栈采样周期(毫秒,M5)。 */
+    private const val GET_SAMPLE_INTERVAL_MS = "getSampleIntervalMs"
 
     /** getter:逐插件 load 耗时串。 */
     private const val GET_PLUGIN_LOAD_TIMINGS = "getPluginLoadTimings"

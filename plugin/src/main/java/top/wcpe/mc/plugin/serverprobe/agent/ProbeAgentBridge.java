@@ -41,6 +41,9 @@ public final class ProbeAgentBridge {
     /** JVM 启动参数（来自 {@code RuntimeMXBean#getInputArguments()}），以空格拼接成单串，便于跨 CL 传递。 */
     private static volatile String jvmArgs = "";
 
+    /** 栈采样周期（毫秒，由 {@link StartupStackSampler} 启动时写入），供展示侧做"采样数 × 周期"的耗时估算。 */
+    private static volatile long sampleIntervalMs = 0L;
+
     /**
      * 启动窗口标志：true 表示仍在启动期、接受采集；false 表示窗口已关闭、所有 {@code record*} 直接返回。
      *
@@ -141,6 +144,24 @@ public final class ProbeAgentBridge {
      */
     public static String getJvmArgs() {
         return jvmArgs;
+    }
+
+    /**
+     * 写入栈采样周期（由 {@link StartupStackSampler#start()} 调用，仅一次）。
+     *
+     * @param millis 采样周期（毫秒）
+     */
+    public static void setSampleIntervalMs(long millis) {
+        sampleIntervalMs = millis;
+    }
+
+    /**
+     * 读取栈采样周期。
+     *
+     * @return 采样周期（毫秒）；未启动采样时为 0
+     */
+    public static long getSampleIntervalMs() {
+        return sampleIntervalMs;
     }
 
     /**

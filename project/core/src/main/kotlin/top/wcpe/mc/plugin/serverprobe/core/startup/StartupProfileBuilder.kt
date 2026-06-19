@@ -68,7 +68,8 @@ class StartupProfileBuilder {
             threadStacks = if (agentAttached) agentData?.threadStacks else null,
             configTimings = if (agentAttached) agentData?.configTimings else null,
             eventTimings = if (agentAttached) agentData?.eventTimings else null,
-            commandTimings = if (agentAttached) agentData?.commandTimings else null
+            commandTimings = if (agentAttached) agentData?.commandTimings else null,
+            sampleIntervalMs = if (agentAttached) agentData?.sampleIntervalMs else null
         )
     }
 

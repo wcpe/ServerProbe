@@ -40,12 +40,14 @@ object FlamegraphExporter {
     private fun generateHtml(profile: StartupProfile): String {
         val flamegraphThreads = buildThreadTrees(profile)
         val waterfallData = buildWaterfallData(profile)
+        val reportHtml = buildReportHtml(profile)
         val totalMs = profile.totalMs
         val serverId = escapeJson(profile.serverId)
         val mcVersion = escapeJson(profile.mcVersion)
         val threadCount = profile.threadStacks?.size ?: 0
         val totalSamples = profile.threadStacks.orEmpty().sumOf { tp -> tp.stacks.sumOf { it.sampleCount } }
         val eventCount = profile.timelineEvents?.size ?: 0
+        val sampleIntervalMs = profile.sampleIntervalMs ?: 0L
 
         return """
 <!DOCTYPE html>
@@ -78,6 +80,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 #breadcrumb span { color: #89b4fa; cursor: pointer; }
 #breadcrumb span:hover { text-decoration: underline; }
 .empty-hint { padding: 40px 24px; color: #6c7086; font-size: 14px; }
+.toolbar button { background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.toolbar button:hover { border-color: #89b4fa; color: #fff; }
+.report { padding: 16px 24px; }
+.report h2 { font-size: 15px; color: #89b4fa; margin: 18px 0 8px; }
+.report h2:first-child { margin-top: 0; }
+.report .hint { font-size: 12px; color: #6c7086; margin: 4px 0 10px; }
+.report table { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 13px; margin-bottom: 6px; }
+.report th, .report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #2a2a3c; }
+.report th { color: #a6adc8; font-weight: 600; background: #181825; }
+.report td.num { text-align: right; font-variant-numeric: tabular-nums; color: #f5e0dc; }
+.report td.frame { font-family: 'Cascadia Code','Fira Code',monospace; color: #cdd6f4; word-break: break-all; }
+.report .bar { display: inline-block; height: 10px; background: #f38ba8; border-radius: 2px; vertical-align: middle; margin-left: 6px; }
+.report .tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 11px; color: #1e1e2e; font-weight: 600; }
+.report .empty { color: #6c7086; font-size: 13px; }
 canvas { display: block; cursor: pointer; }
 #tooltip { position: fixed; background: #313244; border: 1px solid #45475a; border-radius: 6px; padding: 10px 14px; font-size: 12px; pointer-events: none; display: none; z-index: 1000; max-width: 520px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
 #tooltip .tt-name { color: #f5e0dc; font-weight: 600; margin-bottom: 4px; word-break: break-all; font-family: 'Cascadia Code', 'Fira Code', monospace; }
@@ -99,16 +115,22 @@ canvas { display: block; cursor: pointer; }
 </div>
 
 <div class="tabs">
-<div class="tab active" onclick="switchTab('flamegraph')">火焰图</div>
+<div class="tab active" onclick="switchTab('report')">分析报告</div>
+<div class="tab" onclick="switchTab('flamegraph')">火焰图</div>
 <div class="tab" onclick="switchTab('waterfall')">时间线</div>
 </div>
 
-<div id="flamegraph-panel" class="panel active">
+<div id="report-panel" class="panel active">
+<div class="report">$reportHtml</div>
+</div>
+
+<div id="flamegraph-panel" class="panel">
 <div class="toolbar">
 <label for="thread-select">线程:</label>
 <select id="thread-select"></select>
 <input type="text" id="search" placeholder="搜索帧名(如 org.bukkit, onEnable)..." autocomplete="off">
-<div class="info">左键缩放 | 右键返回上层 | 悬浮查看详情</div>
+<button id="reset-view" type="button">重置视图</button>
+<div class="info">滚轮缩放 | 拖拽平移 | 左键下钻 | 右键返回上层</div>
 </div>
 <div id="breadcrumb"></div>
 <div id="flamegraph-empty" class="empty-hint" style="display:none;">无折叠栈数据(需挂载启动 agent 并完成一次采样)。</div>
@@ -125,16 +147,18 @@ canvas { display: block; cursor: pointer; }
 </div>
 
 <script>
+var TAB_NAMES = ['report', 'flamegraph', 'waterfall'];
 function switchTab(name) {
 document.querySelectorAll('.tab').forEach(function(t, i) {
-t.classList.toggle('active', (i === 0 && name === 'flamegraph') || (i === 1 && name === 'waterfall'));
+t.classList.toggle('active', TAB_NAMES[i] === name);
 });
+document.getElementById('report-panel').classList.toggle('active', name === 'report');
 document.getElementById('flamegraph-panel').classList.toggle('active', name === 'flamegraph');
 document.getElementById('waterfall-panel').classList.toggle('active', name === 'waterfall');
 if (name === 'waterfall') {
 waterfallRenderer.resize();
 waterfallRenderer.draw();
-} else if (flamegraphRenderer) {
+} else if (name === 'flamegraph' && flamegraphRenderer) {
 flamegraphRenderer.resize();
 flamegraphRenderer.draw();
 }
@@ -143,6 +167,7 @@ flamegraphRenderer.draw();
 // 每个线程一棵火焰图树:[{name, root:{name,value,children}}, ...]
 var FLAMEGRAPH_THREADS = $flamegraphThreads;
 var WATERFALL_DATA = $waterfallData;
+var SAMPLE_INTERVAL_MS = $sampleIntervalMs;
 
 function escapeHtml(s) {
 var d = document.createElement('div');
@@ -150,7 +175,7 @@ d.appendChild(document.createTextNode(s));
 return d.innerHTML;
 }
 
-// === 火焰图渲染器(Canvas,多层 + 多线程) ===
+// === 火焰图渲染器(Canvas,多层 + 多线程,支持滚轮缩放 / 拖拽平移) ===
 var FlamegraphRenderer = (function() {
 function R(canvasId, threads) {
 this.canvas = document.getElementById(canvasId);
@@ -168,6 +193,10 @@ if (threads[i].name.indexOf('Server thread') === 0) { this.threadIdx = i; break;
 this.root = threads[this.threadIdx].root;
 this.currentRoot = this.root;
 this.zoomStack = [this.root];
+// 视口:占 currentRoot 全宽的比例区间 [viewStart, viewEnd];滚轮改变其宽度、拖拽平移其位置
+this.viewStart = 0;
+this.viewEnd = 1;
+this._drag = null;
 this._bind();
 this.resize();
 this.draw();
@@ -177,17 +206,33 @@ this._updateBreadcrumb();
 R.prototype._bind = function() {
 var self = this;
 this.canvas.addEventListener('mousemove', function(e) { self._onMouseMove(e); });
-this.canvas.addEventListener('mouseleave', function() { self._hideTooltip(); });
-this.canvas.addEventListener('click', function(e) { self._onClick(e); });
+this.canvas.addEventListener('mousedown', function(e) { self._onMouseDown(e); });
+this.canvas.addEventListener('mouseup', function(e) { self._onMouseUp(e); });
+this.canvas.addEventListener('mouseleave', function() { self._drag = null; self._hideTooltip(); });
 this.canvas.addEventListener('contextmenu', function(e) { self._onRightClick(e); });
+this.canvas.addEventListener('wheel', function(e) { self._onWheel(e); }, { passive: false });
 window.addEventListener('resize', function() { self.resize(); self.draw(); });
 };
+
+R.prototype._resetView = function() { this.viewStart = 0; this.viewEnd = 1; };
 
 R.prototype.setThread = function(idx) {
 this.threadIdx = idx;
 this.root = this.threads[idx].root;
 this.currentRoot = this.root;
 this.zoomStack = [this.root];
+this._resetView();
+this.resize();
+this.draw();
+this._updateBreadcrumb();
+this._hideTooltip();
+};
+
+// 重置:回到当前线程根 + 全宽视口
+R.prototype.resetAll = function() {
+this.currentRoot = this.root;
+this.zoomStack = [this.root];
+this._resetView();
 this.resize();
 this.draw();
 this._updateBreadcrumb();
@@ -207,18 +252,28 @@ this.logicalW = w;
 this.logicalH = h;
 };
 
-// 自当前缩放根递归收集可见节点(宽度=占 currentRoot 的比例 * 画布宽);水平依次排布同层兄弟。
-R.prototype._flattenVisible = function(node, depth, x, arr) {
+// 比例 → 屏幕 X(经视口换算)
+R.prototype._sx = function(xFrac) {
+var vw = this.viewEnd - this.viewStart;
+return (xFrac - this.viewStart) / vw * this.logicalW;
+};
+// 比例宽 → 屏幕宽
+R.prototype._sw = function(wFrac) {
+return wFrac / (this.viewEnd - this.viewStart) * this.logicalW;
+};
+
+// 自当前缩放根递归收集可见节点;坐标用"占 currentRoot 全宽的比例"(xFrac/wFrac)。
+// 当前视口下屏幕宽 < 0.3px 的子树整体跳过,使可见节点数随缩放自适应、保持高帧率。
+R.prototype._flattenVisible = function(node, depth, xFrac, arr) {
 var rootVal = this.currentRoot.value || 1;
-var w = this.logicalW * (node.value / rootVal);
-if (w < 0.4) return;
-arr.push({ node: node, depth: depth, x: x, w: w });
+var wFrac = node.value / rootVal;
+if (this._sw(wFrac) < 0.3) return;
+arr.push({ node: node, depth: depth, xFrac: xFrac, wFrac: wFrac });
 var children = node.children || [];
-var childX = x;
+var cx = xFrac;
 for (var i = 0; i < children.length; i++) {
-var cw = this.logicalW * (children[i].value / rootVal);
-this._flattenVisible(children[i], depth + 1, childX, arr);
-childX += cw;
+this._flattenVisible(children[i], depth + 1, cx, arr);
+cx += children[i].value / rootVal;
 }
 };
 
@@ -258,20 +313,23 @@ var items = [];
 this._flattenVisible(this.currentRoot, 0, 0, items);
 for (var i = 0; i < items.length; i++) {
 var item = items[i];
-var x = item.x;
+var sw = this._sw(item.wFrac);
+if (sw < 0.4) continue;
+var sx = this._sx(item.xFrac);
+if (sx > this.logicalW || sx + sw < 0) continue; // 视口外剔除
 var y = this.logicalH - (item.depth + 1) * (this.barHeight + this.padding) - 20;
-var w = item.w;
-if (w < 1) continue;
+// 记录屏幕坐标供命中测试
+item.screenX = sx; item.screenW = sw; item.screenY = y;
 ctx.fillStyle = this._color(item.node.name);
-ctx.fillRect(x, y, w - 1, this.barHeight);
-if (w > 32) {
+ctx.fillRect(sx, y, Math.max(1, sw - 1), this.barHeight);
+if (sw > 32) {
 ctx.fillStyle = '#1e1e2e';
 ctx.font = '11px "Cascadia Code","Fira Code",monospace';
 ctx.save();
 ctx.beginPath();
-ctx.rect(x, y, w - 1, this.barHeight);
+ctx.rect(Math.max(0, sx), y, sw - 1, this.barHeight);
 ctx.clip();
-ctx.fillText(this._shortName(item.node.name), x + 4, y + 14);
+ctx.fillText(this._shortName(item.node.name), Math.max(0, sx) + 4, y + 14);
 ctx.restore();
 }
 }
@@ -296,8 +354,8 @@ var my = e.clientY - rect.top;
 if (!this._items) return null;
 for (var i = this._items.length - 1; i >= 0; i--) {
 var item = this._items[i];
-var y = this.logicalH - (item.depth + 1) * (this.barHeight + this.padding) - 20;
-if (mx >= item.x && mx <= item.x + item.w && my >= y && my <= y + this.barHeight) {
+if (item.screenX == null) continue; // 未绘制(被剔除)的节点不参与命中
+if (mx >= item.screenX && mx <= item.screenX + item.screenW && my >= item.screenY && my <= item.screenY + this.barHeight) {
 return item;
 }
 }
@@ -308,8 +366,12 @@ R.prototype._showTooltip = function(item, e) {
 var tip = document.getElementById('tooltip');
 var rootVal = this.currentRoot.value || 1;
 var pct = (item.node.value / rootVal * 100).toFixed(2);
+var detail = item.node.value + ' samples (' + pct + '% of view) | depth=' + item.depth;
+if (SAMPLE_INTERVAL_MS > 0) {
+detail += ' | ~' + (item.node.value * SAMPLE_INTERVAL_MS) + 'ms';
+}
 tip.querySelector('.tt-name').textContent = item.node.name;
-tip.querySelector('.tt-detail').textContent = item.node.value + ' samples (' + pct + '% of view) | depth=' + item.depth;
+tip.querySelector('.tt-detail').textContent = detail;
 tip.style.display = 'block';
 tip.style.left = (e.clientX + 12) + 'px';
 tip.style.top = (e.clientY + 12) + 'px';
@@ -319,7 +381,43 @@ R.prototype._hideTooltip = function() {
 document.getElementById('tooltip').style.display = 'none';
 };
 
+R.prototype._onMouseDown = function(e) {
+var rect = this.canvas.getBoundingClientRect();
+this._drag = { x: e.clientX - rect.left, moved: false, vs: this.viewStart, ve: this.viewEnd };
+};
+
+R.prototype._onMouseUp = function(e) {
+var drag = this._drag;
+this._drag = null;
+if (drag && drag.moved) return; // 拖拽收尾,不当作点击下钻
+var hit = this._hitTest(e);
+if (hit && hit.node !== this.currentRoot && (hit.node.children || []).length > 0) {
+this.currentRoot = hit.node;
+this.zoomStack.push(hit.node);
+this._resetView();
+this.resize();
+this.draw();
+this._updateBreadcrumb();
+this._hideTooltip();
+}
+};
+
 R.prototype._onMouseMove = function(e) {
+if (this._drag) {
+var rect = this.canvas.getBoundingClientRect();
+var dx = (e.clientX - rect.left) - this._drag.x;
+if (Math.abs(dx) > 3) this._drag.moved = true;
+if (this._drag.moved) {
+var vw = this._drag.ve - this._drag.vs;
+var dFrac = (dx / this.logicalW) * vw;
+var ns = Math.max(0, Math.min(1 - vw, this._drag.vs - dFrac));
+this.viewStart = ns; this.viewEnd = ns + vw;
+this._hideTooltip();
+this.canvas.style.cursor = 'grabbing';
+this.draw();
+}
+return;
+}
 var hit = this._hitTest(e);
 if (hit) {
 this._showTooltip(hit, e);
@@ -330,16 +428,20 @@ this.canvas.style.cursor = 'default';
 }
 };
 
-R.prototype._onClick = function(e) {
-var hit = this._hitTest(e);
-if (hit && hit.node !== this.currentRoot && (hit.node.children || []).length > 0) {
-this.currentRoot = hit.node;
-this.zoomStack.push(hit.node);
-this.resize();
-this.draw();
-this._updateBreadcrumb();
+// 滚轮:以光标处为锚点做水平缩放(上滚放大、下滚缩小)
+R.prototype._onWheel = function(e) {
+e.preventDefault();
+var rect = this.canvas.getBoundingClientRect();
+var mx = e.clientX - rect.left;
+var vw = this.viewEnd - this.viewStart;
+var cursorFrac = this.viewStart + (mx / this.logicalW) * vw;
+var factor = e.deltaY < 0 ? 0.82 : 1.22;
+var newVw = Math.min(1, Math.max(0.0008, vw * factor));
+var ns = Math.max(0, Math.min(1 - newVw, cursorFrac - (mx / this.logicalW) * newVw));
+this.viewStart = ns;
+this.viewEnd = ns + newVw;
 this._hideTooltip();
-}
+this.draw();
 };
 
 R.prototype._onRightClick = function(e) {
@@ -347,6 +449,7 @@ e.preventDefault();
 if (this.zoomStack.length > 1) {
 this.zoomStack.pop();
 this.currentRoot = this.zoomStack[this.zoomStack.length - 1];
+this._resetView();
 this.resize();
 this.draw();
 this._updateBreadcrumb();
@@ -371,6 +474,7 @@ el.onclick = function() {
 var idx = parseInt(this.getAttribute('data-idx'));
 self.zoomStack = self.zoomStack.slice(0, idx + 1);
 self.currentRoot = self.zoomStack[idx];
+self._resetView();
 self.resize();
 self.draw();
 self._updateBreadcrumb();
@@ -604,7 +708,8 @@ for (var i = 0; i < FLAMEGRAPH_THREADS.length; i++) {
 var opt = document.createElement('option');
 opt.value = i;
 var total = (FLAMEGRAPH_THREADS[i].root.value || 0);
-opt.textContent = FLAMEGRAPH_THREADS[i].name + ' (' + total + ')';
+var est = SAMPLE_INTERVAL_MS > 0 ? ', ~' + (total * SAMPLE_INTERVAL_MS) + 'ms' : '';
+opt.textContent = FLAMEGRAPH_THREADS[i].name + ' (' + total + ' 采样' + est + ')';
 sel.appendChild(opt);
 }
 sel.value = flamegraphRenderer.threadIdx;
@@ -615,10 +720,12 @@ var val = this.value;
 clearTimeout(searchTimer);
 searchTimer = setTimeout(function() { flamegraphRenderer.setSearch(val); }, 150);
 });
+document.getElementById('reset-view').addEventListener('click', function() { flamegraphRenderer.resetAll(); });
 } else {
 document.getElementById('flamegraph-empty').style.display = 'block';
 document.getElementById('thread-select').style.display = 'none';
 document.getElementById('search').style.display = 'none';
+document.getElementById('reset-view').style.display = 'none';
 }
 
 var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
@@ -639,7 +746,10 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
         if (threads.isNullOrEmpty()) {
             return "[]"
         }
-        return threads.joinToString(",", "[", "]") { tp -> threadTreeJson(tp) }
+        // 按线程采样总数降序:最忙的线程(常即卡顿所在,如并行下载线程)排在下拉首位,便于一眼定位
+        return threads
+            .sortedByDescending { tp -> tp.stacks.sumOf { it.sampleCount } }
+            .joinToString(",", "[", "]") { tp -> threadTreeJson(tp) }
     }
 
     /**
@@ -672,6 +782,161 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
                 "\"start\":${ev.startNanos},\"end\":${ev.endNanos}}"
         }
     }
+
+    /**
+     * 构建"分析报告"面板 HTML(静态表格,在 Kotlin 侧计算好,前端直接展示)。
+     *
+     * 目标是让运维**一眼看出**启动时间花在哪:
+     * - **插件耗时 Top-N(load + enable 合并)**:回答"哪个插件占用开启时间"。合并 load 与 enable 至关重要——
+     *   TabooLib 等框架的重活(依赖下载、初始化)发生在 `loadPlugin`(load 阶段),仅按 enable 排名会漏掉它。
+     * - **库下载 / 世界创建 Top-N**。
+     * - **配置 / 事件 / 命令注册 Top-N**(均为 enable 的子组成)。
+     * - **采样热点 Top-N(跨线程,估算墙钟,滤除空闲等待)**:回答"卡在哪段代码"——这是唯一能暴露**非 hook**
+     *   瓶颈(如在并行下载线程上闷头卡数分钟的 TabooLib/插件依赖下载)的视图。
+     */
+    private fun buildReportHtml(profile: StartupProfile): String {
+        val totalMs = profile.totalMs.coerceAtLeast(1)
+        val intervalMs = profile.sampleIntervalMs ?: 0L
+        val sb = StringBuilder()
+
+        sb.append("<h2>启动概要</h2><div class=\"hint\">")
+        sb.append("总耗时 ").append(profile.totalMs).append("ms")
+        if (profile.agentAttached) {
+            sb.append(" · 采样线程 ").append(profile.threadStacks?.size ?: 0)
+            sb.append(" · 采样周期 ").append(intervalMs).append("ms")
+            sb.append(" · 时间线事件 ").append(profile.timelineEvents?.size ?: 0)
+        } else {
+            sb.append(" · 未挂载启动 agent(仅基础数据;加 -javaagent:plugins/ServerProbe.jar 可获库下载/线程采样/火焰图)")
+        }
+        sb.append("</div>")
+
+        sb.append(buildPluginCostTable(profile, totalMs))
+        sb.append(buildNamedTable("库下载耗时 Top-N", profile.libraryTimings?.map { it.name to it.loadMs }, totalMs))
+        sb.append(buildNamedTable("世界创建耗时 Top-N", profile.worldTimings.map { it.name to it.loadMs }.filter { it.second > 0 }, totalMs))
+        sb.append(buildNamedTable("配置加载耗时 Top-N", profile.configTimings?.map { it.name to it.costMs }, totalMs))
+        sb.append(buildNamedTable("事件注册耗时 Top-N", profile.eventTimings?.map { it.name to it.costMs }, totalMs))
+        sb.append(buildNamedTable("命令注册耗时 Top-N", profile.commandTimings?.map { it.name to it.costMs }, totalMs))
+        sb.append(buildSamplingHotspots(profile, intervalMs))
+        return sb.toString()
+    }
+
+    /**
+     * 插件耗时榜:挂载 agent 时用 load+enable 合并实测(揭示 load 阶段的下载/初始化大头),否则退回日志近似。
+     */
+    private fun buildPluginCostTable(profile: StartupProfile, totalMs: Long): String {
+        val load = (profile.agentPluginLoadTimings ?: emptyList()).associate { it.name to it.enableMs }
+        val enable = (profile.agentPluginEnableTimings ?: emptyList()).associate { it.name to it.enableMs }
+        if (load.isNotEmpty() || enable.isNotEmpty()) {
+            val names = LinkedHashSet<String>().apply { addAll(load.keys); addAll(enable.keys) }
+            val rows = names
+                .map { Triple(it, load[it] ?: 0L, enable[it] ?: 0L) }
+                .sortedByDescending { it.second + it.third }
+                .take(REPORT_TOP_N)
+            val body = StringBuilder("<table><tr><th>插件</th><th>load</th><th>enable</th><th>合计</th><th>占启动</th></tr>")
+            rows.forEach { (name, l, e) ->
+                body.append("<tr><td class=\"frame\">").append(htmlEscape(name)).append("</td>")
+                    .append(numCell(l)).append(numCell(e)).append(numCell(l + e))
+                    .append(pctCell(l + e, totalMs)).append("</tr>")
+            }
+            body.append("</table>")
+            return section("插件耗时 Top-N(load + enable,agent 实测)", body.toString())
+        }
+        // 无 agent:退回日志解析的 enable 近似
+        val rows = profile.pluginTimings.sortedByDescending { it.enableMs }.take(REPORT_TOP_N)
+        if (rows.isEmpty()) return section("插件耗时 Top-N", "<div class=\"empty\">无数据</div>")
+        val body = StringBuilder("<table><tr><th>插件</th><th>启用间隔(近似)</th><th>占启动</th></tr>")
+        rows.forEach { t ->
+            body.append("<tr><td class=\"frame\">").append(htmlEscape(t.name)).append("</td>")
+                .append(numCell(t.enableMs)).append(pctCell(t.enableMs, totalMs)).append("</tr>")
+        }
+        body.append("</table>")
+        return section("插件耗时 Top-N(日志解析,启用间隔近似)", body.toString())
+    }
+
+    /**
+     * 通用"名称→耗时"榜表;items 为 null/空时显示无数据。
+     */
+    private fun buildNamedTable(title: String, items: List<Pair<String, Long>>?, totalMs: Long): String {
+        val list = (items ?: emptyList()).sortedByDescending { it.second }.take(REPORT_TOP_N)
+        if (list.isEmpty()) return section(title, "<div class=\"empty\">无数据</div>")
+        val body = StringBuilder("<table><tr><th>名称</th><th>耗时</th><th>占启动</th></tr>")
+        list.forEach { (name, ms) ->
+            body.append("<tr><td class=\"frame\">").append(htmlEscape(name)).append("</td>")
+                .append(numCell(ms)).append(pctCell(ms, totalMs)).append("</tr>")
+        }
+        body.append("</table>")
+        return section(title, body.toString())
+    }
+
+    /**
+     * 采样热点榜:把所有线程的折叠栈按命中降序(滤除空闲等待栈),估算墙钟耗时(采样数 × 周期)。
+     *
+     * 这是暴露"非 hook 瓶颈"的关键视图:并行下载线程卡在 socket 读取数分钟,会以巨大的采样数浮到榜首,
+     * 其调用栈含该插件(及其重定位后的 TabooLib)类名,据此即可定位"谁在下载、卡在哪"。
+     */
+    private fun buildSamplingHotspots(profile: StartupProfile, intervalMs: Long): String {
+        val threads = profile.threadStacks ?: return ""
+        val hots = ArrayList<Triple<String, List<String>, Long>>()
+        threads.forEach { tp ->
+            tp.stacks.forEach { st ->
+                if (st.frames.isNotEmpty() && !isIdleLeaf(st.frames.last())) {
+                    hots.add(Triple(tp.threadName, st.frames, st.sampleCount))
+                }
+            }
+        }
+        val titleSuffix = if (intervalMs > 0) "(估算耗时 = 采样数 × ${intervalMs}ms,已滤除空闲等待)" else "(已滤除空闲等待)"
+        if (hots.isEmpty()) return section("采样热点 Top-N $titleSuffix", "<div class=\"empty\">无非空闲采样数据</div>")
+        val rows = hots.sortedByDescending { it.third }.take(REPORT_TOP_N)
+        val body = StringBuilder("<table><tr><th>线程</th><th>估算耗时</th><th>采样</th><th>热点调用栈(栈顶在前)</th></tr>")
+        rows.forEach { (thread, frames, count) ->
+            val stackTop = frames.asReversed().take(6).joinToString(" ← ") { shortFrame(it) }
+            val est = if (intervalMs > 0) numCell(count * intervalMs) else "<td class=\"num\">-</td>"
+            body.append("<tr><td class=\"frame\">").append(htmlEscape(thread)).append("</td>")
+                .append(est).append("<td class=\"num\">").append(count).append("</td>")
+                .append("<td class=\"frame\">").append(htmlEscape(stackTop)).append("</td></tr>")
+        }
+        body.append("</table>")
+        return section("采样热点 Top-N $titleSuffix", body.toString())
+    }
+
+    /** 包装一个带标题的报告小节。 */
+    private fun section(title: String, body: String): String = "<h2>${htmlEscape(title)}</h2>$body"
+
+    /** 毫秒数值单元格。 */
+    private fun numCell(ms: Long): String = "<td class=\"num\">${ms}ms</td>"
+
+    /** 占比单元格(百分比 + 比例条)。 */
+    private fun pctCell(ms: Long, totalMs: Long): String {
+        val pct = (ms.toDouble() / totalMs * 100).coerceIn(0.0, 100.0)
+        val barPx = (pct * 1.4).toInt()
+        return "<td class=\"num\">${String.format(java.util.Locale.ROOT, "%.1f", pct)}% " +
+            "<span class=\"bar\" style=\"width:${barPx}px\"></span></td>"
+    }
+
+    /** 判定栈顶帧是否为"空闲等待"(线程池 park / 选择器 wait / acceptor 等),这类不是启动瓶颈,报告中滤除。 */
+    private fun isIdleLeaf(frame: String): Boolean = frame.substringAfterLast('#', "") in IDLE_LEAF_METHODS
+
+    /** 帧标识简写:类简名#方法。 */
+    private fun shortFrame(frame: String): String {
+        val hash = frame.indexOf('#')
+        if (hash < 0) return frame
+        val cls = frame.substring(0, hash)
+        val method = frame.substring(hash)
+        val dot = cls.lastIndexOf('.')
+        return (if (dot >= 0) cls.substring(dot + 1) else cls) + method
+    }
+
+    /** HTML 文本转义。 */
+    private fun htmlEscape(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+    /** 报告各榜的展示条数。 */
+    private const val REPORT_TOP_N = 15
+
+    /** "空闲等待"的栈顶方法名集合(park/wait/选择器/acceptor 等),采样热点榜据此滤噪。 */
+    private val IDLE_LEAF_METHODS = setOf(
+        "park", "parkNanos", "wait", "epollWait", "poll0", "kevent0", "accept0", "accept"
+    )
 }
 
 /**
