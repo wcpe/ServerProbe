@@ -9,6 +9,7 @@ import taboolib.common.platform.function.getDataFolder
 import taboolib.module.lang.asLangText
 import taboolib.module.lang.sendLang
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
+import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
@@ -17,6 +18,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Inject
 import java.io.File
@@ -62,6 +64,12 @@ object ProbeCommand {
     lateinit var readApi: ProbeReadApi
 
     /**
+     * 外呼近期缓冲(core),由 IOC 注入;供 `/probe http` 回看最近的对外网络调用(M5)。
+     */
+    @Inject
+    lateinit var httpCallStore: HttpCallStore
+
+    /**
      * 主命令 / 帮助:列出全部子命令(全程 i18n)。
      *
      * 不使用 `createHelper()`(其 `§cUsage:` 前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
@@ -78,6 +86,7 @@ object ProbeCommand {
             sender.sendLang("command-help-world")
             sender.sendLang("command-help-proxy")
             sender.sendLang("command-help-flamegraph")
+            sender.sendLang("command-help-http")
         }
     }
 
@@ -232,6 +241,25 @@ object ProbeCommand {
             val dataDir = File(getDataFolder(), "flamegraph")
             val file = FlamegraphExporter.export(profile, dataDir)
             sender.sendLang("command-flamegraph-exported", file.absolutePath)
+        }
+    }
+
+    /**
+     * `/probe http`:回看最近的对外网络外呼(M5)。
+     *
+     * 取 [HttpCallStore] 近期缓冲(由外呼监控服务在运行期实时填充),倒序展示插件/方法/URL/响应码/耗时/触发处。
+     * 缓冲为空时:若启动 agent 未挂载则提示启用方式,否则提示暂无外呼。
+     */
+    @CommandBody(permission = "serverprobe.command.http")
+    val http = subCommand {
+        execute<ProxyCommandSender> { sender, _, _ ->
+            val recent = httpCallStore.recent(HTTP_DISPLAY_LIMIT)
+            if (recent.isEmpty()) {
+                val attached = readApi.lastStartupProfile()?.agentAttached == true
+                sender.sendLang(if (attached) "command-http-empty" else "command-http-agent-absent")
+                return@execute
+            }
+            sendHttp(sender, recent)
         }
     }
 
@@ -549,6 +577,34 @@ object ProbeCommand {
             }
         }
     }
+
+    /**
+     * 渲染 http 近期外呼明细(倒序:最新在前)。
+     *
+     * 每行:插件、方法、URL(已脱敏)、响应码、耗时、触发处(首个应用层栈帧)。
+     *
+     * @param sender 命令发送者。
+     * @param calls 近期外呼(已倒序)。
+     */
+    private fun sendHttp(sender: ProxyCommandSender, calls: List<HttpCall>) {
+        sender.sendLang("command-http-title", calls.size)
+        calls.forEach { c ->
+            val code = when {
+                c.responseCode >= 0 -> c.responseCode.toString()
+                c.error -> "ERR"
+                else -> "-"
+            }
+            val caller = c.callerFrames.firstOrNull { isAppFrame(it) } ?: c.callerFrames.firstOrNull() ?: "-"
+            sender.sendLang("command-http-line", c.plugin, c.method, c.url, code, c.durationMs, caller)
+        }
+    }
+
+    /** 是否"应用层"栈帧(排除 JDK/JVM 帧),用于挑选外呼的触发处。 */
+    private fun isAppFrame(frame: String): Boolean =
+        !(frame.startsWith("java.") || frame.startsWith("sun.") || frame.startsWith("jdk.") || frame.startsWith("javax."))
+
+    /** `/probe http` 展示的近期外呼条数。 */
+    private const val HTTP_DISPLAY_LIMIT = 20
 
     /**
      * 内存"最大值"文案:-1(JVM 约定的"无上限")时显示无上限文案,否则为可读字节数。

@@ -817,8 +817,41 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
         sb.append(buildNamedTable("事件注册耗时 Top-N", profile.eventTimings?.map { it.name to it.costMs }, totalMs))
         sb.append(buildNamedTable("命令注册耗时 Top-N", profile.commandTimings?.map { it.name to it.costMs }, totalMs))
         sb.append(buildSamplingHotspots(profile, intervalMs))
+        sb.append(buildHttpCallsTable(profile))
         return sb.toString()
     }
+
+    /**
+     * 启动期对外网络外呼榜(按耗时降序):方法、目标 URL(已脱敏)、响应码、耗时、触发处。
+     *
+     * 这是把"外呼"并入启动报告的视图——TabooLib/插件的依赖下载等对外请求会在此与采样热点、库下载相互印证。
+     */
+    private fun buildHttpCallsTable(profile: StartupProfile): String {
+        val calls = profile.httpCalls ?: return ""
+        if (calls.isEmpty()) return section("启动期外呼 Top-N", "<div class=\"empty\">启动期无对外网络外呼</div>")
+        val rows = calls.sortedByDescending { it.durationMs }.take(REPORT_TOP_N)
+        val body = StringBuilder("<table><tr><th>方法</th><th>目标</th><th>响应</th><th>耗时</th><th>触发处</th></tr>")
+        rows.forEach { c ->
+            val code = when {
+                c.responseCode >= 0 -> c.responseCode.toString()
+                c.error -> "ERR"
+                else -> "-"
+            }
+            val caller = c.callerFrames.firstOrNull { isAppFrame(it) }?.let { shortFrame(it) } ?: "-"
+            val target = c.url.ifEmpty { c.host }
+            body.append("<tr><td class=\"frame\">").append(htmlEscape(c.method)).append("</td>")
+                .append("<td class=\"frame\">").append(htmlEscape(target)).append("</td>")
+                .append("<td class=\"num\">").append(code).append("</td>")
+                .append(numCell(c.durationMs))
+                .append("<td class=\"frame\">").append(htmlEscape(caller)).append("</td></tr>")
+        }
+        body.append("</table>")
+        return section("启动期外呼 Top-N(按耗时)", body.toString())
+    }
+
+    /** 是否"应用层"栈帧(排除 JDK/JVM 帧),用于挑选外呼的触发处。 */
+    private fun isAppFrame(frame: String): Boolean =
+        !(frame.startsWith("java.") || frame.startsWith("sun.") || frame.startsWith("jdk.") || frame.startsWith("javax."))
 
     /**
      * 插件耗时榜:挂载 agent 时用 load+enable 合并实测(揭示 load 阶段的下载/初始化大头),否则退回日志近似。

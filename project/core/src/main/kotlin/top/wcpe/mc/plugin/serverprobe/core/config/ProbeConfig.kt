@@ -125,6 +125,55 @@ object ProbeConfig {
     fun worldEntityTypes(): Boolean = conf.getBoolean(KEY_WORLD_ENTITY_TYPES, DEFAULT_WORLD_ENTITY_TYPES)
 
     /**
+     * 是否开启 HTTP/TCP 外呼监控(M5,需挂载 agent),默认 true。
+     *
+     * 关闭后 agent 侧外呼 hook 立即返回不记录(开销可忽略),不再产出外呼日志/明细。
+     *
+     * @return 是否开启外呼监控。
+     */
+    fun httpMonitorEnabled(): Boolean = conf.getBoolean(KEY_HTTP_MONITOR_ENABLED, DEFAULT_HTTP_MONITOR_ENABLED)
+
+    /**
+     * 外呼是否实时打印到控制台/插件日志,默认 true。关闭后仍写文件/进 `/probe http`,只是不刷控制台。
+     *
+     * @return 是否打印到控制台。
+     */
+    fun httpMonitorLogToConsole(): Boolean =
+        conf.getBoolean(KEY_HTTP_MONITOR_LOG_CONSOLE, DEFAULT_HTTP_MONITOR_LOG_CONSOLE)
+
+    /**
+     * 外呼日志是否附带(已脱敏的)请求头,默认 false(默认仅 URL/方法/响应码/耗时/调用方,避免刷屏)。
+     *
+     * @return 是否记录请求头。
+     */
+    fun httpMonitorLogHeaders(): Boolean =
+        conf.getBoolean(KEY_HTTP_MONITOR_LOG_HEADERS, DEFAULT_HTTP_MONITOR_LOG_HEADERS)
+
+    /**
+     * 是否把外呼明细落盘到 `data/http/`,默认 true。
+     *
+     * @return 是否落盘外呼明细。
+     */
+    fun httpMonitorFileEnabled(): Boolean =
+        conf.getBoolean(KEY_HTTP_MONITOR_FILE_ENABLED, DEFAULT_HTTP_MONITOR_FILE_ENABLED)
+
+    /**
+     * `/probe http` 可回看的近期外呼条数(内存缓冲),默认 500。
+     *
+     * @return 近期缓冲容量。
+     */
+    fun httpMonitorRecentCapacity(): Int =
+        conf.getInt(KEY_HTTP_MONITOR_RECENT_CAPACITY, DEFAULT_HTTP_MONITOR_RECENT_CAPACITY)
+
+    /**
+     * 外呼记录拉取周期(ticks),默认 20(约 1 秒)。监控线程在任意线程产生记录,本周期从 agent 增量拉取并呈现。
+     *
+     * @return 拉取周期 tick 数。
+     */
+    fun httpMonitorDrainPeriodTicks(): Long =
+        conf.getLong(KEY_HTTP_MONITOR_DRAIN_PERIOD_TICKS, DEFAULT_HTTP_MONITOR_DRAIN_PERIOD_TICKS)
+
+    /**
      * 是否开启 Prometheus `/metrics` 端点(FR4.2),默认 false(关闭)。
      *
      * 出于安全默认:端点关闭、仅本地可访问,需显式开启。关闭时 [top.wcpe.mc.plugin.serverprobe.core.prometheus.PrometheusExporter] 不起服。
@@ -344,6 +393,24 @@ object ProbeConfig {
     /** 配置键名:世界按类型实体统计开关。 */
     private const val KEY_WORLD_ENTITY_TYPES = "world.entity-types"
 
+    /** 配置键名:外呼监控总开关。 */
+    private const val KEY_HTTP_MONITOR_ENABLED = "http-monitor.enabled"
+
+    /** 配置键名:外呼控制台日志开关。 */
+    private const val KEY_HTTP_MONITOR_LOG_CONSOLE = "http-monitor.log-to-console"
+
+    /** 配置键名:外呼日志是否含请求头。 */
+    private const val KEY_HTTP_MONITOR_LOG_HEADERS = "http-monitor.log-headers"
+
+    /** 配置键名:外呼明细落盘开关。 */
+    private const val KEY_HTTP_MONITOR_FILE_ENABLED = "http-monitor.file-enabled"
+
+    /** 配置键名:外呼近期缓冲容量。 */
+    private const val KEY_HTTP_MONITOR_RECENT_CAPACITY = "http-monitor.recent-capacity"
+
+    /** 配置键名:外呼记录拉取周期(ticks)。 */
+    private const val KEY_HTTP_MONITOR_DRAIN_PERIOD_TICKS = "http-monitor.drain-period-ticks"
+
     /** 配置键名:Prometheus 端点开关。 */
     private const val KEY_METRICS_ENABLED = "metrics.enabled"
 
@@ -424,6 +491,24 @@ object ProbeConfig {
 
     /** 默认世界按类型实体统计开关。 */
     private const val DEFAULT_WORLD_ENTITY_TYPES = true
+
+    /** 默认外呼监控开关:开启。 */
+    private const val DEFAULT_HTTP_MONITOR_ENABLED = true
+
+    /** 默认外呼控制台日志开关:开启。 */
+    private const val DEFAULT_HTTP_MONITOR_LOG_CONSOLE = true
+
+    /** 默认外呼日志含请求头:关闭(避免刷屏)。 */
+    private const val DEFAULT_HTTP_MONITOR_LOG_HEADERS = false
+
+    /** 默认外呼明细落盘开关:开启。 */
+    private const val DEFAULT_HTTP_MONITOR_FILE_ENABLED = true
+
+    /** 默认外呼近期缓冲容量。 */
+    private const val DEFAULT_HTTP_MONITOR_RECENT_CAPACITY = 500
+
+    /** 默认外呼记录拉取周期(ticks),约 1 秒。 */
+    private const val DEFAULT_HTTP_MONITOR_DRAIN_PERIOD_TICKS = 20L
 
     /** 默认 Prometheus 端点开关:关闭(安全默认,需显式开启)。 */
     private const val DEFAULT_METRICS_ENABLED = false

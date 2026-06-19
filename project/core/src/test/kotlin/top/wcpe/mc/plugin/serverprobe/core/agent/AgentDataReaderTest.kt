@@ -50,6 +50,21 @@ class AgentDataReaderTest {
         AgentDataReader.stopStackSampler()
     }
 
+    /** 未挂载时 readHttpCallsSince 应返回空列表且游标不前进,不抛异常。 */
+    @Test
+    fun `readHttpCallsSince 未挂载返回空`() {
+        val (calls, maxSeq) = AgentDataReader.readHttpCallsSince(5L)
+        assertTrue(calls.isEmpty(), "未挂载时外呼记录应为空")
+        assertEquals(5L, maxSeq, "未挂载时游标应原样返回")
+    }
+
+    /** 未挂载时 setHttpMonitorEnabled 应静默无副作用(不抛异常)。 */
+    @Test
+    fun `setHttpMonitorEnabled 未挂载时静默`() {
+        AgentDataReader.setHttpMonitorEnabled(true)
+        AgentDataReader.setHttpMonitorEnabled(false)
+    }
+
     /** parseFoldedStacks 应按线程分组、组内按命中降序,帧序列按 ';' 切分。 */
     @Test
     fun `parseFoldedStacks 分组与降序`() {

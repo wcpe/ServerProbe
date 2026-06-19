@@ -94,3 +94,10 @@ command-proxy-backend-line: "§8  - §f{0}§7: §f{1}"
 # flamegraph 火焰图导出
 command-flamegraph-agent-absent: "§e火焰图需要启动 agent，请在启动命令添加 §7-javaagent:plugins/ServerProbe.jar"
 command-flamegraph-exported: "§a已生成火焰图: §f{0}"
+
+# http 外呼监控
+command-help-http: "§a/probe http §7- 查看近期对外 HTTP/TCP 外呼"
+command-http-title: "§6===== §e近期外呼 (最近 {0} 条) §6====="
+command-http-empty: "§7暂无外呼记录(尚无对外请求,或外呼监控已关闭)"
+command-http-agent-absent: "§e外呼监控需要启动 agent，请在启动命令添加 §7-javaagent:plugins/ServerProbe.jar"
+command-http-line: "§8- §e[{0}] §f{1} §7{2} §8({3}, {4}ms) §8← {5}"

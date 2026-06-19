@@ -43,6 +43,24 @@ world:
   # 是否统计各世界按类型的实体分布。关闭后仅给出实体总数。默认 true。
   entity-types: true
 
+# HTTP/TCP 对外网络外呼监控(M5)。需以 -javaagent:plugins/ServerProbe.jar 挂载启动 agent 方生效;
+# 拦截 java.net.HttpURLConnection 与 java.net.Socket.connect,记录"哪个插件/哪段代码发起了对外请求、
+# 目标、耗时、响应码、(脱敏的)参数",实时打印日志、落盘 data/http/,并可经 /probe http 回看。
+# 安全:URL 查询串与请求头中的 Authorization/Cookie/token 等敏感项由 agent 侧打码为 ***;请求体不在捕获范围。
+http-monitor:
+  # 是否开启外呼监控。默认 true(关闭后 agent hook 立即返回不记录,开销可忽略)。
+  enabled: true
+  # 是否把每条外呼实时打印到控制台/插件日志。默认 true(外呼频繁刷屏时可关闭,仍会落盘与进 /probe http)。
+  log-to-console: true
+  # 外呼日志是否附带(已脱敏的)请求头。默认 false。
+  log-headers: false
+  # 是否把外呼明细按日滚动落盘到 data/http/http-<yyyyMMdd>.log。默认 true。
+  file-enabled: true
+  # /probe http 可回看的近期外呼条数(内存缓冲)。默认 500。
+  recent-capacity: 500
+  # 从 agent 增量拉取外呼记录的周期(tick;20 tick = 1 秒)。默认 20(约 1 秒)。
+  drain-period-ticks: 20
+
 # Prometheus /metrics 导出端点(FR4.2),对接 Grafana 长期看板与告警。
 # Bukkit 与 BungeeCord 各为独立进程、各起一个端点;同机部署两端请配置不同 port。
 # 安全默认:端点默认【关闭】,且默认仅本机(127.0.0.1)可访问。开放到外网前务必配置 token 与/或 IP 白名单。

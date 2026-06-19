@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
@@ -77,6 +78,7 @@ class StartupProfileBuilderTest {
         assertNull(profile.eventTimings, "未挂载时 eventTimings 应为 null")
         assertNull(profile.commandTimings, "未挂载时 commandTimings 应为 null")
         assertNull(profile.sampleIntervalMs, "未挂载时 sampleIntervalMs 应为 null")
+        assertNull(profile.httpCalls, "未挂载时 httpCalls 应为 null")
     }
 
     /** agent 已挂载时,各 agent 增强字段(含 M5 时间线/折叠栈/配置·事件·命令)应从 [AgentStartupData] 透传填入画像。 */
@@ -93,6 +95,13 @@ class StartupProfileBuilderTest {
         val configs = listOf(StartupItemTiming("config.yml", 30L))
         val events = listOf(StartupItemTiming("Alpha", 15L))
         val commands = listOf(StartupItemTiming("give", 5L))
+        val httpCalls = listOf(
+            HttpCall(
+                seq = 1L, startRelNanos = 1000L, durationMs = 137000L, method = "GET", responseCode = 200,
+                error = false, host = "maven.x", url = "https://maven.x/a.xml", headers = emptyList(),
+                callerFrames = listOf("corelib.RuntimeEnv#load"), loaderHashes = listOf(42), plugin = "CoreLib"
+            )
+        )
         val agentData = AgentStartupData(
             attached = true,
             premainNanos = 987_654L,
@@ -106,7 +115,8 @@ class StartupProfileBuilderTest {
             configTimings = configs,
             eventTimings = events,
             commandTimings = commands,
-            sampleIntervalMs = 10L
+            sampleIntervalMs = 10L,
+            httpCalls = httpCalls
         )
 
         val profile = StartupProfileBuilder().build(
@@ -132,6 +142,7 @@ class StartupProfileBuilderTest {
         assertEquals(events, profile.eventTimings, "eventTimings 应非空透传")
         assertEquals(commands, profile.commandTimings, "commandTimings 应非空透传")
         assertEquals(10L, profile.sampleIntervalMs, "sampleIntervalMs 应透传")
+        assertEquals(httpCalls, profile.httpCalls, "httpCalls 应非空透传")
     }
 
     /** agent 数据 attached=false 时,即使传入也应按未挂载降级。 */

@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
 import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
@@ -67,7 +68,9 @@ object AgentDataReader {
                 configTimings = parseItemTimings(bridge.invokeString(GET_CONFIG_TIMINGS)),
                 eventTimings = parseItemTimings(bridge.invokeString(GET_EVENT_TIMINGS)),
                 commandTimings = parseItemTimings(bridge.invokeString(GET_COMMAND_TIMINGS)),
-                sampleIntervalMs = bridge.invokeLong(GET_SAMPLE_INTERVAL_MS)
+                sampleIntervalMs = bridge.invokeLong(GET_SAMPLE_INTERVAL_MS),
+                // 启动期外呼快照(定格画像用):取缓冲内最近若干条,封顶以控制画像体积
+                httpCalls = readHttpCallsSince(0L).first.takeLast(STARTUP_HTTP_SNAPSHOT_CAP)
             )
         }.getOrElse {
             ProbeLogger.warn("读取启动 agent 数据失败,按未挂载降级:${it.message}")
@@ -88,6 +91,64 @@ object AgentDataReader {
                 ?.invoke(null)
         }
     }
+
+    /**
+     * 设置 agent 侧 HTTP/TCP 外呼监控开关(由插件读配置后调用)。未挂载/失败静默忽略。
+     *
+     * @param enabled true 开启、false 关闭
+     */
+    fun setHttpMonitorEnabled(enabled: Boolean) {
+        runCatching {
+            resolveAgentClass(BRIDGE_CLASS, initialize = true)
+                ?.getMethod(SET_HTTP_MONITOR_ENABLED, Boolean::class.javaPrimitiveType)
+                ?.invoke(null, enabled)
+        }
+    }
+
+    /**
+     * 增量读取序号大于 [sinceSeq] 的外呼记录,并返回新的最大序号(供下次拉取做游标)。
+     *
+     * 未挂载/失败时返回(空列表, [sinceSeq])。解析自 agent 的制表符分隔串(详见 `ProbeAgentBridge`)。
+     *
+     * @param sinceSeq 上次已读到的最大序号;传 0 取全部缓冲
+     * @return 外呼记录列表 与 新的最大序号
+     */
+    fun readHttpCallsSince(sinceSeq: Long): Pair<List<HttpCall>, Long> {
+        val bridge = resolveAgentClass(BRIDGE_CLASS, initialize = true) ?: return emptyList<HttpCall>() to sinceSeq
+        return runCatching {
+            val raw = bridge.getMethod(GET_HTTP_CALLS_SINCE, java.lang.Long.TYPE)
+                .invoke(null, sinceSeq) as String
+            if (raw.isEmpty()) return@runCatching emptyList<HttpCall>() to sinceSeq
+            var maxSeq = sinceSeq
+            val calls = raw.split(HTTP_LINE_SEP).mapNotNull { line ->
+                val f = line.split(HTTP_FIELD_SEP)
+                if (f.size < 10) return@mapNotNull null
+                val seq = f[0].toLongOrNull() ?: return@mapNotNull null
+                if (seq > maxSeq) maxSeq = seq
+                HttpCall(
+                    seq = seq,
+                    startRelNanos = f[1].toLongOrNull() ?: 0L,
+                    durationMs = f[2].toLongOrNull() ?: 0L,
+                    method = f[3],
+                    responseCode = f[4].toIntOrNull() ?: -1,
+                    error = f[5] == "1",
+                    host = f[6],
+                    url = f[7],
+                    headers = splitSub(f[8]),
+                    callerFrames = splitSub(f[9]),
+                    loaderHashes = if (f.size > 10) splitSub(f[10]).mapNotNull { it.toIntOrNull() } else emptyList()
+                )
+            }
+            calls to maxSeq
+        }.getOrElse {
+            ProbeLogger.warn("读取外呼记录失败,跳过本轮:${it.message}")
+            emptyList<HttpCall>() to sinceSeq
+        }
+    }
+
+    /** 按子分隔符拆分(空串→空列表,过滤空项)。 */
+    private fun splitSub(s: String): List<String> =
+        if (s.isEmpty()) emptyList() else s.split(HTTP_SUB_SEP).filter { it.isNotEmpty() }
 
     /**
      * 按 **先 bootstrap、后 system** 顺序反射解析 agent 类(数据桥或入口类)。
@@ -287,6 +348,24 @@ object AgentDataReader {
 
     /** getter:折叠栈串(M5,无参,不截断)。 */
     private const val GET_FOLDED_STACKS = "getFoldedStacks"
+
+    /** getter:增量外呼记录串(M5,入参 long sinceSeq)。 */
+    private const val GET_HTTP_CALLS_SINCE = "getHttpCallsSince"
+
+    /** setter:外呼监控开关(M5,入参 boolean)。 */
+    private const val SET_HTTP_MONITOR_ENABLED = "setHttpMonitorEnabled"
+
+    /** 外呼记录字段分隔符(制表符,用字符码构造以规避源码转义歧义)。 */
+    private val HTTP_FIELD_SEP = 9.toChar()
+
+    /** 外呼记录子列表分隔符(SOH,U+0001)。 */
+    private val HTTP_SUB_SEP = 1.toChar()
+
+    /** 外呼记录行分隔符(换行)。 */
+    private val HTTP_LINE_SEP = 10.toChar()
+
+    /** 启动画像内嵌的外呼快照封顶条数(控制画像体积)。 */
+    private const val STARTUP_HTTP_SNAPSHOT_CAP = 200
 
     /** getter:时间线事件串(M5,无参)。 */
     private const val GET_TIMELINE_EVENTS = "getTimelineEvents"

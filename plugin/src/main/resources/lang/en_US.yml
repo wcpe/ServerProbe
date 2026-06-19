@@ -94,3 +94,10 @@ command-proxy-backend-line: "§8  - §f{0}§7: §f{1}"
 # flamegraph export
 command-flamegraph-agent-absent: "§eFlamegraph requires startup agent, add §7-javaagent:plugins/ServerProbe.jar §eto the start command"
 command-flamegraph-exported: "§aFlamegraph exported: §f{0}"
+
+# http outbound monitor
+command-help-http: "§a/probe http §7- View recent outbound HTTP/TCP calls"
+command-http-title: "§6===== §eRecent outbound calls (last {0}) §6====="
+command-http-empty: "§7No outbound calls yet (no requests made, or monitor disabled)"
+command-http-agent-absent: "§eOutbound monitor requires startup agent, add §7-javaagent:plugins/ServerProbe.jar §eto the start command"
+command-http-line: "§8- §e[{0}] §f{1} §7{2} §8({3}, {4}ms) §8← {5}"

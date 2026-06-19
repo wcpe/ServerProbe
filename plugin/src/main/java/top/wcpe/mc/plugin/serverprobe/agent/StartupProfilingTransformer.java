@@ -47,6 +47,12 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
     private static final String BRIDGE_INTERNAL_NAME =
             "top/wcpe/mc/plugin/serverprobe/agent/ProbeAgentBridge";
 
+    /** HTTP 外呼 hook：{@code sun.net.www.protocol.http.HttpURLConnection}(HTTPS 经其子类继承同一 getInputStream)。 */
+    private static final String HTTP_URL_CONNECTION_CLASS = "sun/net/www/protocol/http/HttpURLConnection";
+
+    /** TCP 外呼 hook：{@code java.net.Socket}。 */
+    private static final String SOCKET_CLASS = "java/net/Socket";
+
     /**
      * 单个 hook 的不可变描述：目标类/方法/描述符 + 取名策略 + 时间线类型。
      *
@@ -289,10 +295,13 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
         }
     }
 
-    /** 是否存在命中该类名的 hook。 */
+    /** 是否存在命中该类名的 hook（含启动期 hook 与运行期外呼 hook）。 */
     private static boolean hasHookForClass(String className) {
         if (className == null) {
             return false;
+        }
+        if (HTTP_URL_CONNECTION_CLASS.equals(className) || SOCKET_CLASS.equals(className)) {
+            return true;
         }
         for (HookTarget hook : HookTarget.values()) {
             if (hook.matchesClass(className)) {
@@ -319,7 +328,17 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
         public MethodVisitor visitMethod(int access, String name, String descriptor,
                                          String signature, String[] exceptions) {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-            // 在本类的 hook 中查找命中当前方法者；命中即套增强器，否则透传。
+            // 运行期外呼 hook(始终开启,由数据桥自身的开关控制是否记录):
+            // HttpURLConnection.getInputStream → 完整 HTTP 记录;Socket.connect → 原始 TCP 记录。
+            if (HTTP_URL_CONNECTION_CLASS.equals(className)
+                    && "getInputStream".equals(name) && "()Ljava/io/InputStream;".equals(descriptor)) {
+                return new ConnectionAdvice(mv, access, name, descriptor, true, "httpExit", "java/net/HttpURLConnection");
+            }
+            if (SOCKET_CLASS.equals(className)
+                    && "connect".equals(name) && "(Ljava/net/SocketAddress;I)V".equals(descriptor)) {
+                return new ConnectionAdvice(mv, access, name, descriptor, false, "recordSocketConnect", "java/net/Socket");
+            }
+            // 启动期 hook：在本类的 HookTarget 中查找命中当前方法者；命中即套计时增强器，否则透传。
             for (HookTarget hook : HookTarget.values()) {
                 if (hook.matchesClass(className) && hook.matchesMethod(name, descriptor)) {
                     return new TimingAdvice(mv, access, name, descriptor, hook);
@@ -444,6 +463,54 @@ public final class StartupProfilingTransformer implements ClassFileTransformer {
             invokeStatic(Type.getObjectType(BRIDGE_INTERNAL_NAME),
                     new org.objectweb.asm.commons.Method("recordSpan",
                             "(Ljava/lang/String;Ljava/lang/String;JJ)V"));
+        }
+    }
+
+    /**
+     * 运行期外呼增强器：入口存 nanoTime(并可选调 {@code httpEnter}),出口把 {@code this} 与起始时刻交给数据桥。
+     *
+     * <p>注入<b>极简</b>(仅 {@code 取时 + 可选 httpEnter + 出口 invokestatic(this, start)}),所有读取连接/socket
+     * 信息与记录的逻辑都在数据桥里且全程 {@code try/catch} 兜底——保证即便监控逻辑出错也<b>绝不破坏</b>应用的网络调用。
+     * 出口覆盖正常返回与异常({@link AdviceAdapter#onMethodExit(int)}),失败的外呼亦被记录。
+     */
+    private static final class ConnectionAdvice extends AdviceAdapter {
+
+        /** 是否在入口调用 {@code ProbeAgentBridge.httpEnter()}(仅 HttpURLConnection 需要,用于 socket 去重/递归保护)。 */
+        private final boolean callHttpEnter;
+        /** 出口上报的数据桥方法名({@code httpExit} 或 {@code recordSocketConnect})。 */
+        private final String exitMethod;
+        /** 出口方法首参的对象类型 JVM 内部名({@code java/net/HttpURLConnection} 或 {@code java/net/Socket})。 */
+        private final String holderInternalName;
+        /** 入口 nanoTime 局部变量槽位。 */
+        private int startNanosLocal;
+
+        ConnectionAdvice(MethodVisitor methodVisitor, int access, String name, String descriptor,
+                         boolean callHttpEnter, String exitMethod, String holderInternalName) {
+            super(Opcodes.ASM9, methodVisitor, access, name, descriptor);
+            this.callHttpEnter = callHttpEnter;
+            this.exitMethod = exitMethod;
+            this.holderInternalName = holderInternalName;
+        }
+
+        @Override
+        protected void onMethodEnter() {
+            invokeStatic(Type.getType(System.class),
+                    new org.objectweb.asm.commons.Method("nanoTime", "()J"));
+            startNanosLocal = newLocal(Type.LONG_TYPE);
+            storeLocal(startNanosLocal, Type.LONG_TYPE);
+            if (callHttpEnter) {
+                invokeStatic(Type.getObjectType(BRIDGE_INTERNAL_NAME),
+                        new org.objectweb.asm.commons.Method("httpEnter", "()V"));
+            }
+        }
+
+        @Override
+        protected void onMethodExit(int opcode) {
+            // bridge.exitMethod(this, startNanos);  —— 不依赖也不破坏出口栈顶(返回值/异常对象原位保留)
+            loadThis();
+            loadLocal(startNanosLocal, Type.LONG_TYPE);
+            invokeStatic(Type.getObjectType(BRIDGE_INTERNAL_NAME),
+                    new org.objectweb.asm.commons.Method(exitMethod, "(L" + holderInternalName + ";J)V"));
         }
     }
 }

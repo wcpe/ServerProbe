@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
+import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
@@ -34,6 +35,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
  * @property eventTimings agent 实测的逐插件事件注册耗时(M5);未挂载时为空列表。
  * @property commandTimings agent 实测的逐命令注册耗时(M5);未挂载时为空列表。
  * @property sampleIntervalMs 栈采样周期(毫秒,M5);未挂载/未采样时为 0。
+ * @property httpCalls 启动期对外网络外呼快照(M5);未挂载时为空列表。
  */
 data class AgentStartupData(
     val attached: Boolean,
@@ -49,7 +51,8 @@ data class AgentStartupData(
     val configTimings: List<StartupItemTiming> = emptyList(),
     val eventTimings: List<StartupItemTiming> = emptyList(),
     val commandTimings: List<StartupItemTiming> = emptyList(),
-    val sampleIntervalMs: Long = 0L
+    val sampleIntervalMs: Long = 0L,
+    val httpCalls: List<HttpCall> = emptyList()
 ) {
 
     companion object {
@@ -75,7 +78,8 @@ data class AgentStartupData(
             configTimings = emptyList(),
             eventTimings = emptyList(),
             commandTimings = emptyList(),
-            sampleIntervalMs = 0L
+            sampleIntervalMs = 0L,
+            httpCalls = emptyList()
         )
     }
 }
