@@ -7,7 +7,7 @@
 | 日期 | 2026-06-08 |
 | 适用平台 | Bukkit 系(CraftBukkit/Spigot/Paper/Folia)**1.8 – 1.21.11 全版本** + BungeeCord 代理端,**单 jar 多端** |
 | 运行 JRE | Java 8+(随服务端;1.17+ 服务端运行于 17+,1.20.5+ 运行于 21+) |
-| 技术栈 | Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.5 / **本地文件存储 + 开放接口** / **核心 Java 8 字节码** |
+| 技术栈 | Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.6 / **本地文件存储 + 开放接口** / **核心 Java 8 字节码** |
 | groupId | `top.wcpe.mc.plugin.serverprobe` |
 | 关联文档 | [架构文档](ARCHITECTURE.md) · [CHANGELOG](../CHANGELOG.md) · [README](../README.md) · [Wiki](wiki/) |
 

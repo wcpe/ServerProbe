@@ -127,7 +127,7 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 |---|---|
 | **Kotlin** 2.1.0 | 主开发语言 |
 | **TabooLib** 6.3.0 | 插件框架:多版本抽象(`MinecraftVersion` / `nmsProxy`)、Folia 适配调度(`submit`)、单 jar 多端打包 |
-| **taboolib-ioc** 0.0.5 | 依赖注入与组件装配 |
+| **taboolib-ioc** 0.0.6 | 依赖注入与组件装配 |
 | **本地文件存储** | 启动画像落 JSON、聚合后指标历史按日滚动落 JSONL(`data/metrics/<实例>/`),不依赖数据库;提供读取 API + 存储 SPI 开放接口 |
 | **Java 8** | 核心编译 target,保证产物可被 1.8 – 1.21.x 全部 JRE 加载 |
 

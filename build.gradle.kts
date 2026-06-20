@@ -7,7 +7,7 @@ plugins {
     id("io.izzel.taboolib") version "2.0.28" apply false
     id("org.jetbrains.kotlin.jvm") version "2.1.0" apply false
     id("com.google.devtools.ksp") version "2.1.0-1.0.29" apply false
-    id("top.wcpe.taboolib.ioc") version "0.0.5" apply false
+    id("top.wcpe.taboolib.ioc") version "0.0.6" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.7" apply false
 }
 

@@ -42,7 +42,7 @@ ServerProbe 设计为**单 jar 多端**:同一个 jar 既能放进 Bukkit 系服
 
 ## 三、开发者构建
 
-技术栈:Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.5 / 本地文件存储 + 开放接口,`groupId = top.wcpe.mc.plugin.serverprobe`。
+技术栈:Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.6 / 本地文件存储 + 开放接口,`groupId = top.wcpe.mc.plugin.serverprobe`。
 
 ### 构建命令
 
