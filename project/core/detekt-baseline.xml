@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ComplexCondition:PrometheusTextFormatter.kt$PrometheusTextFormatter.MetricWriter$value.isFinite() &amp;&amp; value == Math.floor(value) &amp;&amp; !value.isInfinite() &amp;&amp; value &gt;= Long.MIN_VALUE.toDouble() &amp;&amp; value &lt;= Long.MAX_VALUE.toDouble()</ID>
+    <ID>ImplicitDefaultLocale:LogAlertChannel.kt$LogAlertChannel$String.format("%.2f", value)</ID>
+    <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%.1fs", ms / MILLIS_PER_SECOND)</ID>
+    <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%s%.1f%%", sign, abs(percent))</ID>
+    <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%s%.1fs", sign, abs(deltaMs) / MILLIS_PER_SECOND)</ID>
+    <ID>LongParameterList:MetricAggregatorTest.kt$MetricAggregatorTest$( timestampMs: Long, tps1m: Double?, msptP95: Double? = 1.0, msptP99: Double? = 1.0, gcYoungCount: Long = 0, gcOldCount: Long = 0, gcYoungTimeMs: Long = 0, gcOldTimeMs: Long = 0 )</ID>
+    <ID>LongParameterList:StartupProfileBuilder.kt$StartupProfileBuilder$( mcVersion: String, platform: ProbePlatform, serverId: String, totalMs: Long, pluginTimings: List&lt;PluginTiming&gt;, worldTimings: List&lt;WorldTiming&gt;, agentData: AgentStartupData? = null )</ID>
+    <ID>LoopWithTooManyJumpStatements:LocalFileMetricStore.kt$LocalFileMetricStore$while</ID>
+    <ID>LoopWithTooManyJumpStatements:MetricHistoryFile.kt$MetricHistoryFile$for</ID>
+    <ID>TooGenericExceptionCaught:MetricsHttpHandler.kt$MetricsHttpHandler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PrometheusExporter.kt$PrometheusExporter$e: Exception</ID>
+    <ID>TooManyFunctions:ProbeConfig.kt$ProbeConfig</ID>
+  </CurrentIssues>
+</SmellBaseline>

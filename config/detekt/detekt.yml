@@ -1,0 +1,25 @@
+# ServerProbe detekt 静态检查配置
+# 在 detekt 默认规则集之上微调(build.gradle.kts 里 buildUponDefaultConfig=true)。
+# 存量问题由各模块 detekt-baseline.xml 冻结,本配置只调整少量易误报规则以降低噪声;
+# 新增代码若触发未被基线冻结的问题,detekt 任务(已挂入 build/check)会失败。
+
+style:
+  MagicNumber:
+    # 指标采集/采样/分位/字节码偏移等代码大量使用数值常量,关闭以减少噪声
+    active: false
+  MaxLineLength:
+    # 放宽行宽上限,适配较长的中文 KDoc 与链式调用
+    maxLineLength: 140
+  ReturnCount:
+    # 卫语句风格常有多个提前返回,适度放宽
+    max: 6
+
+complexity:
+  LongMethod:
+    # 采集/格式化方法略长,阈值适度放宽(仍鼓励拆分)
+    threshold: 60
+  TooManyFunctions:
+    # 采集器/命令/门面类函数较多,适度放宽
+    thresholdInClasses: 20
+    thresholdInObjects: 20
+    thresholdInInterfaces: 20

@@ -1,0 +1,32 @@
+# 持续集成:每次 push / PR 跑构建 + 单元测试 + detekt 静态检查。
+# 说明:本仓库当前尚无公开 remote,工作流在建立 GitHub 仓库后自动生效;
+# 届时应在分支保护里把本 job 设为合并前门禁(见 .claude/rules/static-analysis.md)。
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+jobs:
+  build:
+    name: 构建 · 测试 · detekt
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码)
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建 + 单元测试 + detekt 静态检查
+        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64

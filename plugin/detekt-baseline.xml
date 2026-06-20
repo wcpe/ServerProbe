@@ -1,0 +1,14 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ImplicitDefaultLocale:ProbeCommand.kt$ProbeCommand$String.format("%.2f", it)</ID>
+    <ID>ImplicitDefaultLocale:ProbeFormat.kt$ProbeFormat$String.format("%.1f%%", ratio * PERCENT_BASE)</ID>
+    <ID>ImplicitDefaultLocale:ProbeFormat.kt$ProbeFormat$String.format("%.1fs", ms / MILLIS_PER_SECOND)</ID>
+    <ID>ImplicitDefaultLocale:ProbeFormat.kt$ProbeFormat$String.format("%.2f %s", value, BYTE_UNITS[unitIndex])</ID>
+    <ID>ImplicitDefaultLocale:ProbeFormat.kt$ProbeFormat$String.format("%.2f", it)</ID>
+    <ID>ImplicitDefaultLocale:ProbeFormat.kt$ProbeFormat$String.format("%.2fms", it)</ID>
+    <ID>LargeClass:FlamegraphExporter.kt$FlamegraphExporter</ID>
+    <ID>LongMethod:FlamegraphExporter.kt$FlamegraphExporter$private fun generateHtml(profile: StartupProfile): String</ID>
+  </CurrentIssues>
+</SmellBaseline>
