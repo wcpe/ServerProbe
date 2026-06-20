@@ -103,62 +103,66 @@ class AlertTypeTest {
         heapUsedBytes: Long = 0,
         heapMaxBytes: Long = -1,
         deadlockedThreadCount: Int = 0
-    ): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 0,
-        serverId = "test",
-        platform = ProbePlatform.BUKKIT,
-        jvm = jvm(heapUsedBytes, heapMaxBytes, deadlockedThreadCount),
-        server = ServerMetrics(
-            tick = TickSample(
-                tps1m = tps1m,
-                tps5m = null,
-                tps15m = null,
-                msptAvg = null,
-                msptP95 = msptP95,
-                msptP99 = null,
-                source = TickSampleSource.SELF_SAMPLING
-            ),
-            onlinePlayers = 0,
-            maxPlayers = 20,
-            uptimeMs = 0
+    ): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(0)
+        .serverId("test")
+        .platform(ProbePlatform.BUKKIT)
+        .jvm(jvm(heapUsedBytes, heapMaxBytes, deadlockedThreadCount))
+        .server(
+            ServerMetrics.builder()
+                .tick(
+                    TickSample.builder()
+                        .tps1m(tps1m)
+                        .tps5m(null)
+                        .tps15m(null)
+                        .msptAvg(null)
+                        .msptP95(msptP95)
+                        .msptP99(null)
+                        .source(TickSampleSource.SELF_SAMPLING)
+                        .build()
+                )
+                .onlinePlayers(0)
+                .maxPlayers(20)
+                .uptimeMs(0)
+                .build()
         )
-    )
+        .build()
 
     /** 构造代理端快照:server=null(无服务器维度),仅 JVM 维度。 */
-    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 0,
-        serverId = "proxy",
-        platform = ProbePlatform.BUNGEE,
-        jvm = jvm(heapUsedBytes = 0, heapMaxBytes = -1, deadlockedThreadCount = 0),
-        server = null
-    )
+    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(0)
+        .serverId("proxy")
+        .platform(ProbePlatform.BUNGEE)
+        .jvm(jvm(heapUsedBytes = 0, heapMaxBytes = -1, deadlockedThreadCount = 0))
+        .server(null)
+        .build()
 
     /** 构造测试用 JVM 指标:仅堆与死锁数有意义,其余占位。 */
-    private fun jvm(heapUsedBytes: Long, heapMaxBytes: Long, deadlockedThreadCount: Int): JvmMetrics = JvmMetrics(
-        heapUsedBytes = heapUsedBytes,
-        heapCommittedBytes = 0,
-        heapMaxBytes = heapMaxBytes,
-        nonHeapUsedBytes = 0,
-        nonHeapCommittedBytes = 0,
-        nonHeapMaxBytes = -1,
-        memoryPools = emptyList(),
-        gcYoungCount = 0,
-        gcYoungTimeMs = 0,
-        gcOldCount = 0,
-        gcOldTimeMs = 0,
-        gcCollectors = emptyList(),
-        threadCount = 0,
-        daemonThreadCount = 0,
-        peakThreadCount = 0,
-        deadlockedThreadCount = deadlockedThreadCount,
-        loadedClassCount = 0,
-        totalLoadedClassCount = 0,
-        processCpuLoad = -1.0,
-        systemCpuLoad = -1.0,
-        uptimeMs = 0,
-        startTimeMs = 0,
-        jvmArgs = emptyList()
-    )
+    private fun jvm(heapUsedBytes: Long, heapMaxBytes: Long, deadlockedThreadCount: Int): JvmMetrics = JvmMetrics.builder()
+        .heapUsedBytes(heapUsedBytes)
+        .heapCommittedBytes(0)
+        .heapMaxBytes(heapMaxBytes)
+        .nonHeapUsedBytes(0)
+        .nonHeapCommittedBytes(0)
+        .nonHeapMaxBytes(-1)
+        .memoryPools(emptyList())
+        .gcYoungCount(0)
+        .gcYoungTimeMs(0)
+        .gcOldCount(0)
+        .gcOldTimeMs(0)
+        .gcCollectors(emptyList())
+        .threadCount(0)
+        .daemonThreadCount(0)
+        .peakThreadCount(0)
+        .deadlockedThreadCount(deadlockedThreadCount)
+        .loadedClassCount(0)
+        .totalLoadedClassCount(0)
+        .processCpuLoad(-1.0)
+        .systemCpuLoad(-1.0)
+        .uptimeMs(0)
+        .startTimeMs(0)
+        .jvmArgs(emptyList())
+        .build()
 }

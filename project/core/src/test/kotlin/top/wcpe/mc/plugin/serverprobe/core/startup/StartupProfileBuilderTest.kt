@@ -29,8 +29,14 @@ class StartupProfileBuilderTest {
     /** build() 各字段应对齐 api 契约。 */
     @Test
     fun `build 各字段对齐契约`() {
-        val pluginTimings = listOf(PluginTiming("Alpha", 1200L), PluginTiming("Beta", 800L))
-        val worldTimings = listOf(WorldTiming("world", 0L), WorldTiming("world_nether", 0L))
+        val pluginTimings = listOf(
+            PluginTiming.builder().name("Alpha").enableMs(1200L).build(),
+            PluginTiming.builder().name("Beta").enableMs(800L).build()
+        )
+        val worldTimings = listOf(
+            WorldTiming.builder().name("world").loadMs(0L).build(),
+            WorldTiming.builder().name("world_nether").loadMs(0L).build()
+        )
 
         val profile = StartupProfileBuilder().build(
             mcVersion = "1.21.4",
@@ -84,23 +90,32 @@ class StartupProfileBuilderTest {
     /** agent 已挂载时,各 agent 增强字段(含 M5 时间线/折叠栈/配置·事件·命令)应从 [AgentStartupData] 透传填入画像。 */
     @Test
     fun `build agent 挂载时增强字段透传`() {
-        val agentLoad = listOf(PluginTiming("Alpha", 50L))
-        val agentEnable = listOf(PluginTiming("Alpha", 1200L), PluginTiming("Beta", 800L))
-        val libraries = listOf(LibraryTiming("Alpha", 3000L))
-        val hotspots = listOf(StackHotspot("a.b.C#m", 120L), StackHotspot("d.E#n", 88L))
-        val timeline = listOf(TimelineEvent("enable", "Alpha", 1_000L, 2_000L))
-        val threadStacks = listOf(
-            ThreadStackProfile("Server thread", listOf(FoldedStack(listOf("a.A#x", "b.B#y"), 42L)))
+        val agentLoad = listOf(PluginTiming.builder().name("Alpha").enableMs(50L).build())
+        val agentEnable = listOf(
+            PluginTiming.builder().name("Alpha").enableMs(1200L).build(),
+            PluginTiming.builder().name("Beta").enableMs(800L).build()
         )
-        val configs = listOf(StartupItemTiming("config.yml", 30L))
-        val events = listOf(StartupItemTiming("Alpha", 15L))
-        val commands = listOf(StartupItemTiming("give", 5L))
+        val libraries = listOf(LibraryTiming.builder().name("Alpha").loadMs(3000L).build())
+        val hotspots = listOf(
+            StackHotspot.builder().frame("a.b.C#m").sampleCount(120L).build(),
+            StackHotspot.builder().frame("d.E#n").sampleCount(88L).build()
+        )
+        val timeline = listOf(TimelineEvent.builder().type("enable").name("Alpha").startNanos(1_000L).endNanos(2_000L).build())
+        val threadStacks = listOf(
+            ThreadStackProfile.builder()
+                .threadName("Server thread")
+                .stacks(listOf(FoldedStack.builder().frames(listOf("a.A#x", "b.B#y")).sampleCount(42L).build()))
+                .build()
+        )
+        val configs = listOf(StartupItemTiming.builder().name("config.yml").costMs(30L).build())
+        val events = listOf(StartupItemTiming.builder().name("Alpha").costMs(15L).build())
+        val commands = listOf(StartupItemTiming.builder().name("give").costMs(5L).build())
         val httpCalls = listOf(
-            HttpCall(
-                seq = 1L, startRelNanos = 1000L, durationMs = 137000L, method = "GET", responseCode = 200,
-                error = false, host = "maven.x", url = "https://maven.x/a.xml", headers = emptyList(),
-                callerFrames = listOf("corelib.RuntimeEnv#load"), loaderHashes = listOf(42), plugin = "CoreLib"
-            )
+            HttpCall.builder()
+                .seq(1L).startRelNanos(1000L).durationMs(137000L).method("GET").responseCode(200)
+                .error(false).host("maven.x").url("https://maven.x/a.xml").headers(emptyList())
+                .callerFrames(listOf("corelib.RuntimeEnv#load")).loaderHashes(listOf(42)).plugin("CoreLib")
+                .build()
         )
         val agentData = AgentStartupData(
             attached = true,

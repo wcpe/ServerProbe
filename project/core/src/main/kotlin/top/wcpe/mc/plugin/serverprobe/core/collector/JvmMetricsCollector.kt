@@ -54,43 +54,49 @@ class JvmMetricsCollector : JvmMetricsCollectorApi {
         val nonHeap = memoryBean.nonHeapMemoryUsage
 
         val gcBeans = ManagementFactory.getGarbageCollectorMXBeans()
-        val gcCollectors = gcBeans.map { GcCollectorMetric(it.name, it.collectionCount, it.collectionTime) }
+        val gcCollectors = gcBeans.map {
+            GcCollectorMetric.builder()
+                .name(it.name)
+                .collectionCount(it.collectionCount)
+                .collectionTimeMs(it.collectionTime)
+                .build()
+        }
         val gcGenerational = deriveGenerationalGc(gcBeans)
 
         val threadBean = ManagementFactory.getThreadMXBean()
         val classLoadingBean = ManagementFactory.getClassLoadingMXBean()
         val runtimeBean = ManagementFactory.getRuntimeMXBean()
 
-        return JvmMetrics(
-            heapUsedBytes = heap.used,
-            heapCommittedBytes = heap.committed,
-            heapMaxBytes = heap.max,
-            nonHeapUsedBytes = nonHeap.used,
-            nonHeapCommittedBytes = nonHeap.committed,
-            nonHeapMaxBytes = nonHeap.max,
-            memoryPools = ManagementFactory.getMemoryPoolMXBeans().map { pool ->
+        return JvmMetrics.builder()
+            .heapUsedBytes(heap.used)
+            .heapCommittedBytes(heap.committed)
+            .heapMaxBytes(heap.max)
+            .nonHeapUsedBytes(nonHeap.used)
+            .nonHeapCommittedBytes(nonHeap.committed)
+            .nonHeapMaxBytes(nonHeap.max)
+            .memoryPools(ManagementFactory.getMemoryPoolMXBeans().map { pool ->
                 // usage 在部分内存池(如刚回收的池)可能为 null,以 -1 容错表达"无数据"
                 val usage = pool.usage
-                MemoryPoolMetric(pool.name, usage?.used ?: -1L, usage?.max ?: -1L)
-            },
-            gcYoungCount = gcGenerational.youngCount,
-            gcYoungTimeMs = gcGenerational.youngTimeMs,
-            gcOldCount = gcGenerational.oldCount,
-            gcOldTimeMs = gcGenerational.oldTimeMs,
-            gcCollectors = gcCollectors,
-            threadCount = threadBean.threadCount,
-            daemonThreadCount = threadBean.daemonThreadCount,
-            peakThreadCount = threadBean.peakThreadCount,
+                MemoryPoolMetric.builder().name(pool.name).usedBytes(usage?.used ?: -1L).maxBytes(usage?.max ?: -1L).build()
+            })
+            .gcYoungCount(gcGenerational.youngCount)
+            .gcYoungTimeMs(gcGenerational.youngTimeMs)
+            .gcOldCount(gcGenerational.oldCount)
+            .gcOldTimeMs(gcGenerational.oldTimeMs)
+            .gcCollectors(gcCollectors)
+            .threadCount(threadBean.threadCount)
+            .daemonThreadCount(threadBean.daemonThreadCount)
+            .peakThreadCount(threadBean.peakThreadCount)
             // 无死锁时 findDeadlockedThreads 返回 null,归一为 0
-            deadlockedThreadCount = threadBean.findDeadlockedThreads()?.size ?: 0,
-            loadedClassCount = classLoadingBean.loadedClassCount,
-            totalLoadedClassCount = classLoadingBean.totalLoadedClassCount,
-            processCpuLoad = JmxSupport.processCpuLoad(),
-            systemCpuLoad = JmxSupport.systemCpuLoad(),
-            uptimeMs = runtimeBean.uptime,
-            startTimeMs = runtimeBean.startTime,
-            jvmArgs = runtimeBean.inputArguments
-        )
+            .deadlockedThreadCount(threadBean.findDeadlockedThreads()?.size ?: 0)
+            .loadedClassCount(classLoadingBean.loadedClassCount)
+            .totalLoadedClassCount(classLoadingBean.totalLoadedClassCount)
+            .processCpuLoad(JmxSupport.processCpuLoad())
+            .systemCpuLoad(JmxSupport.systemCpuLoad())
+            .uptimeMs(runtimeBean.uptime)
+            .startTimeMs(runtimeBean.startTime)
+            .jvmArgs(runtimeBean.inputArguments)
+            .build()
     }
 
     /**

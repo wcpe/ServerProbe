@@ -149,11 +149,11 @@ class PrometheusTextFormatterTest {
     /** ⑤ label 值含特殊字符:反斜杠、双引号、换行均被转义。 */
     @Test
     fun `label 值按规范转义特殊字符`() {
-        val snapshot = fullServerSnapshot().copy(
-            jvm = baseJvm().copy(
-                memoryPools = listOf(MemoryPoolMetric(name = "weird\"pool\\\nname", usedBytes = 1, maxBytes = -1))
-            )
-        )
+        val snapshot = fullServerSnapshot().toBuilder()
+            .jvm(baseJvm().toBuilder()
+                .memoryPools(listOf(MemoryPoolMetric.builder().name("weird\"pool\\\nname").usedBytes(1).maxBytes(-1).build()))
+                .build())
+            .build()
         val text = PrometheusTextFormatter.format(snapshot)
 
         // 双引号→\" 反斜杠→\\ 换行→\n
@@ -166,108 +166,118 @@ class PrometheusTextFormatterTest {
     // —— 测试夹具 ——
 
     /** 基础 JVM 指标:各字段为可导出的正常值(max 非 -1、CPU 非 -1.0)。 */
-    private fun baseJvm(): JvmMetrics = JvmMetrics(
-        heapUsedBytes = 1024,
-        heapCommittedBytes = 2048,
-        heapMaxBytes = 4096,
-        nonHeapUsedBytes = 512,
-        nonHeapCommittedBytes = 768,
-        nonHeapMaxBytes = 1024,
-        memoryPools = listOf(MemoryPoolMetric(name = "G1 Eden Space", usedBytes = 100, maxBytes = 500)),
-        gcYoungCount = 10,
-        gcYoungTimeMs = 2500,
-        gcOldCount = 3,
-        gcOldTimeMs = 1000,
-        gcCollectors = listOf(GcCollectorMetric(name = "G1 Young Generation", collectionCount = 10, collectionTimeMs = 2500)),
-        threadCount = 42,
-        daemonThreadCount = 30,
-        peakThreadCount = 50,
-        deadlockedThreadCount = 0,
-        loadedClassCount = 15000,
-        totalLoadedClassCount = 20000,
-        processCpuLoad = 0.25,
-        systemCpuLoad = 0.5,
-        uptimeMs = 60000,
-        startTimeMs = 1_700_000_000_000,
-        jvmArgs = listOf("-Xmx4G")
-    )
+    private fun baseJvm(): JvmMetrics = JvmMetrics.builder()
+        .heapUsedBytes(1024)
+        .heapCommittedBytes(2048)
+        .heapMaxBytes(4096)
+        .nonHeapUsedBytes(512)
+        .nonHeapCommittedBytes(768)
+        .nonHeapMaxBytes(1024)
+        .memoryPools(listOf(MemoryPoolMetric.builder().name("G1 Eden Space").usedBytes(100).maxBytes(500).build()))
+        .gcYoungCount(10)
+        .gcYoungTimeMs(2500)
+        .gcOldCount(3)
+        .gcOldTimeMs(1000)
+        .gcCollectors(listOf(GcCollectorMetric.builder().name("G1 Young Generation").collectionCount(10).collectionTimeMs(2500).build()))
+        .threadCount(42)
+        .daemonThreadCount(30)
+        .peakThreadCount(50)
+        .deadlockedThreadCount(0)
+        .loadedClassCount(15000)
+        .totalLoadedClassCount(20000)
+        .processCpuLoad(0.25)
+        .systemCpuLoad(0.5)
+        .uptimeMs(60000)
+        .startTimeMs(1_700_000_000_000)
+        .jvmArgs(listOf("-Xmx4G"))
+        .build()
 
     /** 全字段服务端快照:JVM + 服务器(含世界)齐全且均为可导出值。 */
-    private fun fullServerSnapshot(): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 1_700_000_000_000,
-        serverId = "srv-1",
-        platform = ProbePlatform.BUKKIT,
-        jvm = baseJvm(),
-        server = ServerMetrics(
-            tick = TickSample(
-                tps1m = 19.5,
-                tps5m = 19.8,
-                tps15m = 20.0,
-                msptAvg = 30.0,
-                msptP95 = 45.0,
-                msptP99 = 50.0,
-                source = TickSampleSource.PAPER_API
-            ),
-            onlinePlayers = 7,
-            maxPlayers = 100,
-            uptimeMs = 120000,
-            worlds = listOf(
-                WorldMetrics(name = "world", loadedChunks = 256, entityCount = 80, tileEntityCount = 40, entitiesByType = null)
-            )
-        ),
-        proxy = null
-    )
+    private fun fullServerSnapshot(): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(1_700_000_000_000)
+        .serverId("srv-1")
+        .platform(ProbePlatform.BUKKIT)
+        .jvm(baseJvm())
+        .server(
+            ServerMetrics.builder()
+                .tick(
+                    TickSample.builder()
+                        .tps1m(19.5)
+                        .tps5m(19.8)
+                        .tps15m(20.0)
+                        .msptAvg(30.0)
+                        .msptP95(45.0)
+                        .msptP99(50.0)
+                        .source(TickSampleSource.PAPER_API)
+                        .build()
+                )
+                .onlinePlayers(7)
+                .maxPlayers(100)
+                .uptimeMs(120000)
+                .worlds(listOf(
+                    WorldMetrics.builder().name("world").loadedChunks(256).entityCount(80).tileEntityCount(40).entitiesByType(null).build()
+                ))
+                .build()
+        )
+        .proxy(null)
+        .build()
 
     /** 不可用字段快照:max=-1、CPU=-1.0、Folia TPS/MSPT 全 null、世界 entity/tile=-1。 */
-    private fun unavailableFieldsSnapshot(): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 1_700_000_000_000,
-        serverId = "srv-2",
-        platform = ProbePlatform.BUKKIT,
-        jvm = baseJvm().copy(
-            heapMaxBytes = -1,
-            nonHeapMaxBytes = -1,
-            memoryPools = listOf(MemoryPoolMetric(name = "Metaspace", usedBytes = 100, maxBytes = -1)),
-            processCpuLoad = -1.0,
-            systemCpuLoad = -1.0
-        ),
-        server = ServerMetrics(
-            tick = TickSample(
-                tps1m = null,
-                tps5m = null,
-                tps15m = null,
-                msptAvg = null,
-                msptP95 = null,
-                msptP99 = null,
-                source = TickSampleSource.UNAVAILABLE
-            ),
-            onlinePlayers = 0,
-            maxPlayers = 100,
-            uptimeMs = 1000,
-            worlds = listOf(
-                WorldMetrics(name = "world", loadedChunks = 16, entityCount = -1, tileEntityCount = -1, entitiesByType = null)
-            )
-        ),
-        proxy = null
-    )
+    private fun unavailableFieldsSnapshot(): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(1_700_000_000_000)
+        .serverId("srv-2")
+        .platform(ProbePlatform.BUKKIT)
+        .jvm(baseJvm().toBuilder()
+            .heapMaxBytes(-1)
+            .nonHeapMaxBytes(-1)
+            .memoryPools(listOf(MemoryPoolMetric.builder().name("Metaspace").usedBytes(100).maxBytes(-1).build()))
+            .processCpuLoad(-1.0)
+            .systemCpuLoad(-1.0)
+            .build())
+        .server(
+            ServerMetrics.builder()
+                .tick(
+                    TickSample.builder()
+                        .tps1m(null)
+                        .tps5m(null)
+                        .tps15m(null)
+                        .msptAvg(null)
+                        .msptP95(null)
+                        .msptP99(null)
+                        .source(TickSampleSource.UNAVAILABLE)
+                        .build()
+                )
+                .onlinePlayers(0)
+                .maxPlayers(100)
+                .uptimeMs(1000)
+                .worlds(listOf(
+                    WorldMetrics.builder().name("world").loadedChunks(16).entityCount(-1).tileEntityCount(-1).entitiesByType(null).build()
+                ))
+                .build()
+        )
+        .proxy(null)
+        .build()
 
     /** 代理端快照:server=null,proxy 非空。 */
-    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 1_700_000_000_000,
-        serverId = "proxy-1",
-        platform = ProbePlatform.BUNGEE,
-        jvm = baseJvm().copy(heapUsedBytes = 2048),
-        server = null,
-        proxy = ProxyMetrics(
-            totalOnline = 15,
-            backends = listOf(
-                BackendServer(name = "lobby", online = 9),
-                BackendServer(name = "survival", online = 6)
-            )
+    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(1_700_000_000_000)
+        .serverId("proxy-1")
+        .platform(ProbePlatform.BUNGEE)
+        .jvm(baseJvm().toBuilder().heapUsedBytes(2048).build())
+        .server(null)
+        .proxy(
+            ProxyMetrics.builder()
+                .totalOnline(15)
+                .backends(listOf(
+                    BackendServer.builder().name("lobby").online(9).build(),
+                    BackendServer.builder().name("survival").online(6).build()
+                ))
+                .build()
         )
-    )
+        .build()
 
     /**
      * 断言文本中存在与 [expected] 完全相等的一行(按换行切分后精确匹配),

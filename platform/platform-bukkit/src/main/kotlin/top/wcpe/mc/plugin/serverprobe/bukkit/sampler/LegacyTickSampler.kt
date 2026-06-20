@@ -20,7 +20,7 @@ class LegacyTickSampler(
     private val histogram: MsptHistogram
 ) : ServerTickSampler {
 
-    override val source: TickSampleSource = TickSampleSource.NMS_RECENT_TPS
+    override fun getSource(): TickSampleSource = TickSampleSource.NMS_RECENT_TPS
 
     /**
      * 采样当前 tick 数据。
@@ -29,14 +29,14 @@ class LegacyTickSampler(
      */
     override fun sample(): TickSample {
         val tps = TickReflection.nmsRecentTps()
-        return TickSample(
-            tps1m = tps?.getOrNull(TpsArrayIndex.M1),
-            tps5m = tps?.getOrNull(TpsArrayIndex.M5),
-            tps15m = tps?.getOrNull(TpsArrayIndex.M15),
-            msptAvg = histogram.avgMs(),
-            msptP95 = histogram.p95Ms(),
-            msptP99 = histogram.p99Ms(),
-            source = source
-        )
+        return TickSample.builder()
+            .tps1m(tps?.getOrNull(TpsArrayIndex.M1))
+            .tps5m(tps?.getOrNull(TpsArrayIndex.M5))
+            .tps15m(tps?.getOrNull(TpsArrayIndex.M15))
+            .msptAvg(histogram.avgMs())
+            .msptP95(histogram.p95Ms())
+            .msptP99(histogram.p99Ms())
+            .source(source)
+            .build()
     }
 }

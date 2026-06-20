@@ -50,16 +50,16 @@ class MetricAggregator {
         val msptP95 = Percentiles.percentile(collectMsptSamples(snapshots) { it.msptP95 }, P95)
         val msptP99 = Percentiles.percentile(collectMsptSamples(snapshots) { it.msptP99 }, P99)
         val gcRates = computeGcRates(snapshots)
-        return AggregatedMetrics(
-            windowSampleCount = snapshots.size,
-            tpsAvg = tpsAvg,
-            msptP95 = msptP95,
-            msptP99 = msptP99,
-            gcYoungRatePerSec = gcRates.youngCountRate,
-            gcOldRatePerSec = gcRates.oldCountRate,
-            gcYoungTimeRatePerSec = gcRates.youngTimeRate,
-            gcOldTimeRatePerSec = gcRates.oldTimeRate
-        )
+        return AggregatedMetrics.builder()
+            .windowSampleCount(snapshots.size)
+            .tpsAvg(tpsAvg)
+            .msptP95(msptP95)
+            .msptP99(msptP99)
+            .gcYoungRatePerSec(gcRates.youngCountRate)
+            .gcOldRatePerSec(gcRates.oldCountRate)
+            .gcYoungTimeRatePerSec(gcRates.youngTimeRate)
+            .gcOldTimeRatePerSec(gcRates.oldTimeRate)
+            .build()
     }
 
     /**
@@ -165,15 +165,15 @@ class MetricAggregator {
         private const val MILLIS_PER_SECOND = 1000.0
 
         /** 空窗口聚合结果:份数为 0,其余统计项均 null。 */
-        private val EMPTY = AggregatedMetrics(
-            windowSampleCount = 0,
-            tpsAvg = null,
-            msptP95 = null,
-            msptP99 = null,
-            gcYoungRatePerSec = null,
-            gcOldRatePerSec = null,
-            gcYoungTimeRatePerSec = null,
-            gcOldTimeRatePerSec = null
-        )
+        private val EMPTY = AggregatedMetrics.builder()
+            .windowSampleCount(0)
+            .tpsAvg(null)
+            .msptP95(null)
+            .msptP99(null)
+            .gcYoungRatePerSec(null)
+            .gcOldRatePerSec(null)
+            .gcYoungTimeRatePerSec(null)
+            .gcOldTimeRatePerSec(null)
+            .build()
     }
 }

@@ -56,9 +56,9 @@ class BungeeProxyCollector : ProxyMetricsCollectorApi {
      */
     override fun collect(): ProxyMetrics {
         val proxy = server<ProxyServer>()
-        return ProxyMetrics(
-            totalOnline = proxy.players.size,
-            backends = proxy.servers.map { (name, info) -> BackendServer(name, info.players.size) }
-        )
+        return ProxyMetrics.builder()
+            .totalOnline(proxy.players.size)
+            .backends(proxy.servers.map { (name, info) -> BackendServer.builder().name(name).online(info.players.size).build() })
+            .build()
     }
 }

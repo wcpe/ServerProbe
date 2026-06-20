@@ -108,21 +108,21 @@ class MetricOrchestrator {
         var server = registry.serverCollectors.firstOrNull()?.collect()
         val proxy = registry.proxyCollectors.firstOrNull()?.collect()
         // 仅服务端有世界:server 非空时并入世界指标(FR2.3);代理端 server=null,不含世界。
-        // ServerMetrics 为 data class,经 copy 注入 worlds(尚无采集器/缓存时为 null)。
+        // ServerMetrics 经 toBuilder 注入 worlds(尚无采集器/缓存时为 null)。
         if (server != null) {
             val worlds = registry.worldCollectors.firstOrNull()?.collect()
-            server = server.copy(worlds = worlds)
+            server = server.toBuilder().worlds(worlds).build()
         }
-        val snapshot = MetricSnapshot(
-            schemaVersion = SCHEMA_VERSION,
-            timestampMs = System.currentTimeMillis(),
+        val snapshot = MetricSnapshot.builder()
+            .schemaVersion(SCHEMA_VERSION)
+            .timestampMs(System.currentTimeMillis())
             // 实例标识:配置覆盖优先,否则取持久化的稳定实例 ID
-            serverId = InstanceId.resolve(ProbeConfig.configuredServerName()),
-            platform = currentProbePlatform(),
-            jvm = jvm,
-            server = server,
-            proxy = proxy
-        )
+            .serverId(InstanceId.resolve(ProbeConfig.configuredServerName()))
+            .platform(currentProbePlatform())
+            .jvm(jvm)
+            .server(server)
+            .proxy(proxy)
+            .build()
         latest = snapshot
         // 追加到近期历史,供 ProbeReadApi.recentSnapshots 回看
         snapshotBuffer.record(snapshot)

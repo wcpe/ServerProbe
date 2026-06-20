@@ -156,27 +156,31 @@ class MetricAggregatorTest {
         gcOldCount: Long = 0,
         gcYoungTimeMs: Long = 0,
         gcOldTimeMs: Long = 0
-    ): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = timestampMs,
-        serverId = "test",
-        platform = ProbePlatform.BUKKIT,
-        jvm = jvm(gcYoungCount, gcOldCount, gcYoungTimeMs, gcOldTimeMs),
-        server = ServerMetrics(
-            tick = TickSample(
-                tps1m = tps1m,
-                tps5m = null,
-                tps15m = null,
-                msptAvg = null,
-                msptP95 = msptP95,
-                msptP99 = msptP99,
-                source = TickSampleSource.SELF_SAMPLING
-            ),
-            onlinePlayers = 0,
-            maxPlayers = 20,
-            uptimeMs = 0
+    ): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(timestampMs)
+        .serverId("test")
+        .platform(ProbePlatform.BUKKIT)
+        .jvm(jvm(gcYoungCount, gcOldCount, gcYoungTimeMs, gcOldTimeMs))
+        .server(
+            ServerMetrics.builder()
+                .tick(
+                    TickSample.builder()
+                        .tps1m(tps1m)
+                        .tps5m(null)
+                        .tps15m(null)
+                        .msptAvg(null)
+                        .msptP95(msptP95)
+                        .msptP99(msptP99)
+                        .source(TickSampleSource.SELF_SAMPLING)
+                        .build()
+                )
+                .onlinePlayers(0)
+                .maxPlayers(20)
+                .uptimeMs(0)
+                .build()
         )
-    )
+        .build()
 
     /**
      * 构造一份测试用 [JvmMetrics]:仅 GC 四项累计量有意义,其余字段以稳定占位填充。
@@ -186,29 +190,29 @@ class MetricAggregatorTest {
         gcOldCount: Long,
         gcYoungTimeMs: Long,
         gcOldTimeMs: Long
-    ): JvmMetrics = JvmMetrics(
-        heapUsedBytes = 0,
-        heapCommittedBytes = 0,
-        heapMaxBytes = -1,
-        nonHeapUsedBytes = 0,
-        nonHeapCommittedBytes = 0,
-        nonHeapMaxBytes = -1,
-        memoryPools = emptyList(),
-        gcYoungCount = gcYoungCount,
-        gcYoungTimeMs = gcYoungTimeMs,
-        gcOldCount = gcOldCount,
-        gcOldTimeMs = gcOldTimeMs,
-        gcCollectors = emptyList(),
-        threadCount = 0,
-        daemonThreadCount = 0,
-        peakThreadCount = 0,
-        deadlockedThreadCount = 0,
-        loadedClassCount = 0,
-        totalLoadedClassCount = 0,
-        processCpuLoad = -1.0,
-        systemCpuLoad = -1.0,
-        uptimeMs = 0,
-        startTimeMs = 0,
-        jvmArgs = emptyList()
-    )
+    ): JvmMetrics = JvmMetrics.builder()
+        .heapUsedBytes(0)
+        .heapCommittedBytes(0)
+        .heapMaxBytes(-1)
+        .nonHeapUsedBytes(0)
+        .nonHeapCommittedBytes(0)
+        .nonHeapMaxBytes(-1)
+        .memoryPools(emptyList())
+        .gcYoungCount(gcYoungCount)
+        .gcYoungTimeMs(gcYoungTimeMs)
+        .gcOldCount(gcOldCount)
+        .gcOldTimeMs(gcOldTimeMs)
+        .gcCollectors(emptyList())
+        .threadCount(0)
+        .daemonThreadCount(0)
+        .peakThreadCount(0)
+        .deadlockedThreadCount(0)
+        .loadedClassCount(0)
+        .totalLoadedClassCount(0)
+        .processCpuLoad(-1.0)
+        .systemCpuLoad(-1.0)
+        .uptimeMs(0)
+        .startTimeMs(0)
+        .jvmArgs(emptyList())
+        .build()
 }

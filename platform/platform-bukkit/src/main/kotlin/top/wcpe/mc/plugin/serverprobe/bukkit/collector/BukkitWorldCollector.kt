@@ -99,22 +99,22 @@ class BukkitWorldCollector : WorldMetricsCollectorApi {
         cache = Bukkit.getWorlds().map { world ->
             val loadedChunks = world.loadedChunks
             if (folia) {
-                WorldMetrics(
-                    name = world.name,
-                    loadedChunks = loadedChunks.size,
-                    entityCount = N_A,
-                    tileEntityCount = N_A,
-                    entitiesByType = null
-                )
+                WorldMetrics.builder()
+                    .name(world.name)
+                    .loadedChunks(loadedChunks.size)
+                    .entityCount(N_A)
+                    .tileEntityCount(N_A)
+                    .entitiesByType(null)
+                    .build()
             } else {
                 val entities = world.entities
-                WorldMetrics(
-                    name = world.name,
-                    loadedChunks = loadedChunks.size,
-                    entityCount = entities.size,
-                    tileEntityCount = loadedChunks.sumOf { it.tileEntities.size },
-                    entitiesByType = if (withTypes) entities.groupingBy { it.type.name }.eachCount() else null
-                )
+                WorldMetrics.builder()
+                    .name(world.name)
+                    .loadedChunks(loadedChunks.size)
+                    .entityCount(entities.size)
+                    .tileEntityCount(loadedChunks.sumOf { it.tileEntities.size })
+                    .entitiesByType(if (withTypes) entities.groupingBy { it.type.name }.eachCount() else null)
+                    .build()
             }
         }
     }

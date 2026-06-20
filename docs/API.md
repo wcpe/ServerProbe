@@ -6,7 +6,7 @@
 
 ## 1. 通用约定
 
-- **形态**:ServerProbe 是 Bukkit/BungeeCord **插件 + 库 API**,**不是 REST 服务**。只读 API 与存储 SPI 以 Kotlin 接口形式发布在 `api` 模块,Java 8 可直接调用;数据出口另有 Prometheus 文本端点与游戏内命令。
+- **形态**:ServerProbe 是 Bukkit/BungeeCord **插件 + 库 API**,**不是 REST 服务**。只读 API 与存储 SPI 以 **Java** 接口形式发布在 `api` 模块（纯 Java + Lombok、零 Kotlin metadata，任意 Kotlin/Java 版本可编译依赖，ADR-13）,Java 8 可直接调用;数据出口另有 Prometheus 文本端点与游戏内命令。
 - **获取方式**:跨插件消费方经 TabooLib IOC 服务获取只读接口,统一走静态门面 `top.wcpe.mc.plugin.serverprobe.ServerProbeApi.read()`,无需了解容器内部细节。
 - **只读**:对外接口仅暴露查询,不暴露任何写入/控制能力,外部消费方无法影响探针运行。
 - **平台语义**:快照/画像携带 `platform` 字段(`BUKKIT` / `BUNGEE` / `VELOCITY`)。`VELOCITY` 为预留,尚未启用。代理端(`BUNGEE`)无世界/TPS/MSPT 概念,对应字段为 null;服务端无代理拓扑,`proxy` 字段为 null。

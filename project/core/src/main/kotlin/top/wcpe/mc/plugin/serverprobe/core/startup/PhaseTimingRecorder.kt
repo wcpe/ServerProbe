@@ -92,7 +92,7 @@ object PhaseTimingRecorder {
         val baseline = phaseNanos.values.min()
         return phaseNanos.entries
             .sortedBy { it.key.ordinal }
-            .map { (phase, nanos) -> PhaseTiming(phase, (nanos - baseline) / NANOS_PER_MILLI) }
+            .map { (phase, nanos) -> PhaseTiming.builder().phase(phase).durationMs((nanos - baseline) / NANOS_PER_MILLI).build() }
     }
 
     /** 一毫秒的纳秒数。 */

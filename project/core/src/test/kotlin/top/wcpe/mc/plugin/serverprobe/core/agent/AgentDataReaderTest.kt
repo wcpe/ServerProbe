@@ -100,19 +100,23 @@ class AgentDataReaderTest {
     @Test
     fun `deriveMainThreadHotspots 主线程优先且累加降序`() {
         val stacks = listOf(
-            ThreadStackProfile(
-                "Server thread",
+            ThreadStackProfile.builder().threadName(
+                "Server thread"
+            ).stacks(
                 listOf(
-                    FoldedStack(listOf("root#m", "a#x"), 5L),
-                    FoldedStack(listOf("root#m", "b#y"), 3L)
+                    FoldedStack.builder().frames(listOf("root#m", "a#x")).sampleCount(5L).build(),
+                    FoldedStack.builder().frames(listOf("root#m", "b#y")).sampleCount(3L).build()
                 )
-            ),
+            ).build(),
             // 即便 Netty 命中更多,也应优先选 Server thread
-            ThreadStackProfile("Netty Server IO #1", listOf(FoldedStack(listOf("n#z"), 100L)))
+            ThreadStackProfile.builder()
+                .threadName("Netty Server IO #1")
+                .stacks(listOf(FoldedStack.builder().frames(listOf("n#z")).sampleCount(100L).build()))
+                .build()
         )
         val hot = AgentDataReader.deriveMainThreadHotspots(stacks, 10)
 
-        assertEquals(StackHotspot("root#m", 8L), hot[0], "root#m 应累加 5+3=8 居首")
+        assertEquals(StackHotspot.builder().frame("root#m").sampleCount(8L).build(), hot[0], "root#m 应累加 5+3=8 居首")
         assertEquals(3, hot.size, "Server thread 应派生 3 个帧热点")
 
         val topOne = AgentDataReader.deriveMainThreadHotspots(stacks, 1)
@@ -123,7 +127,12 @@ class AgentDataReaderTest {
     /** 无 "Server thread" 时,deriveMainThreadHotspots 退化为采样最多的线程。 */
     @Test
     fun `deriveMainThreadHotspots 无主线程时取最忙线程`() {
-        val stacks = listOf(ThreadStackProfile("Region #0", listOf(FoldedStack(listOf("x#m"), 4L))))
+        val stacks = listOf(
+            ThreadStackProfile.builder()
+                .threadName("Region #0")
+                .stacks(listOf(FoldedStack.builder().frames(listOf("x#m")).sampleCount(4L).build()))
+                .build()
+        )
         val hot = AgentDataReader.deriveMainThreadHotspots(stacks, 5)
         assertEquals("x#m", hot[0].frame, "无 Server thread 时取最忙线程的帧")
     }
@@ -133,11 +142,11 @@ class AgentDataReaderTest {
     fun `parseTimelineEvents 解析与容错`() {
         val ev = AgentDataReader.parseTimelineEvents("enable|Alpha|1000|2000;load|Beta|5|6")
         assertEquals(2, ev.size, "应解析出 2 条")
-        assertEquals(TimelineEvent("enable", "Alpha", 1000L, 2000L), ev[0], "首条应正确")
+        assertEquals(TimelineEvent.builder().type("enable").name("Alpha").startNanos(1000L).endNanos(2000L).build(), ev[0], "首条应正确")
 
         val ev2 = AgentDataReader.parseTimelineEvents("bad|only|three;enable|A|x|2;load|B|1|2")
         assertEquals(1, ev2.size, "字段不足/非数字段应跳过,仅保留 1 条")
-        assertEquals(TimelineEvent("load", "B", 1L, 2L), ev2[0], "应保留合法段")
+        assertEquals(TimelineEvent.builder().type("load").name("B").startNanos(1L).endNanos(2L).build(), ev2[0], "应保留合法段")
         assertTrue(AgentDataReader.parseTimelineEvents("").isEmpty(), "空串应返回空列表")
     }
 
@@ -145,10 +154,17 @@ class AgentDataReaderTest {
     @Test
     fun `parseWorldTimings 与 parseItemTimings 解析`() {
         val worlds = AgentDataReader.parseWorldTimings("world=10;world_nether=20")
-        assertEquals(listOf(WorldTiming("world", 10L), WorldTiming("world_nether", 20L)), worlds, "世界耗时应解析")
+        assertEquals(
+            listOf(
+                WorldTiming.builder().name("world").loadMs(10L).build(),
+                WorldTiming.builder().name("world_nether").loadMs(20L).build()
+            ),
+            worlds,
+            "世界耗时应解析"
+        )
 
         val items = AgentDataReader.parseItemTimings("config.yml=5;broken=bad")
         assertEquals(1, items.size, "非数字值的项应跳过")
-        assertEquals(StartupItemTiming("config.yml", 5L), items[0], "合法项应保留")
+        assertEquals(StartupItemTiming.builder().name("config.yml").costMs(5L).build(), items[0], "合法项应保留")
     }
 }

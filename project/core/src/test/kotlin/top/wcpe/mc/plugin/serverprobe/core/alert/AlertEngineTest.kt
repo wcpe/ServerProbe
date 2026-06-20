@@ -156,62 +156,66 @@ class AlertEngineTest {
         AlertRule(AlertType.TPS_LOW, threshold, sustainCycles, AlertLevel.WARN, enabled = true)
 
     /** 构造含服务器维度的快照,设定 tps1m 与死锁数。 */
-    private fun serverSnapshot(tps1m: Double?, deadlockedThreadCount: Int = 0): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 0,
-        serverId = "test",
-        platform = ProbePlatform.BUKKIT,
-        jvm = jvm(deadlockedThreadCount),
-        server = ServerMetrics(
-            tick = TickSample(
-                tps1m = tps1m,
-                tps5m = null,
-                tps15m = null,
-                msptAvg = null,
-                msptP95 = 10.0,
-                msptP99 = null,
-                source = TickSampleSource.SELF_SAMPLING
-            ),
-            onlinePlayers = 0,
-            maxPlayers = 20,
-            uptimeMs = 0
+    private fun serverSnapshot(tps1m: Double?, deadlockedThreadCount: Int = 0): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(0)
+        .serverId("test")
+        .platform(ProbePlatform.BUKKIT)
+        .jvm(jvm(deadlockedThreadCount))
+        .server(
+            ServerMetrics.builder()
+                .tick(
+                    TickSample.builder()
+                        .tps1m(tps1m)
+                        .tps5m(null)
+                        .tps15m(null)
+                        .msptAvg(null)
+                        .msptP95(10.0)
+                        .msptP99(null)
+                        .source(TickSampleSource.SELF_SAMPLING)
+                        .build()
+                )
+                .onlinePlayers(0)
+                .maxPlayers(20)
+                .uptimeMs(0)
+                .build()
         )
-    )
+        .build()
 
     /** 构造代理端快照:server=null → 服务器维度指标 extract 为 null(模拟数据缺失)。 */
-    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot(
-        schemaVersion = 1,
-        timestampMs = 0,
-        serverId = "test",
-        platform = ProbePlatform.BUNGEE,
-        jvm = jvm(deadlockedThreadCount = 0),
-        server = null
-    )
+    private fun proxySnapshot(): MetricSnapshot = MetricSnapshot.builder()
+        .schemaVersion(1)
+        .timestampMs(0)
+        .serverId("test")
+        .platform(ProbePlatform.BUNGEE)
+        .jvm(jvm(deadlockedThreadCount = 0))
+        .server(null)
+        .build()
 
     /** 构造测试用 JVM 指标:仅死锁数有意义,其余占位。 */
-    private fun jvm(deadlockedThreadCount: Int): JvmMetrics = JvmMetrics(
-        heapUsedBytes = 0,
-        heapCommittedBytes = 0,
-        heapMaxBytes = -1,
-        nonHeapUsedBytes = 0,
-        nonHeapCommittedBytes = 0,
-        nonHeapMaxBytes = -1,
-        memoryPools = emptyList(),
-        gcYoungCount = 0,
-        gcYoungTimeMs = 0,
-        gcOldCount = 0,
-        gcOldTimeMs = 0,
-        gcCollectors = emptyList(),
-        threadCount = 0,
-        daemonThreadCount = 0,
-        peakThreadCount = 0,
-        deadlockedThreadCount = deadlockedThreadCount,
-        loadedClassCount = 0,
-        totalLoadedClassCount = 0,
-        processCpuLoad = -1.0,
-        systemCpuLoad = -1.0,
-        uptimeMs = 0,
-        startTimeMs = 0,
-        jvmArgs = emptyList()
-    )
+    private fun jvm(deadlockedThreadCount: Int): JvmMetrics = JvmMetrics.builder()
+        .heapUsedBytes(0)
+        .heapCommittedBytes(0)
+        .heapMaxBytes(-1)
+        .nonHeapUsedBytes(0)
+        .nonHeapCommittedBytes(0)
+        .nonHeapMaxBytes(-1)
+        .memoryPools(emptyList())
+        .gcYoungCount(0)
+        .gcYoungTimeMs(0)
+        .gcOldCount(0)
+        .gcOldTimeMs(0)
+        .gcCollectors(emptyList())
+        .threadCount(0)
+        .daemonThreadCount(0)
+        .peakThreadCount(0)
+        .deadlockedThreadCount(deadlockedThreadCount)
+        .loadedClassCount(0)
+        .totalLoadedClassCount(0)
+        .processCpuLoad(-1.0)
+        .systemCpuLoad(-1.0)
+        .uptimeMs(0)
+        .startTimeMs(0)
+        .jvmArgs(emptyList())
+        .build()
 }

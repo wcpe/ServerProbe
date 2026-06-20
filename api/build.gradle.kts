@@ -6,7 +6,12 @@ java {
     withSourcesJar()
 }
 
-// api 模块不需要额外依赖，root subprojects 已提供 kotlin-stdlib
+// api 模块为纯 Java 公开契约(ADR-13):用 Lombok 生成不可变数据模型,消除 Kotlin metadata,
+// 使任意 Kotlin(含 1.x)/ Java 版本均可编译依赖。Lombok 仅编译期(compileOnly + 注解处理器),不进消费方传递依赖。
+dependencies {
+    compileOnly("org.projectlombok:lombok:1.18.34")
+    annotationProcessor("org.projectlombok:lombok:1.18.34")
+}
 
 publishing {
     repositories {

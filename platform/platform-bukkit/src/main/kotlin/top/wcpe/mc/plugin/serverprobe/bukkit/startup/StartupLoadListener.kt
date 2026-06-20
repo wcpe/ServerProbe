@@ -155,10 +155,10 @@ object StartupLoadListener {
      */
     private fun resolveWorldTimings(worldNames: List<String>, agentData: AgentStartupData): List<WorldTiming> {
         if (!agentData.attached || agentData.worldTimings.isEmpty()) {
-            return worldNames.map { WorldTiming(it, WORLD_LOAD_MS_UNKNOWN) }
+            return worldNames.map { WorldTiming.builder().name(it).loadMs(WORLD_LOAD_MS_UNKNOWN).build() }
         }
         val measured = agentData.worldTimings.associate { it.name to it.loadMs }
-        return worldNames.map { WorldTiming(it, measured[it] ?: WORLD_LOAD_MS_UNKNOWN) }
+        return worldNames.map { WorldTiming.builder().name(it).loadMs(measured[it] ?: WORLD_LOAD_MS_UNKNOWN).build() }
     }
 
     /**

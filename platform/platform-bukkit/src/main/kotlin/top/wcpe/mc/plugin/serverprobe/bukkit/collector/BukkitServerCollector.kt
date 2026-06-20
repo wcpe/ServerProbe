@@ -75,10 +75,10 @@ class BukkitServerCollector : ServerMetricsCollectorApi {
      *
      * @return 当前时刻的 [ServerMetrics]。
      */
-    override fun collect(): ServerMetrics = ServerMetrics(
-        tick = tickSampler.sample(),
-        onlinePlayers = Bukkit.getOnlinePlayers().size,
-        maxPlayers = Bukkit.getMaxPlayers(),
-        uptimeMs = ManagementFactory.getRuntimeMXBean().uptime
-    )
+    override fun collect(): ServerMetrics = ServerMetrics.builder()
+        .tick(tickSampler.sample())
+        .onlinePlayers(Bukkit.getOnlinePlayers().size)
+        .maxPlayers(Bukkit.getMaxPlayers())
+        .uptimeMs(ManagementFactory.getRuntimeMXBean().uptime)
+        .build()
 }

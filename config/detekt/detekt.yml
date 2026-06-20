@@ -18,6 +18,8 @@ complexity:
   LongMethod:
     # 采集/格式化方法略长,阈值适度放宽(仍鼓励拆分)
     threshold: 60
+    # 测试方法天然偏长(线性 setup + 断言,数据构造经 Lombok builder 更冗长),对测试源豁免
+    excludes: ['**/test/**']
   TooManyFunctions:
     # 采集器/命令/门面类函数较多,适度放宽
     thresholdInClasses: 20

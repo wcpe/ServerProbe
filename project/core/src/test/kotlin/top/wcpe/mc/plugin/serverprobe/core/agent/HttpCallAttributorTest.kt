@@ -9,10 +9,10 @@ import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
  */
 class HttpCallAttributorTest {
 
-    private fun call(frames: List<String>, loaderHashes: List<Int> = emptyList()) = HttpCall(
-        seq = 1L, startRelNanos = 0L, durationMs = 1L, method = "TCP", responseCode = -1, error = false,
-        host = "h", url = "h:1", headers = emptyList(), callerFrames = frames, loaderHashes = loaderHashes
-    )
+    private fun call(frames: List<String>, loaderHashes: List<Int> = emptyList()) = HttpCall.builder()
+        .seq(1L).startRelNanos(0L).durationMs(1L).method("TCP").responseCode(-1).error(false)
+        .host("h").url("h:1").headers(emptyList()).callerFrames(frames).loaderHashes(loaderHashes)
+        .build()
 
     /** ClassLoader 身份命中时优先返回该插件(即便包前缀也能匹配到别的)。 */
     @Test

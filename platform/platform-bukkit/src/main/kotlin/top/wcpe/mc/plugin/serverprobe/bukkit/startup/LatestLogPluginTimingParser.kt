@@ -55,7 +55,7 @@ object LatestLogPluginTimingParser {
             } else {
                 diffSecondsToMillis(current.second, nextSecond)
             }
-            result.add(PluginTiming(current.name, enableMs))
+            result.add(PluginTiming.builder().name(current.name).enableMs(enableMs).build())
         }
         return result
     }

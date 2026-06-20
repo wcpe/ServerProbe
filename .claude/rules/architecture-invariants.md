@@ -27,7 +27,7 @@
 
 ## 4. 技术栈锁定
 
-- 语言/框架：**Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.5**；核心编译 **Java 8 target**（覆盖 1.8–1.21.x 全 JRE）。
+- 语言/框架：**Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.5**；核心编译 **Java 8 target**（覆盖 1.8–1.21.x 全 JRE）。**`api` 模块为纯 Java + Lombok**（对外公开契约、零 Kotlin metadata，ADR-13）；core/platform/plugin 仍 Kotlin。
 - 调度一律走 TabooLib `submit()/submitAsync()`（已原生适配 Folia），**严禁直接 `Bukkit.getScheduler()`**（ADR-4）。
 - TPS/MSPT 经自研 `ServerTickSampler` 抽象多实现（ADR-5）；NMS 访问优先反射（`nmsClass`/`getProperty`），避免直接 `extends` 高版本类型而被迫抬 toolchain（ADR-3）。
 - 分发形态：**单 jar 多端**（ADR-6）；启动 agent 与插件为**二合一 jar**（ADR-11）。

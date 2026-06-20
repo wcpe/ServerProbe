@@ -18,7 +18,7 @@ class StartupComparatorTest {
     /** 无上一次画像应返回固定"无基线"文案。 */
     @Test
     fun `无 previous 返回无基线`() {
-        val current = profile(totalMs = 10_000L, plugins = listOf(PluginTiming("Alpha", 500L)))
+        val current = profile(totalMs = 10_000L, plugins = listOf(PluginTiming.builder().name("Alpha").enableMs(500L).build()))
 
         assertEquals("无基线对比(首次记录)", StartupComparator.summary(current, null), "首次记录应返回无基线文案")
     }
@@ -27,8 +27,8 @@ class StartupComparatorTest {
     @Test
     fun `有 previous 含总时长与慢插件变化`() {
         // 上次 10.0s,本次 11.0s:Δ=+1.0s,+10.0%
-        val previous = profile(totalMs = 10_000L, plugins = listOf(PluginTiming("Alpha", 800L)))
-        val current = profile(totalMs = 11_000L, plugins = listOf(PluginTiming("Alpha", 1_000L)))
+        val previous = profile(totalMs = 10_000L, plugins = listOf(PluginTiming.builder().name("Alpha").enableMs(800L).build()))
+        val current = profile(totalMs = 11_000L, plugins = listOf(PluginTiming.builder().name("Alpha").enableMs(1_000L).build()))
 
         val summary = StartupComparator.summary(current, previous)
 
@@ -57,17 +57,17 @@ class StartupComparatorTest {
      * @param plugins 逐插件耗时。
      * @return 启动画像。
      */
-    private fun profile(totalMs: Long, plugins: List<PluginTiming>): StartupProfile = StartupProfile(
-        schemaVersion = 1,
-        serverId = "test",
-        platform = ProbePlatform.BUKKIT,
-        mcVersion = "1.21.4",
-        jvmStartTimeMs = 1L,
-        totalMs = totalMs,
-        phaseTimings = emptyList(),
-        pluginTimings = plugins,
-        worldTimings = emptyList(),
-        jvmArgs = emptyList(),
-        createdAtMs = 1L
-    )
+    private fun profile(totalMs: Long, plugins: List<PluginTiming>): StartupProfile = StartupProfile.builder()
+        .schemaVersion(1)
+        .serverId("test")
+        .platform(ProbePlatform.BUKKIT)
+        .mcVersion("1.21.4")
+        .jvmStartTimeMs(1L)
+        .totalMs(totalMs)
+        .phaseTimings(emptyList())
+        .pluginTimings(plugins)
+        .worldTimings(emptyList())
+        .jvmArgs(emptyList())
+        .createdAtMs(1L)
+        .build()
 }

@@ -105,7 +105,7 @@ object HttpMonitorService {
                 val plugin = HttpCallAttributor
                     .attribute(raw, cachedLoaderHashes, cachedPrefixes)
                     .ifEmpty { UNKNOWN_PLUGIN }
-                val call = raw.copy(plugin = plugin)
+                val call = raw.toBuilder().plugin(plugin).build()
                 store.add(call)
                 if (logToConsole) {
                     ProbeLogger.info(formatLine(call))

@@ -15,20 +15,20 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  */
 class UnavailableTickSampler : ServerTickSampler {
 
-    override val source: TickSampleSource = TickSampleSource.UNAVAILABLE
+    override fun getSource(): TickSampleSource = TickSampleSource.UNAVAILABLE
 
     /**
      * 返回全 N/A 的采样结果。
      *
      * @return 六个数值字段均为 null 的 [TickSample]。
      */
-    override fun sample(): TickSample = TickSample(
-        tps1m = null,
-        tps5m = null,
-        tps15m = null,
-        msptAvg = null,
-        msptP95 = null,
-        msptP99 = null,
-        source = source
-    )
+    override fun sample(): TickSample = TickSample.builder()
+        .tps1m(null)
+        .tps5m(null)
+        .tps15m(null)
+        .msptAvg(null)
+        .msptP95(null)
+        .msptP99(null)
+        .source(source)
+        .build()
 }

@@ -46,32 +46,32 @@ class StartupProfileBuilder {
         val runtimeBean = ManagementFactory.getRuntimeMXBean()
         // agent 未挂载(null 或 attached=false):增强字段全 null,与旧档默认值一致
         val agentAttached = agentData?.attached == true
-        return StartupProfile(
-            schemaVersion = SCHEMA_VERSION,
-            serverId = serverId,
-            platform = platform,
-            mcVersion = mcVersion,
-            jvmStartTimeMs = runtimeBean.startTime,
-            totalMs = totalMs,
-            phaseTimings = PhaseTimingRecorder.phaseTimings(),
-            pluginTimings = pluginTimings,
-            worldTimings = worldTimings,
-            jvmArgs = runtimeBean.inputArguments,
-            createdAtMs = System.currentTimeMillis(),
-            agentAttached = agentAttached,
-            premainNanos = if (agentAttached) agentData?.premainNanos else null,
-            agentPluginLoadTimings = if (agentAttached) agentData?.loadTimings else null,
-            agentPluginEnableTimings = if (agentAttached) agentData?.enableTimings else null,
-            libraryTimings = if (agentAttached) agentData?.libraryTimings else null,
-            mainThreadHotspots = if (agentAttached) agentData?.hotspots else null,
-            timelineEvents = if (agentAttached) agentData?.timelineEvents else null,
-            threadStacks = if (agentAttached) agentData?.threadStacks else null,
-            configTimings = if (agentAttached) agentData?.configTimings else null,
-            eventTimings = if (agentAttached) agentData?.eventTimings else null,
-            commandTimings = if (agentAttached) agentData?.commandTimings else null,
-            sampleIntervalMs = if (agentAttached) agentData?.sampleIntervalMs else null,
-            httpCalls = if (agentAttached) agentData?.httpCalls else null
-        )
+        return StartupProfile.builder()
+            .schemaVersion(SCHEMA_VERSION)
+            .serverId(serverId)
+            .platform(platform)
+            .mcVersion(mcVersion)
+            .jvmStartTimeMs(runtimeBean.startTime)
+            .totalMs(totalMs)
+            .phaseTimings(PhaseTimingRecorder.phaseTimings())
+            .pluginTimings(pluginTimings)
+            .worldTimings(worldTimings)
+            .jvmArgs(runtimeBean.inputArguments)
+            .createdAtMs(System.currentTimeMillis())
+            .agentAttached(agentAttached)
+            .premainNanos(if (agentAttached) agentData?.premainNanos else null)
+            .agentPluginLoadTimings(if (agentAttached) agentData?.loadTimings else null)
+            .agentPluginEnableTimings(if (agentAttached) agentData?.enableTimings else null)
+            .libraryTimings(if (agentAttached) agentData?.libraryTimings else null)
+            .mainThreadHotspots(if (agentAttached) agentData?.hotspots else null)
+            .timelineEvents(if (agentAttached) agentData?.timelineEvents else null)
+            .threadStacks(if (agentAttached) agentData?.threadStacks else null)
+            .configTimings(if (agentAttached) agentData?.configTimings else null)
+            .eventTimings(if (agentAttached) agentData?.eventTimings else null)
+            .commandTimings(if (agentAttached) agentData?.commandTimings else null)
+            .sampleIntervalMs(if (agentAttached) agentData?.sampleIntervalMs else null)
+            .httpCalls(if (agentAttached) agentData?.httpCalls else null)
+            .build()
     }
 
     private companion object {

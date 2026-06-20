@@ -125,19 +125,19 @@ object AgentDataReader {
                 if (f.size < 10) return@mapNotNull null
                 val seq = f[0].toLongOrNull() ?: return@mapNotNull null
                 if (seq > maxSeq) maxSeq = seq
-                HttpCall(
-                    seq = seq,
-                    startRelNanos = f[1].toLongOrNull() ?: 0L,
-                    durationMs = f[2].toLongOrNull() ?: 0L,
-                    method = f[3],
-                    responseCode = f[4].toIntOrNull() ?: -1,
-                    error = f[5] == "1",
-                    host = f[6],
-                    url = f[7],
-                    headers = splitSub(f[8]),
-                    callerFrames = splitSub(f[9]),
-                    loaderHashes = if (f.size > 10) splitSub(f[10]).mapNotNull { it.toIntOrNull() } else emptyList()
-                )
+                HttpCall.builder()
+                    .seq(seq)
+                    .startRelNanos(f[1].toLongOrNull() ?: 0L)
+                    .durationMs(f[2].toLongOrNull() ?: 0L)
+                    .method(f[3])
+                    .responseCode(f[4].toIntOrNull() ?: -1)
+                    .error(f[5] == "1")
+                    .host(f[6])
+                    .url(f[7])
+                    .headers(splitSub(f[8]))
+                    .callerFrames(splitSub(f[9]))
+                    .loaderHashes(if (f.size > 10) splitSub(f[10]).mapNotNull { it.toIntOrNull() } else emptyList())
+                    .build()
             }
             calls to maxSeq
         }.getOrElse {
@@ -182,25 +182,25 @@ object AgentDataReader {
      * 解析 agent 的 `name=ms;name=ms` 串为逐插件耗时列表。
      */
     private fun parsePluginTimings(raw: String): List<PluginTiming> =
-        parseNameValue(raw).map { (name, value) -> PluginTiming(name, value) }
+        parseNameValue(raw).map { (name, value) -> PluginTiming.builder().name(name).enableMs(value).build() }
 
     /**
      * 解析 agent 的 `name=ms;name=ms` 串为逐插件库加载耗时列表。
      */
     private fun parseLibraryTimings(raw: String): List<LibraryTiming> =
-        parseNameValue(raw).map { (name, value) -> LibraryTiming(name, value) }
+        parseNameValue(raw).map { (name, value) -> LibraryTiming.builder().name(name).loadMs(value).build() }
 
     /**
      * 解析 agent 的 `name=ms;name=ms` 串为逐世界创建耗时列表(M5)。
      */
     internal fun parseWorldTimings(raw: String): List<WorldTiming> =
-        parseNameValue(raw).map { (name, value) -> WorldTiming(name, value) }
+        parseNameValue(raw).map { (name, value) -> WorldTiming.builder().name(name).loadMs(value).build() }
 
     /**
      * 解析 agent 的 `name=ms;name=ms` 串为通用命名项耗时列表(M5,用于配置/事件/命令)。
      */
     internal fun parseItemTimings(raw: String): List<StartupItemTiming> =
-        parseNameValue(raw).map { (name, value) -> StartupItemTiming(name, value) }
+        parseNameValue(raw).map { (name, value) -> StartupItemTiming.builder().name(name).costMs(value).build() }
 
     /**
      * 解析 agent 的时间线事件串(M5)。
@@ -219,7 +219,7 @@ object AgentDataReader {
             val name = parts[1]
             val startNanos = parts[2].toLongOrNull() ?: return@mapNotNull null
             val endNanos = parts[3].toLongOrNull() ?: return@mapNotNull null
-            TimelineEvent(type, name, startNanos, endNanos)
+            TimelineEvent.builder().type(type).name(name).startNanos(startNanos).endNanos(endNanos).build()
         }
     }
 
@@ -249,10 +249,10 @@ object AgentDataReader {
             val count = line.substring(lastPipe + 1).toLongOrNull() ?: return@forEach
             if (folded.isEmpty()) return@forEach
             val frames = folded.split(FRAME_SEPARATOR)
-            grouped.getOrPut(threadName) { mutableListOf() }.add(FoldedStack(frames, count))
+            grouped.getOrPut(threadName) { mutableListOf() }.add(FoldedStack.builder().frames(frames).sampleCount(count).build())
         }
         return grouped.map { (name, stacks) ->
-            ThreadStackProfile(name, stacks.sortedByDescending { it.sampleCount })
+            ThreadStackProfile.builder().threadName(name).stacks(stacks.sortedByDescending { it.sampleCount }).build()
         }
     }
 
@@ -280,7 +280,7 @@ object AgentDataReader {
         return counts.entries
             .sortedByDescending { it.value }
             .take(topN)
-            .map { StackHotspot(it.key, it.value) }
+            .map { StackHotspot.builder().frame(it.key).sampleCount(it.value).build() }
     }
 
     /**

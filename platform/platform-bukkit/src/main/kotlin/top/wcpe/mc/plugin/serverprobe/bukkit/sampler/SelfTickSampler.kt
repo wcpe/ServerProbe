@@ -19,7 +19,7 @@ class SelfTickSampler(
     private val clock: TickClock
 ) : ServerTickSampler {
 
-    override val source: TickSampleSource = TickSampleSource.SELF_SAMPLING
+    override fun getSource(): TickSampleSource = TickSampleSource.SELF_SAMPLING
 
     /**
      * 采样当前 tick 数据。
@@ -27,15 +27,15 @@ class SelfTickSampler(
      * @return Self 路径采样结果;不可用项为 null。
      */
     override fun sample(): TickSample {
-        return TickSample(
-            tps1m = clock.tpsOver(WINDOW_1M_SECONDS),
-            tps5m = clock.tpsOver(WINDOW_5M_SECONDS),
-            tps15m = clock.tpsOver(WINDOW_15M_SECONDS),
-            msptAvg = clock.histogram.avgMs(),
-            msptP95 = clock.histogram.p95Ms(),
-            msptP99 = clock.histogram.p99Ms(),
-            source = source
-        )
+        return TickSample.builder()
+            .tps1m(clock.tpsOver(WINDOW_1M_SECONDS))
+            .tps5m(clock.tpsOver(WINDOW_5M_SECONDS))
+            .tps15m(clock.tpsOver(WINDOW_15M_SECONDS))
+            .msptAvg(clock.histogram.avgMs())
+            .msptP95(clock.histogram.p95Ms())
+            .msptP99(clock.histogram.p99Ms())
+            .source(source)
+            .build()
     }
 
     private companion object {

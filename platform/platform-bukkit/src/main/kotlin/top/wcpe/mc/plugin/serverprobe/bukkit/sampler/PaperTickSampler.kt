@@ -18,7 +18,7 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  */
 class PaperTickSampler : ServerTickSampler {
 
-    override val source: TickSampleSource = TickSampleSource.PAPER_API
+    override fun getSource(): TickSampleSource = TickSampleSource.PAPER_API
 
     /**
      * 采样当前 tick 数据。
@@ -44,15 +44,15 @@ class PaperTickSampler : ServerTickSampler {
             p95Ms = null
             p99Ms = null
         }
-        return TickSample(
-            tps1m = tps?.getOrNull(TpsArrayIndex.M1),
-            tps5m = tps?.getOrNull(TpsArrayIndex.M5),
-            tps15m = tps?.getOrNull(TpsArrayIndex.M15),
-            msptAvg = avgMs,
-            msptP95 = p95Ms,
-            msptP99 = p99Ms,
-            source = source
-        )
+        return TickSample.builder()
+            .tps1m(tps?.getOrNull(TpsArrayIndex.M1))
+            .tps5m(tps?.getOrNull(TpsArrayIndex.M5))
+            .tps15m(tps?.getOrNull(TpsArrayIndex.M15))
+            .msptAvg(avgMs)
+            .msptP95(p95Ms)
+            .msptP99(p99Ms)
+            .source(source)
+            .build()
     }
 
     private companion object {
