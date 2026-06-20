@@ -122,3 +122,14 @@ bin/
 
 # AI 过程性临时文件(不入库)
 .tmp/
+
+# SDD 补充忽略项
+# Kotlin 编译器守护进程缓存目录
+.kotlin/
+# VSCode 工作区配置
+.vscode/
+# 环境与密钥(不入库)
+.env
+# Maven 构建产物(以防混用)
+target/
+.mvn/timing.properties

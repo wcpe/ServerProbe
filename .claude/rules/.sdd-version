@@ -1,0 +1,5 @@
+# SDD 治理来源戳（供 sdd-sync-governance 增量升级治理用，勿手改）
+sdd-skills-version: 0.5.0
+sdd-skills-commit: (非 git 检出，插件缓存安装，无 commit)
+applied-date: 2026-06-20
+source-skill: retrofit-to-sdd

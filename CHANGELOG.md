@@ -62,6 +62,7 @@
 - 新增产品需求文档 [`docs/PRD.md`](docs/PRD.md):明确背景与目标(开服慢可量化定位、统一运维探针、全版本多平台)、兼容性矩阵、功能需求(FR1–FR8)、非功能需求、数据模型与迭代规划(M1–M4)。初稿日期 2026-06-08。
 - 新增架构文档 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md):明确分层架构(`plugin → platform-* / nms-* → core → api`)、多版本兼容机制、多平台架构、JDK/Toolchain 策略、Folia 适配、核心数据流、启动剖析机制、运行时装配与关键技术决策记录(ADR)。
 - 新增本更新日志 `CHANGELOG.md`。
+- **引入 SDD(规格驱动开发)治理脚手架**:新增 `.claude/rules/`(架构不变量 + 范围/决策/文档/质量/静态检查等防漂移规则)、`docs/adr/`(ADR-1~12 由 `ARCHITECTURE.md` 内联迁移为独立文件 + 索引,`ARCHITECTURE.md` §11 改为索引)、`docs/API.md`(对外接口契约)、`docs/OPERATIONS.md`、`SECURITY.md`、`docs/CONTRIBUTING.md`、`docs/specs/`、`.github/` 模板与 `.editorconfig`;`PRD.md` §7 增"功能交付状态总览"。**仅新增治理文档,未改动任何业务代码**;现有能力的交付状态见 [PRD §7.0](docs/PRD.md)。
 - **关键决策敲定(同步至 Wiki 各页)**:将原"待定 / 开放问题 / 产品定义未定"的若干议题更新为明确结论。
   - **Folia TPS/MSPT 呈现**:采用 **per-region 明细 + 全局标 N/A**;分阶段实施 —— M1 先全局标 N/A,M2/M3 补 per-region 明细(原"标 N/A / 聚合 / per-region 待定")。
   - **依赖策略**:**允许按需引入轻量依赖,但每个新依赖需逐个确认**(原 Prometheus / Web 服务依赖"是否引入属开放问题")。
