@@ -84,10 +84,10 @@
 - **`feature/*`、`fix/*`、`refactor/*`、`hotfix/*`**：短生命周期分支，做完发 PR 回主干。
 - **稳定发布**：打 `vX.Y.Z` tag（`sdd-release-version` 技能）。
 - **回滚**优先 `git revert`，不重写已 push 历史（`sdd-rollback-change` 技能）。
-- **CI**：建立公开仓库后，把"构建 + 测试 + lint"设为合并前门禁（见 `.claude/rules/static-analysis.md` §2，属待引入）。
+- **CI**：已配置 `.github/workflows/ci.yml`（push / PR 跑 `./gradlew build` = 构建 + 测试 + detekt）。当前无公开 remote、尚未实际运行；建立 GitHub 仓库后即生效，应在分支保护里设为合并前门禁。
 
 **版本号当前权威来源 = 根 `gradle.properties` 的 `version` 字段**（Gradle 构建原生读取并注入各模块产物）。SDD 约定的根 `VERSION` 单一来源文件**本项目暂未引入**（避免与 `gradle.properties` 产生双源）；是否引入并接入构建，待维护者定夺。
-> 注：当前版本口径存在不一致（`gradle.properties`=`1.0.0-SNAPSHOT`、路线图首版=`0.1.0`、README/PRD 标 `v0.2-draft`），统一口径为待办项。
+> 版本口径 = **`0.1.0`**（2026-06-20 首发，本地 tag `v0.1.0`，未推送）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
 
 ## 9. 文档如何长期演进（本次会话之后）
 

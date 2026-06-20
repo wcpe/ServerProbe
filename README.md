@@ -2,7 +2,7 @@
 
 > 基于 [TabooLib](https://github.com/TabooLib/taboolib) 6.3.0 的 **Minecraft 服务器运维探针**:首要解决「开服慢」的可量化排查,并提供运维指标的采集 / 聚合 / 告警 / 可视化。覆盖 Bukkit 系 1.8 – 1.21.11 全版本(含 Folia)+ BungeeCord 代理端,单 jar 多端,核心 Java 8 字节码。
 
-[![Version](https://img.shields.io/badge/version-v0.2--draft-orange)](docs/PRD.md)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](docs/PRD.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.8--1.21.11-blue)](#兼容性矩阵)
 [![TabooLib](https://img.shields.io/badge/TabooLib-6.3.0-9cf)](https://github.com/TabooLib/taboolib)
