@@ -226,6 +226,44 @@ object ProbeConfig {
     }
 
     /**
+     * 是否开启插件桥反向 WS(FR-065,见 JianManager ADR-016),默认 false(关闭)。
+     *
+     * 由 JianManager 建服时写入 `bridge.enabled=true` 并下发 url/instance/token;独立使用探针(非 JianManager
+     * 托管)时保持关闭,探针不连任何外部 Worker。关闭时 [top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeClient]
+     * 不起连接。
+     *
+     * @return 是否开启插件桥。
+     */
+    fun bridgeEnabled(): Boolean = conf.getBoolean(KEY_BRIDGE_ENABLED, DEFAULT_BRIDGE_ENABLED)
+
+    /**
+     * 插件桥目标 Worker 的 WS 地址(如 `ws://127.0.0.1:9102/ws/plugin-bridge`),默认空串(未配置)。
+     *
+     * 探针据此主动反向连入本机 Worker;token/instance 作为查询参数另行附加。空串时即使开关开启也不连。
+     *
+     * @return 去空白后的 WS 地址;未配置或空白时为空串。
+     */
+    fun bridgeUrl(): String = conf.getString(KEY_BRIDGE_URL)?.trim() ?: DEFAULT_BRIDGE_URL
+
+    /**
+     * 插件桥实例标识(JianManager 实例 UUID),默认空串。
+     *
+     * 作为握手 `?instance=` 参数,须与 token 内 instanceId 一致(Worker 校验)。
+     *
+     * @return 去空白后的实例标识;未配置时为空串。
+     */
+    fun bridgeInstance(): String = conf.getString(KEY_BRIDGE_INSTANCE)?.trim() ?: DEFAULT_BRIDGE_INSTANCE
+
+    /**
+     * 插件桥连接 token(实例级 HS256 JWT,scope=plugin-bridge),默认空串。
+     *
+     * 作为握手 `?token=` 参数;**安全:绝不写入日志**。空串时不连。
+     *
+     * @return token;未配置时为空串。
+     */
+    fun bridgeToken(): String = conf.getString(KEY_BRIDGE_TOKEN)?.trim() ?: DEFAULT_BRIDGE_TOKEN
+
+    /**
      * 是否开启告警引擎(FR5),默认 false(关闭)。
      *
      * 关闭时 [top.wcpe.mc.plugin.serverprobe.core.alert.AlertEngine] 不构建任何规则,采集末尾的判定空转。
@@ -426,6 +464,18 @@ object ProbeConfig {
     /** 配置键名:Prometheus 端点 IP 白名单。 */
     private const val KEY_METRICS_ALLOWED_IPS = "metrics.allowed-ips"
 
+    /** 配置键名:插件桥总开关。 */
+    private const val KEY_BRIDGE_ENABLED = "bridge.enabled"
+
+    /** 配置键名:插件桥 Worker WS 地址。 */
+    private const val KEY_BRIDGE_URL = "bridge.url"
+
+    /** 配置键名:插件桥实例标识。 */
+    private const val KEY_BRIDGE_INSTANCE = "bridge.instance"
+
+    /** 配置键名:插件桥连接 token。 */
+    private const val KEY_BRIDGE_TOKEN = "bridge.token"
+
     /** 配置键名:告警总开关。 */
     private const val KEY_ALERT_ENABLED = "alert.enabled"
 
@@ -524,6 +574,18 @@ object ProbeConfig {
 
     /** 默认 Prometheus 端点 IP 白名单:仅本机回环(配置缺失/异常时兜底,杜绝裸奔)。 */
     private val DEFAULT_METRICS_ALLOWED_IPS = listOf("127.0.0.1")
+
+    /** 默认插件桥总开关:关闭(独立使用探针时不连任何 Worker;由 JianManager 下发开启)。 */
+    private const val DEFAULT_BRIDGE_ENABLED = false
+
+    /** 默认插件桥 Worker WS 地址:空串(未配置)。 */
+    private const val DEFAULT_BRIDGE_URL = ""
+
+    /** 默认插件桥实例标识:空串(未配置)。 */
+    private const val DEFAULT_BRIDGE_INSTANCE = ""
+
+    /** 默认插件桥连接 token:空串(未配置)。 */
+    private const val DEFAULT_BRIDGE_TOKEN = ""
 
     /** 默认告警总开关:关闭(需显式开启)。 */
     private const val DEFAULT_ALERT_ENABLED = false
