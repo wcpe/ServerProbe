@@ -3,6 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.store.InstanceId
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
+import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostEnable
 import top.wcpe.taboolib.ioc.annotation.PreDestroy
 import top.wcpe.taboolib.ioc.annotation.Service
@@ -13,10 +14,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 插件桥反向 WS 客户端(FR-065,JianManager ADR-016 的探针侧载体)。
  *
- * 探针启用后主动以实例级 token 反向连入**本机 Worker** 的 `/ws/plugin-bridge`,建立实时双向通道,
- * 为后续玩家事件(FR-066)/治理(FR-067)/在线更新(FR-068)铺底。**本地基阶段只打通**:
- * 连上 → 发 hello → 周期 ping 心跳 → 发一个 demo `connected` 事件 → 断线指数退避重连;
- * 玩家事件/治理执行留后续 FR。
+ * 探针启用后主动以实例级 token 反向连入**本机 Worker** 的 `/ws/plugin-bridge`,建立实时双向通道。
+ * 上行:连上 → 发 hello → 周期 ping 心跳 → 实时玩家事件(FR-066,经 [emitPlayerEvent])→ 断线指数退避重连。
+ * 下行:读循环收 Worker 下发的 `command` 帧(FR-067 治理:踢/封/解封/白名单/在线列表),经
+ * [BridgeCommandRegistry] 交平台执行器执行,并回 `command_result`(带回同一 requestId 供 Worker 匹配同步等待者)。
  *
  * ## 零第三方依赖 / JDK 8
  * 探针锁 Java 8 且约定不引第三方 HTTP/JSON 库(见 PrometheusExporter / WebhookAlertChannel)。
@@ -45,6 +46,13 @@ class BridgeClient {
     /** 当前活动连接;用于 stop 时主动断开以打断读阻塞,以及心跳/事件发送。 */
     @Volatile
     private var client: MinimalWebSocketClient? = null
+
+    /**
+     * 治理指令处理器注册中心(FR-067):读循环收到 `command` 帧时经其取平台执行器执行。
+     * 平台模块(bukkit/bungee)自注册执行器;未注册(独立使用探针)时回 success=false 优雅降级。
+     */
+    @Inject
+    lateinit var commandRegistry: BridgeCommandRegistry
 
     /**
      * 启动插件桥客户端。
@@ -154,19 +162,51 @@ class BridgeClient {
      * 读循环:阻塞读服务端帧(welcome/pong/command),按心跳间隔在读超时后补发 ping。
      *
      * [MinimalWebSocketClient.readMessage] 的 socket soTimeout 即心跳间隔:超时(无下行)时抛
-     * SocketTimeoutException,本循环借此节律发 ping;有下行则处理后继续。命令(command)地基阶段仅记录。
+     * SocketTimeoutException,本循环借此节律发 ping;有下行则按帧类型处理。`command` 帧(FR-067)
+     * 解析后交平台执行器执行并回 `command_result`;其余帧(welcome/pong)仅记录。
      */
     private fun readLoop(ws: MinimalWebSocketClient) {
         while (running.get()) {
             try {
                 val msg = ws.readMessage()
-                // 地基阶段:仅记录服务端下行(welcome/command 等),不解析执行(留 FR-067)
-                ProbeLogger.debug("插件桥下行:$msg")
+                if (MiniJson.getString(msg, "type") == "command") {
+                    handleCommand(ws, msg)
+                } else {
+                    ProbeLogger.debug("插件桥下行:$msg")
+                }
             } catch (e: java.net.SocketTimeoutException) {
                 // 读超时即心跳节拍:补发一个 ping 维持连接与活性探测
                 ws.sendPing()
             }
         }
+    }
+
+    /**
+     * 处理一帧治理/查询指令(FR-067):解析 → 交平台执行器执行 → 回 `command_result`(带回 requestId)。
+     *
+     * 整体**绝不抛**(读循环不得因单条指令异常中断):平台未注册执行器或执行抛错均转为 success=false 的回执。
+     * 执行可能切回主线程并同步等待(平台实现负责),本方法在桥读线程串行执行,等待期间不再处理后续下行——
+     * 治理指令为低频管理动作,可接受;Worker 侧对每条指令有 5s 超时兜底,不会永久阻塞。
+     *
+     * @param ws 当前连接,用于回写 command_result。
+     * @param raw 收到的 command 帧原文。
+     */
+    private fun handleCommand(ws: MinimalWebSocketClient, raw: String) {
+        val requestId = MiniJson.getString(raw, "requestId")
+        val result = runCatching {
+            val handler = commandRegistry.handler
+                ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
+            val command = BridgeCommand(
+                action = MiniJson.getString(raw, "action"),
+                target = MiniJson.getString(raw, "target"),
+                reason = MiniJson.getString(raw, "reason"),
+                requestId = requestId,
+            )
+            handler.handle(command)
+        }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
+
+        runCatching { ws.sendText(commandResultJson(requestId, result)) }
+            .onFailure { ProbeLogger.warn("插件桥回 command_result 失败(requestId=$requestId):${it.message}") }
     }
 
     /** 解析实例标识:优先用 JianManager 下发的 bridge.instance;为空时回退探针自身实例 ID。 */
@@ -219,6 +259,32 @@ class BridgeClient {
             append('"').append(escapeJson(k)).append("\":\"").append(escapeJson(v)).append('"')
             first = false
         }
+        append('}')
+        append('}')
+    }
+
+    /**
+     * 构造治理指令回执帧 JSON(FR-067,手拼零依赖)。
+     *
+     * 形态与 Worker 侧 [bridgeMessage] / [commandResultData] 约定一致:顶层 `type=event` +
+     * `event=command_result`,结构化字段放在嵌套 `data` 对象内(requestId/success/output/error)。
+     * success 为布尔字面量;output/error 为字符串(空值仍写入,便于 Worker 明确取到字段)。
+     * requestId 须与下发指令一致,Worker 据此把回执路由给同步等待的调用方。
+     *
+     * @param requestId 关联回执标识(来自下发的 command 帧)。
+     * @param result 平台执行结果。
+     */
+    private fun commandResultJson(requestId: String, result: BridgeCommandResult): String = buildString {
+        append('{')
+        append("\"type\":\"event\",")
+        append("\"event\":\"command_result\",")
+        append("\"instance\":\"").append(escapeJson(resolveInstance())).append("\",")
+        append("\"timestamp\":").append(System.currentTimeMillis()).append(',')
+        append("\"data\":{")
+        append("\"requestId\":\"").append(escapeJson(requestId)).append("\",")
+        append("\"success\":").append(result.success).append(',')
+        append("\"output\":\"").append(escapeJson(result.output)).append("\",")
+        append("\"error\":\"").append(escapeJson(result.error)).append('"')
         append('}')
         append('}')
     }
