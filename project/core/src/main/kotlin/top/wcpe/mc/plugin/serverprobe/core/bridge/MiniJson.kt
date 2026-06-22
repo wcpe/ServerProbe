@@ -20,6 +20,9 @@ object MiniJson {
      * @param key 顶层字段名。
      * @return 字段字符串值;缺失/非字符串时为空串。
      */
+    // 按名查找键的线性扫描天然有多个跳出点(未命中返回空 / 命中返回值 / 跳过非字符串值续找),
+    // 是惯用写法,拆分无益,故豁免循环跳转检查。
+    @Suppress("LoopWithTooManyJumpStatements")
     fun getString(json: String, key: String): String {
         val needle = "\"$key\""
         var i = 0
@@ -55,40 +58,50 @@ object MiniJson {
         val sb = StringBuilder()
         var p = start + 1
         while (p < s.length) {
-            val c = s[p]
-            when (c) {
+            when (s[p]) {
                 '"' -> return sb.toString()
-                '\\' -> {
-                    if (p + 1 >= s.length) return sb.toString()
-                    when (val e = s[p + 1]) {
-                        '"' -> sb.append('"')
-                        '\\' -> sb.append('\\')
-                        '/' -> sb.append('/')
-                        'n' -> sb.append('\n')
-                        'r' -> sb.append('\r')
-                        't' -> sb.append('\t')
-                        'b' -> sb.append('\b')
-                        'f' -> sb.append('')
-                        'u' -> {
-                            if (p + 5 < s.length) {
-                                val hex = s.substring(p + 2, p + 6)
-                                val code = hex.toIntOrNull(16)
-                                if (code != null) {
-                                    sb.append(code.toChar())
-                                    p += 4
-                                }
-                            }
-                        }
-                        else -> sb.append(e)
-                    }
-                    p += 2
-                }
+                '\\' -> p = appendEscape(sb, s, p)
                 else -> {
-                    sb.append(c)
+                    sb.append(s[p])
                     p++
                 }
             }
         }
         return sb.toString()
+    }
+
+    /**
+     * 反解从 [p](指向反斜杠)起的一个转义序列,追加到 [sb],返回消费后的新位置。
+     * 反斜杠在串尾则返回串长以结束读取;`\uXXXX` 交 [appendUnicodeEscape] 处理。
+     */
+    private fun appendEscape(sb: StringBuilder, s: String, p: Int): Int {
+        if (p + 1 >= s.length) return s.length // 反斜杠是最后字符:结束
+        when (val e = s[p + 1]) {
+            '"' -> sb.append('"')
+            '\\' -> sb.append('\\')
+            '/' -> sb.append('/')
+            'n' -> sb.append('\n')
+            'r' -> sb.append('\r')
+            't' -> sb.append('\t')
+            'b' -> sb.append('\b')
+            'f' -> sb.append('')
+            'u' -> return appendUnicodeEscape(sb, s, p)
+            else -> sb.append(e)
+        }
+        return p + 2
+    }
+
+    /**
+     * 反解 `\uXXXX`:成功则追加字符并消费 6 个位置;失败(越界/非法 hex)仅消费 2 个、不追加(保持原逻辑)。
+     */
+    private fun appendUnicodeEscape(sb: StringBuilder, s: String, p: Int): Int {
+        if (p + 5 < s.length) {
+            val code = s.substring(p + 2, p + 6).toIntOrNull(16)
+            if (code != null) {
+                sb.append(code.toChar())
+                return p + 6
+            }
+        }
+        return p + 2
     }
 }

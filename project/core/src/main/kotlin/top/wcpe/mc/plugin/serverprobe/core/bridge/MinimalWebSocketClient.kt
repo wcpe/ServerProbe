@@ -144,59 +144,69 @@ class MinimalWebSocketClient(
      * @throws EOFException 连接关闭(收到 close 帧或流结束)。
      * @throws java.io.IOException 读失败。
      */
+    // opcode 分发循环:控制帧(ping/pong)与未完成分片天然需 continue 跳过续读、return 仅在完整文本消息
+    // 就绪时——这是 RFC 6455 帧循环的固有语义,强拆只会割裂可读性,故仅此一处豁免循环跳转检查。
+    @Suppress("LoopWithTooManyJumpStatements")
     fun readMessage(): String {
         val inp = input ?: throw EOFException("连接未建立或已关闭")
         val payload = ArrayList<Byte>()
         var messageOpcode = -1
         while (true) {
-            val b0 = readByte(inp)
-            val fin = (b0 and 0x80) != 0
-            val opcode = b0 and 0x0F
-            val b1 = readByte(inp)
-            val masked = (b1 and 0x80) != 0
-            var len = (b1 and 0x7F).toLong()
-            when (len.toInt()) {
-                LEN_16 -> len = readUnsigned(inp, 2)
-                LEN_64 -> len = readUnsigned(inp, 8)
-            }
-            // 服务端帧通常不掩码;若掩码则读 4 字节掩码键并解掩。
-            val maskKey = if (masked) ByteArray(4) { readByte(inp).toByte() } else null
-            val data = ByteArray(len.toInt())
-            var read = 0
-            while (read < data.size) {
-                val n = inp.read(data, read, data.size - read)
-                if (n < 0) throw EOFException("读取帧载荷时连接关闭")
-                read += n
-            }
-            if (maskKey != null) {
-                for (i in data.indices) data[i] = (data[i].toInt() xor maskKey[i % 4].toInt()).toByte()
-            }
-
-            when (opcode) {
+            val frame = readFrame(inp)
+            when (frame.opcode) {
                 OPCODE_PING -> {
-                    writeFrame(OPCODE_PONG, data) // 回应 ping
+                    writeFrame(OPCODE_PONG, frame.data) // 回应 ping
                     continue
                 }
                 OPCODE_PONG -> continue // 消化 pong
                 OPCODE_CLOSE -> throw EOFException("收到服务端 close 帧")
                 OPCODE_TEXT, OPCODE_CONTINUATION -> {
-                    if (opcode == OPCODE_TEXT) messageOpcode = OPCODE_TEXT
-                    for (x in data) payload.add(x)
-                    if (fin) {
-                        if (messageOpcode != OPCODE_TEXT) {
-                            // 非文本消息(如二进制)忽略,继续读下一条
-                            payload.clear()
-                            messageOpcode = -1
-                            continue
-                        }
-                        return String(payload.toByteArray(), Charsets.UTF_8)
-                    }
+                    if (frame.opcode == OPCODE_TEXT) messageOpcode = OPCODE_TEXT
+                    payload.addAll(frame.data.asList())
+                    if (!frame.fin) continue // 分片未完:继续读续帧
+                    if (messageOpcode == OPCODE_TEXT) return String(payload.toByteArray(), Charsets.UTF_8)
+                    // 非文本消息(如二进制):丢弃已积累载荷,继续读下一条
+                    payload.clear()
+                    messageOpcode = -1
                 }
                 else -> {
                     // 未知 opcode:忽略该帧,继续
                 }
             }
         }
+    }
+
+    /** 一个已读入并解掩的 WebSocket 帧:FIN 标志 + opcode + 载荷。 */
+    private class WsFrame(val fin: Boolean, val opcode: Int, val data: ByteArray)
+
+    /**
+     * 读一个完整 WebSocket 帧:帧头(FIN+opcode)+ 长度(7/16/64 位三档)+ 可选掩码键 + 载荷,
+     * 返回已解掩的帧。把帧的字节级 I/O 从 [readMessage] 的 opcode 分发循环中分离以降复杂度。
+     */
+    private fun readFrame(inp: InputStream): WsFrame {
+        val b0 = readByte(inp)
+        val fin = (b0 and 0x80) != 0
+        val opcode = b0 and 0x0F
+        val b1 = readByte(inp)
+        val masked = (b1 and 0x80) != 0
+        var len = (b1 and 0x7F).toLong()
+        when (len.toInt()) {
+            LEN_16 -> len = readUnsigned(inp, 2)
+            LEN_64 -> len = readUnsigned(inp, 8)
+        }
+        // 服务端帧通常不掩码;若掩码则读 4 字节掩码键并解掩。
+        val maskKey = if (masked) ByteArray(4) { readByte(inp).toByte() } else null
+        val data = ByteArray(len.toInt())
+        var read = 0
+        while (read < data.size) {
+            val n = inp.read(data, read, data.size - read)
+            if (n < 0) throw EOFException("读取帧载荷时连接关闭")
+            read += n
+        }
+        if (maskKey != null) {
+            for (i in data.indices) data[i] = (data[i].toInt() xor maskKey[i % 4].toInt()).toByte()
+        }
+        return WsFrame(fin, opcode, data)
     }
 
     /**
@@ -268,6 +278,8 @@ class MinimalWebSocketClient(
     }
 
     /** 读一行 HTTP 文本(以 CRLF 结尾,返回不含 CRLF);用于读握手响应行与头。 */
+    // 读 CRLF 行天然有两个跳出点(流结束 / 行结束 CRLF),拆分无益,故豁免循环跳转检查。
+    @Suppress("LoopWithTooManyJumpStatements")
     private fun readHttpLine(inp: InputStream): String {
         val sb = StringBuilder()
         var prev = -1

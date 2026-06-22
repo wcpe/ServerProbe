@@ -104,6 +104,9 @@ class BridgeClient {
      * 连接异常/断开后,若仍 running 则按指数退避(上限 [MAX_BACKOFF_MS])后重连。
      * 成功连上后退避重置为初始值。
      */
+    // 连接/握手/读全过程必须广捕兜底:任何异常都只降级重连、绝不让后台线程挂掉(桥的韧性设计),
+    // 故此处 catch(Exception) 是有意为之。
+    @Suppress("TooGenericExceptionCaught")
     private fun runLoop(url: String, token: String) {
         val instance = resolveInstance()
         var backoff = INITIAL_BACKOFF_MS
@@ -165,6 +168,9 @@ class BridgeClient {
      * SocketTimeoutException,本循环借此节律发 ping;有下行则按帧类型处理。`command` 帧(FR-067)
      * 解析后交平台执行器执行并回 `command_result`;其余帧(welcome/pong)仅记录。
      */
+    // 读超时(SocketTimeoutException)是预期的心跳节拍、非错误,捕获后补发 ping 即可,异常对象无需保留,
+    // 故有意不记录该异常。
+    @Suppress("SwallowedException")
     private fun readLoop(ws: MinimalWebSocketClient) {
         while (running.get()) {
             try {
