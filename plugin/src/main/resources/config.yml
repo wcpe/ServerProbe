@@ -81,6 +81,21 @@ metrics:
   allowed-ips:
     - "127.0.0.1"
 
+# 插件桥反向 WebSocket(JianManager 托管时使用,见 JianManager ADR-016 / FR-065、FR-066)。
+# 探针启用后主动反向连入【本机 Worker】的 /ws/plugin-bridge,建立实时双向通道:上报玩家 join/quit/chat
+# 与跨服路由(BC 端),并接收治理指令(FR-067)。独立使用探针(非 JianManager 托管)时保持 enabled=false,
+# 探针不连任何外部 Worker、仅 /metrics 监控照常工作。下面各项由 JianManager 建服时自动写入并下发。
+# 安全:token 为实例级 JWT(scope=plugin-bridge),探针绝不把它写入日志。
+bridge:
+  # 是否开启插件桥反向 WS。默认 false(关闭);由 JianManager 下发改为 true。
+  enabled: false
+  # 目标 Worker 的 WS 地址(本机回环),如 ws://127.0.0.1:9102/ws/plugin-bridge。留空=不连。
+  url: ""
+  # 实例标识(JianManager 实例 UUID),作为握手 ?instance= 参数,须与 token 内 instanceId 一致。
+  instance: ""
+  # 连接 token(实例级 HS256 JWT,scope=plugin-bridge),作为握手 ?token= 参数。留空=不连。
+  token: ""
+
 # 告警引擎(FR5):每个采集周期对照规则判定指标是否越线,经各通道(日志/游戏内/Webhook)推送。
 # 安全/降噪默认:告警引擎默认【关闭】,需显式开启。
 alert:

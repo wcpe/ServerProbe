@@ -127,11 +127,27 @@ class BridgeClient {
     }
 
     /**
-     * 连接建立后的初始上行:发 hello(自报平台/版本/实例)+ 一个 demo `connected` 业务事件(地基验证用)。
+     * 连接建立后的初始上行:发 hello(自报平台/版本/实例)+ 一个 `connected` 业务事件。
      */
     private fun onConnected(ws: MinimalWebSocketClient, instance: String) {
         ws.sendText(helloJson(instance))
         ws.sendText(eventJson("connected", instance))
+    }
+
+    /**
+     * 上报一个玩家/跨服业务事件(FR-066)。供平台监听器(Bukkit join/quit/chat、BC 跨服路由)调用。
+     *
+     * 线程安全且**绝不抛**:未连接(探针独立使用或正在重连)时静默丢弃该事件——玩家事件是实时增量,
+     * 漏一两条不影响整体(连上后由后续事件与名册重置自愈);[MinimalWebSocketClient.sendText] 的写
+     * 已由其内部写锁串行化,可被任意线程(含 Bukkit 主线程、BC 事件线程)安全调用。失败仅 WARN 降级。
+     *
+     * @param eventType 事件子类型:player_join | player_quit | chat | cross_server。
+     * @param fields 结构化字段(playerName/playerUuid/message/server/fromServer/toServer 等),空值不发。
+     */
+    fun emitPlayerEvent(eventType: String, fields: Map<String, String>) {
+        val ws = client ?: return // 未连接:静默丢弃(实时事件,漏即弃)
+        runCatching { ws.sendText(playerEventJson(eventType, fields)) }
+            .onFailure { ProbeLogger.warn("插件桥上报事件失败($eventType),已丢弃:${it.message}") }
     }
 
     /**
@@ -176,6 +192,34 @@ class BridgeClient {
         append("\"event\":\"").append(escapeJson(event)).append("\",")
         append("\"instance\":\"").append(escapeJson(instance)).append("\",")
         append("\"timestamp\":").append(System.currentTimeMillis())
+        append('}')
+    }
+
+    /**
+     * 构造带结构化载荷的玩家事件帧 JSON(FR-066,手拼零依赖)。
+     *
+     * 形态与 Worker 侧 [bridgeMessage] 约定一致:顶层 `type=event` + `event` 子类型 + `instance` + `timestamp`,
+     * 结构化字段统一放在嵌套 `data` 对象内(Worker 仅解析 `data` 填充 workerpb.PluginEvent)。空值字段不写入,
+     * 减小帧体并避免下游误判。
+     *
+     * @param event 事件子类型。
+     * @param fields 结构化字段(键名须与 Worker 解析约定一致:playerName/playerUuid/message/server/fromServer/toServer)。
+     */
+    private fun playerEventJson(event: String, fields: Map<String, String>): String = buildString {
+        append('{')
+        append("\"type\":\"event\",")
+        append("\"event\":\"").append(escapeJson(event)).append("\",")
+        append("\"instance\":\"").append(escapeJson(resolveInstance())).append("\",")
+        append("\"timestamp\":").append(System.currentTimeMillis()).append(',')
+        append("\"data\":{")
+        var first = true
+        for ((k, v) in fields) {
+            if (v.isEmpty()) continue // 空值不发
+            if (!first) append(',')
+            append('"').append(escapeJson(k)).append("\":\"").append(escapeJson(v)).append('"')
+            first = false
+        }
+        append('}')
         append('}')
     }
 
