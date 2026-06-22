@@ -1,12 +1,11 @@
 package top.wcpe.mc.plugin.serverprobe.core.store
 
 import taboolib.common.platform.function.getDataFolder
-import taboolib.module.configuration.Configuration
-import taboolib.module.configuration.Type
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.io.File
@@ -24,8 +23,8 @@ import java.nio.file.StandardOpenOption
  * - `data/metrics/<serverId>/metrics-<yyyyMMdd>.jsonl`:指标历史,按实例分目录、按自然日滚动,
  *   每条快照序列化为单行 JSON 追加(JSON Lines),详见 [MetricHistoryFile]。
  *
- * 序列化统一走 TabooLib [Configuration]([Type.JSON_MINIMAL]):序列化得 [Configuration] 后以 `.toString()` 取 JSON 文本,
- * 反序列化经 `loadFromString` + `deserialize(ignoreConstructor = true)`。原子写入由 [AtomicJsonWriter] 保证。
+ * 序列化/反序列化统一经 [Json] 适配器(ADR-14,默认后端 TabooLib Configuration `Type.JSON_MINIMAL`):
+ * 序列化走 `Json.encode`、反序列化走 `Json.decode`。原子写入由 [AtomicJsonWriter] 保证。
  *
  * M2 FR8 扩面:覆盖 [readStartupProfiles](读 `data/startup/` 归档,由新到旧)与
  * [readHistory](按 [MetricHistoryFile.resolveRange] 定位日期范围内的 `metrics-*.jsonl` 逐行读取并按时间过滤);
@@ -35,9 +34,9 @@ import java.nio.file.StandardOpenOption
  * 要求**调用方已在异步上下文**(编排采集任务、启动监听的延迟异步任务皆为异步;只读 API 的历史读取由其 KDoc 约定调用方异步),
  * 以满足"主线程零阻塞"(规范 R7)。
  *
- * **测试说明**:序列化往返依赖 [Configuration] 的运行期实现(重定位后的 nightconfig),该实现不在裸单测类路径,
- * 故 JSON 往返/本类的序列化逻辑**不写可运行单测**,其正确性由 TabooLib 保证 + M1 末真机验证;
- * 本模块单测仅覆盖不依赖 [Configuration] 的纯逻辑([AtomicJsonWriter]、[InstanceId]、
+ * **测试说明**:序列化往返依赖 [Json] 默认后端的运行期实现(重定位后的 nightconfig),不在裸单测类路径,
+ * 故 JSON 往返/本类的序列化逻辑**不写可运行单测**,其正确性由 TabooLib 保证 + 真机验证;
+ * 本模块单测仅覆盖不依赖运行期 JSON 后端的纯逻辑([AtomicJsonWriter]、[InstanceId]、
  * [top.wcpe.mc.plugin.serverprobe.core.startup.StartupComparator])。
  */
 @Service
@@ -65,8 +64,7 @@ class LocalFileMetricStore : MetricStore {
     override fun lastStartupProfile(): StartupProfile? {
         val text = AtomicJsonWriter.readText(latestProfilePath()) ?: return null
         return runCatching {
-            val section = Configuration.loadFromString(text, Type.JSON_MINIMAL)
-            Configuration.deserialize<StartupProfile>(section, ignoreConstructor = true)
+            Json.decode<StartupProfile>(text)
         }.getOrElse {
             ProbeLogger.warn("读取最近启动画像失败,将按无基线处理:${it.message}")
             null
@@ -236,8 +234,7 @@ class LocalFileMetricStore : MetricStore {
     private fun readProfileFile(file: File): StartupProfile? {
         val text = AtomicJsonWriter.readText(file.toPath()) ?: return null
         return runCatching {
-            val section = Configuration.loadFromString(text, Type.JSON_MINIMAL)
-            Configuration.deserialize<StartupProfile>(section, ignoreConstructor = true)
+            Json.decode<StartupProfile>(text)
         }.getOrElse {
             ProbeLogger.warn("读取启动画像归档失败,已跳过(${file.name}):${it.message}")
             null
@@ -252,8 +249,7 @@ class LocalFileMetricStore : MetricStore {
      */
     private fun deserializeSnapshotLine(line: String): MetricSnapshot? =
         runCatching {
-            val section = Configuration.loadFromString(line, Type.JSON_MINIMAL)
-            Configuration.deserialize<MetricSnapshot>(section, ignoreConstructor = true)
+            Json.decode<MetricSnapshot>(line)
         }.getOrElse {
             ProbeLogger.warn("解析历史指标行失败,已跳过:${it.message}")
             null
@@ -290,8 +286,7 @@ class LocalFileMetricStore : MetricStore {
      * @param profile 启动画像。
      * @return JSON 文本。
      */
-    private fun serializeProfile(profile: StartupProfile): String =
-        Configuration.serialize(profile, Type.JSON_MINIMAL).toString()
+    private fun serializeProfile(profile: StartupProfile): String = Json.encode(profile)
 
     /**
      * 将指标快照序列化为单行 JSON 并补行尾换行(JSON Lines 的一行)。
@@ -305,7 +300,7 @@ class LocalFileMetricStore : MetricStore {
      * @return 末尾带换行的单行 JSON。
      */
     private fun serializeSnapshotLine(snapshot: MetricSnapshot): String {
-        val json = Configuration.serialize(snapshot, Type.JSON_MINIMAL).toString()
+        val json = Json.encode(snapshot)
         // 防御性兜底:JSON_MINIMAL 恒单行、值内换行已被序列化器转义为 \n(字面两字符),
         // 此处去除真实换行字节仅为保证 JSON Lines 每条记录占且仅占一行,不会误伤字段内容
         val singleLine = json.replace("\r", "").replace("\n", "")

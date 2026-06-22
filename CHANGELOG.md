@@ -12,6 +12,7 @@
 ## [未发布] (Unreleased)
 
 ### 变更
+- **JSON 编解码统一收口到可换适配器**(ADR-14):新增 `core/json` 的 `JsonCodec` 接口 + `Json` 门面 + 默认实现 `ConfigJsonCodec`(后端复用运行时 TabooLib `Configuration` / nightconfig,**零额外依赖**)。插件桥(删手写 `MiniJson` + `escapeJson`)、Webhook 告警、指标历史 / 启动画像落盘的 JSON 序列化与解析全部改走 `Json.encode` / `parse` / `decode`,换库(gson 等)只换实现、调用点不动。同时修正 ADR-10「优先用 gson」的事实偏差(gson 仅在构建期、运行期不携带)。火焰图查看器数据(递归树 / 瀑布数组、只构造不解析、绑定前端格式且性能敏感)为有据例外保留专用手拼。真机:Paper 1.21.1 插件桥连接握手 + 在线名册 + 踢人端到端通过;`./gradlew build` 编译 + 单测 + detekt 全绿。
 - **`api` 模块改用纯 Java(Lombok 不可变模型)**(ADR-13):消除 Kotlin `@Metadata`,使任意 Kotlin(含 1.x)/ Java 版本第三方均可编译依赖 `serverprobe-api`。落盘字段名 JSON 不变(向后兼容既有 `data/`);内部对 api 模型的构造改用 builder。编译 + 单元测试 + detekt 已绿;**TabooLib 序列化落盘/读盘往返待 1.21.4 Paper 真机复验**。
 
 ## [0.1.0] - 2026-06-20

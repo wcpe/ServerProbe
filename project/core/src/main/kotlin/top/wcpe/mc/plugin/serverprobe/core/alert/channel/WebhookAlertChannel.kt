@@ -5,6 +5,7 @@ import top.wcpe.mc.plugin.serverprobe.core.alert.AlertChannel
 import top.wcpe.mc.plugin.serverprobe.core.alert.AlertChannelRegistry
 import top.wcpe.mc.plugin.serverprobe.core.alert.AlertEvent
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
@@ -98,45 +99,26 @@ class WebhookAlertChannel : AlertChannel {
     }
 
     /**
-     * 把告警事件序列化为极简 JSON(手拼,零依赖)。
+     * 把告警事件序列化为极简 JSON（经统一 [Json] 适配器，ADR-14）。
      *
-     * 字段:type/level/firing/value/threshold/serverId/timestampMs;字符串字段经 [escapeJson] 转义。
+     * 字段:type/level/firing/value/threshold/serverId/timestampMs。
      *
      * @param event 告警事件。
      * @return JSON 文本。
      */
     private fun toJson(event: AlertEvent): String {
         val rule = event.rule
-        return buildString {
-            append('{')
-            append("\"type\":\"").append(escapeJson(rule.type.name)).append("\",")
-            append("\"level\":\"").append(escapeJson(rule.level.name)).append("\",")
-            append("\"firing\":").append(event.firing).append(',')
-            append("\"value\":").append(event.value).append(',')
-            append("\"threshold\":").append(rule.threshold).append(',')
-            append("\"serverId\":\"").append(escapeJson(event.serverId)).append("\",")
-            append("\"timestampMs\":").append(event.timestampMs)
-            append('}')
-        }
-    }
-
-    /**
-     * 转义 JSON 字符串值中的特殊字符(双引号、反斜杠、控制字符等),保证产出合法 JSON。
-     *
-     * @param raw 原始字符串。
-     * @return 可安全嵌入双引号内的转义结果。
-     */
-    private fun escapeJson(raw: String): String = buildString(raw.length) {
-        for (ch in raw) {
-            when (ch) {
-                '"' -> append("\\\"")
-                '\\' -> append("\\\\")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> if (ch < ' ') append("\\u%04x".format(ch.code)) else append(ch)
-            }
-        }
+        return Json.encode(
+            linkedMapOf(
+                "type" to rule.type.name,
+                "level" to rule.level.name,
+                "firing" to event.firing,
+                "value" to event.value,
+                "threshold" to rule.threshold,
+                "serverId" to event.serverId,
+                "timestampMs" to event.timestampMs,
+            )
+        )
     }
 
     private companion object {

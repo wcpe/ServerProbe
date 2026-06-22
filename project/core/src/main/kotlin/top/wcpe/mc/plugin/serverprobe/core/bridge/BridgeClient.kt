@@ -1,6 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.json.Json
+import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.store.InstanceId
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -175,8 +177,9 @@ class BridgeClient {
         while (running.get()) {
             try {
                 val msg = ws.readMessage()
-                if (MiniJson.getString(msg, "type") == "command") {
-                    handleCommand(ws, msg)
+                val frame = runCatching { Json.parse(msg) }.getOrNull()
+                if (frame != null && frame.getString("type") == "command") {
+                    handleCommand(ws, frame)
                 } else {
                     ProbeLogger.debug("插件桥下行:$msg")
                 }
@@ -195,17 +198,17 @@ class BridgeClient {
      * 治理指令为低频管理动作,可接受;Worker 侧对每条指令有 5s 超时兜底,不会永久阻塞。
      *
      * @param ws 当前连接,用于回写 command_result。
-     * @param raw 收到的 command 帧原文。
+     * @param frame 已解析的 command 帧只读树。
      */
-    private fun handleCommand(ws: MinimalWebSocketClient, raw: String) {
-        val requestId = MiniJson.getString(raw, "requestId")
+    private fun handleCommand(ws: MinimalWebSocketClient, frame: JsonObject) {
+        val requestId = frame.getString("requestId")
         val result = runCatching {
             val handler = commandRegistry.handler
                 ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
             val command = BridgeCommand(
-                action = MiniJson.getString(raw, "action"),
-                target = MiniJson.getString(raw, "target"),
-                reason = MiniJson.getString(raw, "reason"),
+                action = frame.getString("action"),
+                target = frame.getString("target"),
+                reason = frame.getString("reason"),
                 requestId = requestId,
             )
             handler.handle(command)
@@ -221,25 +224,25 @@ class BridgeClient {
         return if (configured.isNotEmpty()) configured else InstanceId.resolve(ProbeConfig.configuredServerName())
     }
 
-    /** 构造 hello 帧 JSON(手拼,零依赖)。 */
-    private fun helloJson(instance: String): String = buildString {
-        append('{')
-        append("\"type\":\"hello\",")
-        append("\"instance\":\"").append(escapeJson(instance)).append("\",")
-        append("\"platform\":\"").append(escapeJson(platformName())).append("\",")
-        append("\"version\":\"").append(escapeJson(PROBE_BRIDGE_VERSION)).append('"')
-        append('}')
-    }
+    /** 构造 hello 帧 JSON(经统一 [Json] 适配器,ADR-14)。 */
+    private fun helloJson(instance: String): String = Json.encode(
+        linkedMapOf(
+            "type" to "hello",
+            "instance" to instance,
+            "platform" to platformName(),
+            "version" to PROBE_BRIDGE_VERSION,
+        )
+    )
 
     /** 构造业务事件帧 JSON(type=event + 子类型 event)。 */
-    private fun eventJson(event: String, instance: String): String = buildString {
-        append('{')
-        append("\"type\":\"event\",")
-        append("\"event\":\"").append(escapeJson(event)).append("\",")
-        append("\"instance\":\"").append(escapeJson(instance)).append("\",")
-        append("\"timestamp\":").append(System.currentTimeMillis())
-        append('}')
-    }
+    private fun eventJson(event: String, instance: String): String = Json.encode(
+        linkedMapOf(
+            "type" to "event",
+            "event" to event,
+            "instance" to instance,
+            "timestamp" to System.currentTimeMillis(),
+        )
+    )
 
     /**
      * 构造带结构化载荷的玩家事件帧 JSON(FR-066,手拼零依赖)。
@@ -251,23 +254,15 @@ class BridgeClient {
      * @param event 事件子类型。
      * @param fields 结构化字段(键名须与 Worker 解析约定一致:playerName/playerUuid/message/server/fromServer/toServer)。
      */
-    private fun playerEventJson(event: String, fields: Map<String, String>): String = buildString {
-        append('{')
-        append("\"type\":\"event\",")
-        append("\"event\":\"").append(escapeJson(event)).append("\",")
-        append("\"instance\":\"").append(escapeJson(resolveInstance())).append("\",")
-        append("\"timestamp\":").append(System.currentTimeMillis()).append(',')
-        append("\"data\":{")
-        var first = true
-        for ((k, v) in fields) {
-            if (v.isEmpty()) continue // 空值不发
-            if (!first) append(',')
-            append('"').append(escapeJson(k)).append("\":\"").append(escapeJson(v)).append('"')
-            first = false
-        }
-        append('}')
-        append('}')
-    }
+    private fun playerEventJson(event: String, fields: Map<String, String>): String = Json.encode(
+        linkedMapOf(
+            "type" to "event",
+            "event" to event,
+            "instance" to resolveInstance(),
+            "timestamp" to System.currentTimeMillis(),
+            "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
+        )
+    )
 
     /**
      * 构造治理指令回执帧 JSON(FR-067,手拼零依赖)。
@@ -280,20 +275,20 @@ class BridgeClient {
      * @param requestId 关联回执标识(来自下发的 command 帧)。
      * @param result 平台执行结果。
      */
-    private fun commandResultJson(requestId: String, result: BridgeCommandResult): String = buildString {
-        append('{')
-        append("\"type\":\"event\",")
-        append("\"event\":\"command_result\",")
-        append("\"instance\":\"").append(escapeJson(resolveInstance())).append("\",")
-        append("\"timestamp\":").append(System.currentTimeMillis()).append(',')
-        append("\"data\":{")
-        append("\"requestId\":\"").append(escapeJson(requestId)).append("\",")
-        append("\"success\":").append(result.success).append(',')
-        append("\"output\":\"").append(escapeJson(result.output)).append("\",")
-        append("\"error\":\"").append(escapeJson(result.error)).append('"')
-        append('}')
-        append('}')
-    }
+    private fun commandResultJson(requestId: String, result: BridgeCommandResult): String = Json.encode(
+        linkedMapOf(
+            "type" to "event",
+            "event" to "command_result",
+            "instance" to resolveInstance(),
+            "timestamp" to System.currentTimeMillis(),
+            "data" to linkedMapOf(
+                "requestId" to requestId,
+                "success" to result.success,
+                "output" to result.output,
+                "error" to result.error,
+            ),
+        )
+    )
 
     /**
      * 推断平台名(bukkit/bungee/unknown):探针单 jar 多端,以类是否可加载粗判,
@@ -313,20 +308,6 @@ class BridgeClient {
         val u = URI(url)
         "${u.host}:${if (u.port > 0) u.port else 80}"
     }.getOrDefault("(地址解析失败)")
-
-    /** 转义 JSON 字符串值中的特殊字符,保证产出合法 JSON。 */
-    private fun escapeJson(raw: String): String = buildString(raw.length) {
-        for (ch in raw) {
-            when (ch) {
-                '"' -> append("\\\"")
-                '\\' -> append("\\\\")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> if (ch < ' ') append("\\u%04x".format(ch.code)) else append(ch)
-            }
-        }
-    }
 
     /** 静默休眠(被打断即返回)。 */
     private fun sleepQuietly(ms: Long) {

@@ -19,7 +19,8 @@
 | ADR-11 | 为补加载前盲区做可选的 premain Java Agent 增强（默认不启用） | 已接受 | [0011](0011-optional-premain-startup-agent.md) |
 | ADR-12 | HTTP/TCP 外呼监控插桩 JDK 层，而非逐个 HTTP 客户端库 | 已接受 | [0012](0012-outbound-http-tcp-monitor-jdk-instrumentation.md) |
 | ADR-13 | api 模块改用纯 Java（Lombok），支持任意 Kotlin/Java 消费方 | 已接受 | [0013](0013-api-pure-java-for-broad-consumer-compat.md) |
+| ADR-14 | JSON 编解码经可换适配器，默认 nightconfig 零依赖（细化 ADR-10） | 已接受 | [0014](0014-json-codec-adapter.md) |
 
-> 下一个 ADR 取号 **ADR-14**（编号 = 现有最大 + 1，永不复用、不补洞）。新建复制 [`_template.md`](_template.md)。
+> 下一个 ADR 取号 **ADR-15**（编号 = 现有最大 + 1，永不复用、不补洞）。新建复制 [`_template.md`](_template.md)。
 
 > **别慌通读**：ADR 有意稀少（只为重大决策写），理解现状看 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)，ADR 只按需查"为什么"；被取代的归档不打扰，当前架构 = 未取代的活跃集。增长过快是滥写信号——日常变更归 PRD 状态列 + CHANGELOG。
