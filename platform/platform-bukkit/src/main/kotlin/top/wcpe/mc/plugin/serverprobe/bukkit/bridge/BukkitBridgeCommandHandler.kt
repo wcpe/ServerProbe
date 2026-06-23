@@ -90,9 +90,18 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
             ACTION_WHITELIST_REMOVE -> whitelistRemove(command.target)
             ACTION_LIST -> listOnline()
             ACTION_WHITELIST_LIST -> listWhitelist()
+            ACTION_QUERY_STATE -> queryState()
             else -> BridgeCommandResult.fail("未知治理动作:${command.action}")
         }
     }
+
+    /**
+     * 采集本子服全量内部状态并以 JSON 文本回传(FR-076)。
+     *
+     * 已在主线程内([dispatch] 经 submit 切回),[BukkitServerStateCollector] 做一次性只读快照(有界、绝不抛),
+     * 整段状态 JSON 放入 [BridgeCommandResult.output],由 Worker 透传前端「服务器状态」tab(FR-077)。
+     */
+    private fun queryState(): BridgeCommandResult = BridgeCommandResult.ok(BukkitServerStateCollector.collectJson())
 
     /** 踢出本服在线玩家;不在线视为成功(目标已不在本服)。 */
     private fun kick(name: String, reason: String): BridgeCommandResult {
@@ -169,5 +178,8 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
         private const val ACTION_WHITELIST_REMOVE = "whitelist_remove"
         private const val ACTION_LIST = "list"
         private const val ACTION_WHITELIST_LIST = "whitelist_list"
+
+        /** 全量服务器状态按需查询动作(FR-076):采集本子服内部状态 JSON 回传(与 Worker 侧 pluginActionQueryState 约定一致)。 */
+        private const val ACTION_QUERY_STATE = "query_state"
     }
 }

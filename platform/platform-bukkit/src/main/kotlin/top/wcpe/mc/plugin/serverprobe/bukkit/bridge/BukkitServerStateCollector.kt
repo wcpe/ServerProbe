@@ -122,23 +122,20 @@ object BukkitServerStateCollector {
     }
 
     /**
-     * listeners 分区:已注册事件监听器条目数摘要(经 [HandlerList.getRegisteredListeners] 的全局视角)。
+     * listeners 分区:已注册事件监听器条目数摘要(按插件经 [HandlerList.getRegisteredListeners] 逐插件统计)。
      *
      * 仅做计数级摘要(注册条目总数 + 按插件分组计数,有界),不逐条 dump 监听器实例(避免大数据)。
+     * 按插件遍历([HandlerList.getRegisteredListeners] 的稳定单插件签名)而非全局 null 入参——
+     * 后者在多数实现会 NPE;逐插件求和跨版本稳定,任一插件异常单独降级不影响整体。
      */
     private fun listenersSection(): Map<String, Any?> {
-        val registered = runCatching { HandlerList.getRegisteredListeners(null) }.getOrNull()
-        if (registered == null) {
-            // 部分实现 getRegisteredListeners(null) 不支持:降级为仅给出无法精确统计的标记。
-            return linkedMapOf("supported" to false)
-        }
-        val byPlugin = registered.groupingBy { runCatching { it.plugin.name }.getOrDefault("?") }.eachCount()
-        val byPluginList = byPlugin.entries
-            .sortedByDescending { it.value }
-            .map { linkedMapOf<String, Any?>("plugin" to it.key, "count" to it.value) }
+        val byPluginList = Bukkit.getPluginManager().plugins.mapNotNull { p ->
+            val count = runCatching { HandlerList.getRegisteredListeners(p).size }.getOrNull() ?: return@mapNotNull null
+            if (count == 0) null else linkedMapOf<String, Any?>("plugin" to p.name, "count" to count)
+        }.sortedByDescending { it["count"] as Int }
+        val total = byPluginList.sumOf { it["count"] as Int }
         return linkedMapOf(
-            "supported" to true,
-            "totalRegistered" to registered.size,
+            "totalRegistered" to total,
             "byPlugin" to ServerStateSupport.bounded(byPluginList),
         )
     }
