@@ -18,6 +18,9 @@ dependencies {
     // NMS / Bukkit API:用于 P5 ServerTickSampler 的 nmsProxy 读取 recentTps、以及世界/实体采集
     compileOnly("ink.ptms.core:v12004:12004:mapped")
     compileOnly("ink.ptms.core:v12004:12004:universal")
+    // 业务对接(JBIS,ADR-0015):经济 Provider 编译期依赖 MultiCurrencyEconomy 公开 api;
+    // 运行期由目标服务端的 MultiCurrencyEconomy 插件提供(compileOnly,经 ServicesManager 发现 + 降级)。
+    compileOnly("top.wcpe.mc.plugin.multicurrencyeconomy:multicurrencyeconomy-api:1.2.0")
 
     // MsptHistogram 等纯逻辑单测(不依赖 Bukkit/NMS)
     testImplementation(project(":api"))

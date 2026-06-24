@@ -13,6 +13,7 @@
 
 ### 新增
 - **业务对接 agent 骨架(JBIS,ADR-0015)**:ServerProbe 演进为 JianManager 业务对接 agent 的探针侧骨架。`core/bridge` 新增 `BusinessProvider` 接口(业务域 / 动作 / 能力清单 / 派发)+ `BusinessHost`(域键路由 + **事故域隔离**:独立 daemon 业务线程池 + 有界超时 + 异常边界 + 合并 manifest);`BridgeCommand` 加 `domain`/`payload`,`BridgeClient` 收到带 domain 的业务 `command` 帧时路由到对应 Provider,治理命令走既有路径(业务 / 监控分流)。Provider 卡死 / 抛异常只降级该次回执,**监控采集与桥读线程不受影响**。core 平台无关(无 Bukkit 符号),业务 Provider 实现落 platform 层。`./gradlew build` 编译 + 单测(路由 / 未注册降级 / 抛异常隔离 / 卡死有界超时 / 注册)+ detekt 全绿;**业务 Provider 接入(经济等)与端到端真机待续**。
+- **经济业务 Provider(对接 MultiCurrencyEconomy,JBIS)**:platform-bukkit 新增 `EconomyProvider`(`economy` 域),`compileOnly` MultiCurrencyEconomy 公开 api(运行期由目标服务端提供),经 `MultiCurrencyEconomyApi` 发现 + 就绪判定;首个动作只读 `economy.balance`(按 player + currency 查余额,金额以 BigDecimal 字符串承载防失真),mce 未就绪 / 参数缺失 / 查询异常一律降级失败。`@Service` + `@PlatformSide(BUKKIT)` + `@PostConstruct` 平台门 + 桥开关门自注册到 `BusinessHost`(沿用 `BukkitBridgeCommandHandler` 范式)。`./gradlew build` 全模块编译 + IOC 静态分析 + detekt 全绿;**真机(真 MultiCurrencyEconomy 服查真实余额)待端到端复验**。
 
 ### 变更
 - **JSON 编解码统一收口到可换适配器**(ADR-14):新增 `core/json` 的 `JsonCodec` 接口 + `Json` 门面 + 默认实现 `ConfigJsonCodec`(后端复用运行时 TabooLib `Configuration` / nightconfig,**零额外依赖**)。插件桥(删手写 `MiniJson` + `escapeJson`)、Webhook 告警、指标历史 / 启动画像落盘的 JSON 序列化与解析全部改走 `Json.encode` / `parse` / `decode`,换库(gson 等)只换实现、调用点不动。同时修正 ADR-10「优先用 gson」的事实偏差(gson 仅在构建期、运行期不携带)。火焰图查看器数据(递归树 / 瀑布数组、只构造不解析、绑定前端格式且性能敏感)为有据例外保留专用手拼。真机:Paper 1.21.1 插件桥连接握手 + 在线名册 + 踢人端到端通过;`./gradlew build` 编译 + 单测 + detekt 全绿。
