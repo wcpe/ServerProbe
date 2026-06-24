@@ -171,6 +171,28 @@ class BridgeClient {
     }
 
     /**
+     * 上报一个 JBIS 业务域事件(FR-122,见 ADR-027/028)。供平台业务监听器(如经济变更监听器)调用。
+     *
+     * 与 [emitPlayerEvent] 同走 `event` 帧,但额外带顶层 `domain`(业务域命名空间)与 `dedupKey`(去重锚点):
+     * Worker 透传两字段,CP 按 `(domain, dedupKey)` 幂等落库(至少一次投递去重)。`fields` 为信封载荷
+     * (键名须与 Worker/CP 解析约定一致),空值字段不发。
+     *
+     * 线程安全且**绝不抛**:未连接(独立使用探针或重连中)静默丢弃——业务事件至少一次投递,断连缺口由
+     * 上线 catchup 补发兜底(经济域),漏发不致命;失败仅 WARN 降级。[MinimalWebSocketClient.sendText]
+     * 内部写锁串行化,可被任意线程(含 mce 异步事件线程)安全调用。
+     *
+     * @param domain 业务域(如 economy);空串视为非业务事件,直接丢弃(防误用)。
+     * @param dedupKey 去重键(经济域为 ledgerId 字符串);空串仍上报,CP 退化为不去重(由上层保证非空)。
+     * @param fields 业务信封结构化字段(currencyId→identifier、zoneId、signedAmount、balanceAfter…)。
+     */
+    fun emitBusinessEvent(domain: String, dedupKey: String, fields: Map<String, String>) {
+        if (domain.isEmpty()) return
+        val ws = client ?: return // 未连接:静默丢弃(至少一次投递,断连缺口由 catchup 补发)
+        runCatching { ws.sendText(businessEventJson(domain, dedupKey, fields)) }
+            .onFailure { ProbeLogger.warn("插件桥上报业务事件失败(domain=$domain),已丢弃:${it.message}") }
+    }
+
+    /**
      * 读循环:阻塞读服务端帧(welcome/pong/command),按心跳间隔在读超时后补发 ping。
      *
      * [MinimalWebSocketClient.readMessage] 的 socket soTimeout 即心跳间隔:超时(无下行)时抛
@@ -291,6 +313,29 @@ class BridgeClient {
             "event" to event,
             "instance" to resolveInstance(),
             "timestamp" to System.currentTimeMillis(),
+            "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
+        )
+    )
+
+    /**
+     * 构造 JBIS 业务域事件帧 JSON(FR-122,手拼零依赖)。
+     *
+     * 形态在 [playerEventJson] 基础上加顶层 `domain` + `dedupKey`(与 Worker `bridgeMessage` 的同名字段对齐):
+     * `event` 取业务事件子类型(如 economy_change),业务信封字段统一放嵌套 `data` 内。Worker 透传 domain/dedupKey、
+     * 并把整帧原文带给 CP(raw),CP 据此按 (domain,dedupKey) 去重落库并解析 data 为经济镜像。空值字段不写入。
+     *
+     * @param domain 业务域(economy…)。
+     * @param dedupKey 去重键(经济域为 ledgerId 字符串)。
+     * @param fields 业务信封结构化字段。
+     */
+    private fun businessEventJson(domain: String, dedupKey: String, fields: Map<String, String>): String = Json.encode(
+        linkedMapOf(
+            "type" to "event",
+            "event" to "${domain}_change",
+            "instance" to resolveInstance(),
+            "timestamp" to System.currentTimeMillis(),
+            "domain" to domain,
+            "dedupKey" to dedupKey,
             "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
         )
     )
