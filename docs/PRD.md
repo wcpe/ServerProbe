@@ -163,6 +163,7 @@
 | FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付¹ |
 | FR7 | 方法级精确归因(Incision) | P2 | ○ 计划(M4,默认关闭,先 PoC) |
 | FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
+| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(JBIS,经济先行) |
 
 > ¹ 已交付但**仅 1.21.4 Paper 单端真机验证**;其他端(1.8 / Folia / BungeeCord)仅编译通过、未逐一真机。
 > ✅ 已交付项随 **0.1.0**(2026-06-20)首发,版本口径即 `@v0.1.0`;◑ 部分与 ○ 计划项留后续版本。
@@ -215,6 +216,14 @@
 - **FR8.2 存储 SPI**:定义存储后端接口,**默认且唯一内置 = 本地文件实现**;预留扩展点,第三方可自行实现 DB/远程后端(本插件不内置、不依赖)。
 - **FR8.3 导出端点**:Prometheus `/metrics` + 可选 Web/HTTP 只读 API(见 FR4),作为对外数据出口。
 - **验收**:第三方插件可经读取 API 取到当前 TPS/MSPT/启动画像;可经实现存储 SPI 替换默认文件后端。
+
+### FR9 业务对接 agent(P1,JBIS)
+ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承接 JM 下发的**业务命令**(`domain.action` + 结构化 payload),路由到对应业务插件 **Provider** 执行并回执;复用 `command`/`event` 帧按 `domain` 与监控/治理分流。**监控主体只读纯净不变**(见 ADR-0015)。对应 JM「JBIS 业务对接平台」(JM FR-115~127 / ADR-025~029)。
+- **FR9.1 业务对接基础设施(core)**:`BusinessProvider` 接口(域 / 动作 / manifest / dispatch)+ `BusinessHost`(域键路由 + **事故域隔离**:独立线程池 + 有界超时 + 异常边界 + 合并 manifest)+ `BridgeCommand` 加 `domain`/`payload`、`BridgeClient` 按 domain 分流业务/治理。core 平台无关(无 Bukkit 符号)。
+- **FR9.2 经济 Provider(platform-bukkit)**:`compileOnly` MultiCurrencyEconomy api,经 `ServicesManager` 发现 + 降级,先行 `economy.balance` 只读,后续读+写(加/扣/转账/消费,幂等键)。
+- **FR9.3 背包 Provider(platform-bukkit)**:wrap AllinInventorySync(须先扩其 api 写门面,JM FR-124),`inventory` 域读+写。
+- **验收**:业务命令经桥下发到 Provider 执行、结果回 JM;**业务 Provider 抛异常/卡死时监控采集与桥心跳不受影响**(事故域隔离,真机);经济 balance 在真 MultiCurrencyEconomy 服查到真实余额。
+- **范围纪律**:本线为经用户确认的身份级扩张(ADR-0015),按域增量交付(经济先行),不提前实现未确认业务域、不为未来域预留空壳。
 
 ---
 

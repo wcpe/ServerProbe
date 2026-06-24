@@ -57,6 +57,13 @@ class BridgeClient {
     lateinit var commandRegistry: BridgeCommandRegistry
 
     /**
+     * 业务对接装配 / 派发中心(JBIS,见 ADR-0015):读循环收到带 domain 的业务 `command` 帧时,
+     * 经其路由到对应业务域 Provider 执行(事故域隔离);未注册任何 Provider 时业务命令降级为该域不可用。
+     */
+    @Inject
+    lateinit var businessHost: BusinessHost
+
+    /**
      * 启动插件桥客户端。
      *
      * 开关关闭或 url/token 未配置则跳过(独立使用探针时不连);否则起一个 daemon 线程跑连接-读-重连循环。
@@ -191,32 +198,47 @@ class BridgeClient {
     }
 
     /**
-     * 处理一帧治理/查询指令(FR-067):解析 → 交平台执行器执行 → 回 `command_result`(带回 requestId)。
+     * 处理一帧治理 / 业务指令:解析 → 按 domain 分流执行 → 回 `command_result`(带回 requestId)。
      *
-     * 整体**绝不抛**(读循环不得因单条指令异常中断):平台未注册执行器或执行抛错均转为 success=false 的回执。
-     * 执行可能切回主线程并同步等待(平台实现负责),本方法在桥读线程串行执行,等待期间不再处理后续下行——
-     * 治理指令为低频管理动作,可接受;Worker 侧对每条指令有 5s 超时兜底,不会永久阻塞。
+     * domain 空 / core(治理,FR-067)交平台治理执行器 [commandRegistry];domain 非空(业务,JBIS / ADR-0015)
+     * 路由到 [businessHost] 对应 Provider(事故域隔离派发)。整体**绝不抛**(读循环不得因单条指令异常中断):
+     * 平台未注册执行器、域不可用、执行抛错 / 超时均转为 success=false 的回执。执行在桥读线程串行等待
+     * (治理可能切回主线程、业务跑独立线程池,均有界超时),等待期间不处理后续下行——指令为低频管理动作,
+     * 可接受;Worker 侧对每条指令有 5s 超时兜底,不会永久阻塞。
      *
      * @param ws 当前连接,用于回写 command_result。
      * @param frame 已解析的 command 帧只读树。
      */
     private fun handleCommand(ws: MinimalWebSocketClient, frame: JsonObject) {
         val requestId = frame.getString("requestId")
-        val result = runCatching {
-            val handler = commandRegistry.handler
-                ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
-            val command = BridgeCommand(
-                action = frame.getString("action"),
-                target = frame.getString("target"),
-                reason = frame.getString("reason"),
-                requestId = requestId,
-            )
-            handler.handle(command)
-        }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
+        val command = BridgeCommand(
+            action = frame.getString("action"),
+            target = frame.getString("target"),
+            reason = frame.getString("reason"),
+            requestId = requestId,
+            domain = frame.getString("domain"),
+            payload = frame.getString("payloadJson"),
+        )
+        val result = if (isBusinessDomain(command.domain)) {
+            // 业务命令(JBIS):路由到对应业务域 Provider,事故域隔离派发(超时 / 异常自降级,绝不拖垮读线程)。
+            runCatching { businessHost.dispatch(command.domain, command.action, command.payload) }
+                .getOrElse { BridgeCommandResult.fail("业务执行异常:${it.message}") }
+        } else {
+            // 治理命令(FR-067):交平台治理执行器;未注册则降级。
+            runCatching {
+                val handler = commandRegistry.handler
+                    ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
+                handler.handle(command)
+            }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
+        }
 
         runCatching { ws.sendText(commandResultJson(requestId, result)) }
             .onFailure { ProbeLogger.warn("插件桥回 command_result 失败(requestId=$requestId):${it.message}") }
     }
+
+    /** 业务域判定:非空且非内建治理域([BUSINESS_CORE_DOMAIN])即业务命令,路由到 [BusinessHost]。 */
+    private fun isBusinessDomain(domain: String): Boolean =
+        domain.isNotEmpty() && domain != BUSINESS_CORE_DOMAIN
 
     /** 解析实例标识:优先用 JianManager 下发的 bridge.instance;为空时回退探针自身实例 ID。 */
     private fun resolveInstance(): String {
@@ -315,6 +337,9 @@ class BridgeClient {
     }
 
     private companion object {
+
+        /** 内建治理域(JBIS,见 ADR-0015):domain 空或为此值即治理命令,走既有平台治理执行器;其余为业务命令。 */
+        private const val BUSINESS_CORE_DOMAIN = "core"
 
         /** 连接超时(毫秒)。 */
         private const val CONNECT_TIMEOUT_MS = 5_000

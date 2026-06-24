@@ -6,16 +6,22 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
  * 平台无关的数据载体:core 解析 `command` 帧得到本对象,交平台层 [BridgeCommandHandler] 执行
  * (Bukkit/Bungee 各自实现踢/封/解封/白名单/在线列表)。字段命名与 Worker 下发约定一致。
  *
- * @property action 指令动作:kick | ban | unban | whitelist_add | whitelist_remove | list | whitelist_list。
+ * @property action 指令动作:kick | ban | unban | whitelist_add | whitelist_remove | list | whitelist_list;
+ *   或业务动作(domain 非空时,如 balance / add,语义由对应 [BusinessProvider] 解释)。
  * @property target 目标玩家名(list/whitelist_list 时为空)。
  * @property reason 踢/封原因(其余为空)。
  * @property requestId 关联回执标识:执行后回 command_result 须带回同一 requestId,Worker 据此匹配同步等待者。
+ * @property domain 业务域命名空间(JBIS,见 ADR-0015):空 / core = 内建治理(既有);economy/inventory… = 业务命令,
+ *   由 [BridgeClient] 路由到 [BusinessHost] 对应 Provider。
+ * @property payload 业务结构化参数 JSON(domain 非空时;治理命令为空)。
  */
 data class BridgeCommand(
     val action: String,
     val target: String,
     val reason: String,
     val requestId: String,
+    val domain: String = "",
+    val payload: String = "",
 )
 
 /**
