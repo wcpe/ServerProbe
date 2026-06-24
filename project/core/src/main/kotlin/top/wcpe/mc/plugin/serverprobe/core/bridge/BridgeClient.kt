@@ -219,26 +219,35 @@ class BridgeClient {
             domain = frame.getString("domain"),
             payload = frame.getString("payloadJson"),
         )
-        val result = if (isBusinessDomain(command.domain)) {
+        val result = when {
+            // JBIS 元查询:返回各业务 Provider 汇总的能力清单(供 JianManager 动态发现业务能力)。
+            isManifestQuery(command) ->
+                runCatching { BridgeCommandResult.ok(businessHost.manifest()) }
+                    .getOrElse { BridgeCommandResult.fail("业务能力清单获取失败:${it.message}") }
             // 业务命令(JBIS):路由到对应业务域 Provider,事故域隔离派发(超时 / 异常自降级,绝不拖垮读线程)。
-            runCatching { businessHost.dispatch(command.domain, command.action, command.payload) }
-                .getOrElse { BridgeCommandResult.fail("业务执行异常:${it.message}") }
-        } else {
+            isBusinessDomain(command.domain) ->
+                runCatching { businessHost.dispatch(command.domain, command.action, command.payload) }
+                    .getOrElse { BridgeCommandResult.fail("业务执行异常:${it.message}") }
             // 治理命令(FR-067):交平台治理执行器;未注册则降级。
-            runCatching {
-                val handler = commandRegistry.handler
-                    ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
-                handler.handle(command)
-            }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
+            else ->
+                runCatching {
+                    val handler = commandRegistry.handler
+                        ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
+                    handler.handle(command)
+                }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
         }
 
         runCatching { ws.sendText(commandResultJson(requestId, result)) }
             .onFailure { ProbeLogger.warn("插件桥回 command_result 失败(requestId=$requestId):${it.message}") }
     }
 
-    /** 业务域判定:非空且非内建治理域([BUSINESS_CORE_DOMAIN])即业务命令,路由到 [BusinessHost]。 */
+    /** JBIS 元查询判定:保留元域 [JBIS_META_DOMAIN] + [ACTION_MANIFEST],返回业务能力清单而非派发到 Provider。 */
+    private fun isManifestQuery(command: BridgeCommand): Boolean =
+        command.domain == JBIS_META_DOMAIN && command.action == ACTION_MANIFEST
+
+    /** 业务域判定:非空、非内建治理域([BUSINESS_CORE_DOMAIN])、非元域([JBIS_META_DOMAIN])即业务命令,路由到 [BusinessHost]。 */
     private fun isBusinessDomain(domain: String): Boolean =
-        domain.isNotEmpty() && domain != BUSINESS_CORE_DOMAIN
+        domain.isNotEmpty() && domain != BUSINESS_CORE_DOMAIN && domain != JBIS_META_DOMAIN
 
     /** 解析实例标识:优先用 JianManager 下发的 bridge.instance;为空时回退探针自身实例 ID。 */
     private fun resolveInstance(): String {
@@ -340,6 +349,12 @@ class BridgeClient {
 
         /** 内建治理域(JBIS,见 ADR-0015):domain 空或为此值即治理命令,走既有平台治理执行器;其余为业务命令。 */
         private const val BUSINESS_CORE_DOMAIN = "core"
+
+        /** JBIS 元域:保留域,配 [ACTION_MANIFEST] 动作返回业务能力清单,不派发到任何业务 Provider。 */
+        private const val JBIS_META_DOMAIN = "jbis"
+
+        /** 业务能力清单查询动作(配 [JBIS_META_DOMAIN])。 */
+        private const val ACTION_MANIFEST = "manifest"
 
         /** 连接超时(毫秒)。 */
         private const val CONNECT_TIMEOUT_MS = 5_000
