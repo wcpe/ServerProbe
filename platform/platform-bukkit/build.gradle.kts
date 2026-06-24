@@ -25,6 +25,9 @@ dependencies {
     // MsptHistogram 等纯逻辑单测(不依赖 Bukkit/NMS)
     testImplementation(project(":api"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    // EconomyEnvelope 纯逻辑单测:需 core(BridgeCommandResult 信封)与 mce-api(IdempotencyMode 等类型)在测试 classpath
+    testImplementation(project(":project:core"))
+    testImplementation("top.wcpe.mc.plugin.multicurrencyeconomy:multicurrencyeconomy-api:1.2.0")
 }
 
 tasks.test {
