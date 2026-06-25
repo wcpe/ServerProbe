@@ -20,6 +20,9 @@ taboolib {
             // (否则探针先于 mce enable 时事件类未加载,TabooLib 报"事件未能找到"致监听器漏注册);
             // 无 mce 的服上软依赖为空操作,不影响探针独立运行。
             name("MultiCurrencyEconomy").optional(true)
+            // 业务对接(JBIS FR-125):软依赖 AllinInventorySync,同理使背包追踪事件监听器(BukkitInventoryEventListener)
+            // 的 @SubscribeEvent(bind=...) 在其事件类就绪后注册;无 AllinInventorySync 的服上为空操作,不影响独立运行。
+            name("AllinInventorySync").optional(true)
         }
     }
     // 将随 agent 打进二合一 jar 的 ASM 重定向到 agent 专属影子包，避免与服务器/其它插件自带的 ASM 冲突。

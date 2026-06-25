@@ -163,7 +163,7 @@
 | FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付¹ |
 | FR7 | 方法级精确归因(Incision) | P2 | ○ 计划(M4,默认关闭,先 PoC) |
 | FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
-| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(JBIS,经济先行) |
+| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(JBIS:经济整域真机收口;背包对接代码 + 单测完,待真机) |
 
 > ¹ 已交付但**仅 1.21.4 Paper 单端真机验证**;其他端(1.8 / Folia / BungeeCord)仅编译通过、未逐一真机。
 > ✅ 已交付项随 **0.1.0**(2026-06-20)首发,版本口径即 `@v0.1.0`;◑ 部分与 ○ 计划项留后续版本。
@@ -221,9 +221,10 @@
 ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承接 JM 下发的**业务命令**(`domain.action` + 结构化 payload),路由到对应业务插件 **Provider** 执行并回执;复用 `command`/`event` 帧按 `domain` 与监控/治理分流。**监控主体只读纯净不变**(见 ADR-0015)。对应 JM「JBIS 业务对接平台」(JM FR-115~127 / ADR-025~029)。
 - **FR9.1 业务对接基础设施(core)**:`BusinessProvider` 接口(域 / 动作 / manifest / dispatch)+ `BusinessHost`(域键路由 + **事故域隔离**:独立线程池 + 有界超时 + 异常边界 + 合并 manifest)+ `BridgeCommand` 加 `domain`/`payload`、`BridgeClient` 按 domain 分流业务/治理。core 平台无关(无 Bukkit 符号)。
 - **FR9.2 经济 Provider(platform-bukkit)**:`compileOnly` MultiCurrencyEconomy api,经 `MultiCurrencyEconomyApi` 发现 + 降级。只读 `economy.balance` + 写 `deposit`/`withdraw`/`adjust`(有符号差额)/`set`(无原生设值,read-then-adjust 非原子)/`transfer`/`consume`/`refund`;守 mce 写契约:幂等键 pluginName=`JianManager` + `BusinessOrder(taskId)`(缺则拒绝、重试复用同键防 MCE-LEDGER-0001),金额 BigDecimal 字符串承载,mce 业务失败错误码透传。纯解析/校验/编码逻辑抽 `EconomyEnvelope`。
-- **FR9.3 背包 Provider(platform-bukkit)**:wrap AllinInventorySync(须先扩其 api 写门面,JM FR-124),`inventory` 域读+写。
+- **FR9.3 背包 Provider(platform-bukkit,对接 JM FR-125)**:`compileOnly` AllinInventorySync 自包含 api(其 ADR-0014 把对外 DTO 归并入 api 模块;经 `AllinInventorySyncProvider.isAvailable/get` 发现 + 降级),`inventory` 域。只读 `view`(`getPlayerInventory(uuid)` 回源含离线 → 结构化视图,玩家无数据回 `exists=false`,与空背包区分)+ 写 `writeInventory`/`writeEnderChest`/`writeBasicAttrs`(经写门面 `getInventoryWriteApi()`,落盘回执 `WriteResult` 透传 `NO_SNAPSHOT`/`OWNED_ELSEWHERE`/`INVALID_UUID`/`INTERNAL_ERROR`)。守 AllinInventorySync 写契约:幂等键 `taskId`(CP 注入)→ `InventoryWriteDto.requestId` 持久去重(缺则拒绝、重试复用同键防刷物品),`base + edited` delta 语义透传,operator 透传(空回退 `JianManager`);物品过桥契约见 ADR-0016(读富、写以 `nbtBase64` 为准、`base/edited` 经 JSON 门面 `List<String>` / 对象承载,`player` 为 UUID)。写门面 future 有界阻塞取回执(短于派发超时)。纯解析/校验/编码逻辑抽 `InventoryEnvelope`。
 - **FR9.4 经济变更事件上报(platform-bukkit,对接 JM FR-122)**:订阅 mce `PlayerEconomyChangeEvent`(持久化投递流,覆盖 web 后台/跨服一切余额变更)+ `PlayerEconomyCatchupEvent`(上线补发离线缺口),折算为 `economy` 业务**事件**(`event` 帧,顶层 `domain`/`dedupKey`=ledgerId,信封 data 携 currencyId→identifier 折算、zoneId、signedAmount/balanceAfter 字符串、entryType、seq、occurredAt)经既有反向 WS 桥上报 JM。`BridgeClient.emitBusinessEvent` 加业务事件上报出口;currencyId(Int 主键)经 `getActiveCurrencies()` 映射为全局稳定 identifier(跨服/跨区聚合不串味),映射缺失回退 Int 不丢事件;纯折算/映射逻辑抽 `EconomyEventEnvelope`。监听器 `object` + `@SubscribeEvent`(事故域隔离、绝不抛、mce 异步事件不阻塞主线程)。
-- **验收**:业务命令经桥下发到 Provider 执行、结果回 JM;**业务 Provider 抛异常/卡死时监控采集与桥心跳不受影响**(事故域隔离,真机);经济 balance 在真 MultiCurrencyEconomy 服查到真实余额;web 后台/其他服的余额变更经事件流汇聚到 JM、跨区不混(FR9.4,真机)。
+- **FR9.5 背包追踪事件上报(platform-bukkit,对接 JM FR-126)**:订阅 AllinInventorySync `TrackedItemActionEvent`(重点物品流转:登录携带/丢出/拾取/移入容器),折算为 `inventory` 业务**事件**(`event` 帧,顶层 `domain`/`dedupKey`=`playerUuid:action:occurredAtMs:seq`,信封 data 携 playerName/playerUuid/action/ruleId/ruleDescription/material/amount/displayName/occurredAt)经反向 WS 桥上报 JM。物品只编 Bukkit-API 便利字段(无 `nbtBase64`——其 codec 在 AllinInventorySync core 非 api,见 ADR-0016);瞬时观测无插件侧持久 ID,去重键带探针会话单调 seq 去歧义。监听器 `object` + `@SubscribeEvent(bind=FQCN)`(软依赖按名绑定避免漏注册,同经济 FR9.4 教训)+ `OptionalEvent.get`;纯折算逻辑抽 `InventoryEventEnvelope`。
+- **验收**:业务命令经桥下发到 Provider 执行、结果回 JM;**业务 Provider 抛异常/卡死时监控采集与桥心跳不受影响**(事故域隔离,真机);经济 balance 在真 MultiCurrencyEconomy 服查到真实余额;web 后台/其他服的余额变更经事件流汇聚到 JM、跨区不混(FR9.4,真机);**背包 `view`/写经桥下发到真 AllinInventorySync 服读写真实背包 / 末影箱 / 属性、回执正确**(FR9.3,真机);**重点物品流转经事件流汇聚到 JM**(FR9.5,真机)。
 - **范围纪律**:本线为经用户确认的身份级扩张(ADR-0015),按域增量交付(经济先行),不提前实现未确认业务域、不为未来域预留空壳。
 
 ---
