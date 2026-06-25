@@ -140,8 +140,8 @@ class BridgeClient {
                 client = null
             }
             if (!running.get()) break
-            // 指数退避后重连
-            sleepQuietly(backoff)
+            // 指数退避后重连(静默休眠,被打断即返回)
+            runCatching { Thread.sleep(backoff) }
             backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
         }
     }
@@ -384,11 +384,6 @@ class BridgeClient {
         val u = URI(url)
         "${u.host}:${if (u.port > 0) u.port else 80}"
     }.getOrDefault("(地址解析失败)")
-
-    /** 静默休眠(被打断即返回)。 */
-    private fun sleepQuietly(ms: Long) {
-        runCatching { Thread.sleep(ms) }
-    }
 
     private companion object {
 
