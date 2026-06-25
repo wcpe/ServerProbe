@@ -15,7 +15,11 @@ taboolib {
             name("WCPE")
         }
         dependencies {
-
+            // 业务对接(JBIS FR-122):软依赖 MultiCurrencyEconomy,使探针在 mce 之后加载,
+            // 经济事件监听器(BukkitEconomyEventListener)的 @SubscribeEvent 注册时 mce 事件类已就绪
+            // (否则探针先于 mce enable 时事件类未加载,TabooLib 报"事件未能找到"致监听器漏注册);
+            // 无 mce 的服上软依赖为空操作,不影响探针独立运行。
+            name("MultiCurrencyEconomy").optional(true)
         }
     }
     // 将随 agent 打进二合一 jar 的 ASM 重定向到 agent 专属影子包，避免与服务器/其它插件自带的 ASM 冲突。

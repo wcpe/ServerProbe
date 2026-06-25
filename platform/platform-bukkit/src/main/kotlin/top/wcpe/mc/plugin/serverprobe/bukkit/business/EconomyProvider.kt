@@ -3,6 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.business
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.MultiCurrencyEconomyApi
+import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContext
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.AdjustRequest
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.ConsumeRequest
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.DepositRequest
@@ -17,6 +18,7 @@ import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessHost
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessProvider
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
+import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
@@ -113,20 +115,20 @@ class EconomyProvider : BusinessProvider {
 
     /** 存款:把 amount 加到玩家余额。 */
     private fun deposit(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_DEPOSIT) { mce, p, c, amount, key, reason ->
-            mce.balanceService.deposit(DepositRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason))
+        balanceWrite(payload, EconomyEnvelope.ACTION_DEPOSIT) { mce, p, c, amount, key, reason, ctx ->
+            mce.balanceService.deposit(DepositRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
         }
 
     /** 取款:从玩家余额扣除 amount(余额不足由 mce 返错码)。 */
     private fun withdraw(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_WITHDRAW) { mce, p, c, amount, key, reason ->
-            mce.balanceService.withdraw(WithdrawRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason))
+        balanceWrite(payload, EconomyEnvelope.ACTION_WITHDRAW) { mce, p, c, amount, key, reason, ctx ->
+            mce.balanceService.withdraw(WithdrawRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
         }
 
     /** 校正:以有符号差额(amount)修正余额(正加负减)。 */
     private fun adjust(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_ADJUST) { mce, p, c, amount, key, reason ->
-            mce.balanceService.adjust(AdjustRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason))
+        balanceWrite(payload, EconomyEnvelope.ACTION_ADJUST) { mce, p, c, amount, key, reason, ctx ->
+            mce.balanceService.adjust(AdjustRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
         }
 
     /**
@@ -152,7 +154,8 @@ class EconomyProvider : BusinessProvider {
                     mce.balanceService.adjust(
                         AdjustRequest(
                             player, currency, delta, EconomyEnvelope.PLUGIN_NAME,
-                            EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_SET)
+                            EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_SET),
+                            contextOf(req, EconomyEnvelope.ACTION_SET)
                         )
                     ),
                     nonAtomic = true
@@ -183,7 +186,8 @@ class EconomyProvider : BusinessProvider {
                 TransferRequest(
                     fromPlayerName = from, toPlayerName = to, currencyId = currency, amount = amount, feeAmount = fee,
                     pluginName = EconomyEnvelope.PLUGIN_NAME, idempotency = EconomyEnvelope.businessOrder(taskId),
-                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_TRANSFER)
+                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_TRANSFER),
+                    context = contextOf(req, EconomyEnvelope.ACTION_TRANSFER)
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_TRANSFER, it) }
@@ -204,7 +208,8 @@ class EconomyProvider : BusinessProvider {
             mce.transactionService.consume(
                 ConsumeRequest(
                     player, currency, amount, EconomyEnvelope.PLUGIN_NAME,
-                    EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_CONSUME)
+                    EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_CONSUME),
+                    contextOf(req, EconomyEnvelope.ACTION_CONSUME)
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_CONSUME, it) }
@@ -234,7 +239,8 @@ class EconomyProvider : BusinessProvider {
                 RefundRequest(
                     consumeTransactionNo = consumeTxNo, consumeRequestId = consumeReqId, refundAmount = refundAmount,
                     pluginName = EconomyEnvelope.PLUGIN_NAME, idempotency = EconomyEnvelope.businessOrder(taskId),
-                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_REFUND)
+                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_REFUND),
+                    context = contextOf(req, EconomyEnvelope.ACTION_REFUND)
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_REFUND, it) }
@@ -250,7 +256,8 @@ class EconomyProvider : BusinessProvider {
     private inline fun balanceWrite(
         payload: String,
         action: String,
-        call: (MultiCurrencyEconomyService, String, String, BigDecimal, IdempotencyMode, String) -> BalanceOperationResult,
+        call: (MultiCurrencyEconomyService, String, String, BigDecimal, IdempotencyMode, String, OperationContext)
+        -> BalanceOperationResult,
     ): BridgeCommandResult {
         val mce = readyService() ?: return EconomyEnvelope.notReady()
         val req = Json.parse(payload)
@@ -261,10 +268,17 @@ class EconomyProvider : BusinessProvider {
         val amount = EconomyEnvelope.parseAmount(req.getString("amount"))
             ?: return EconomyEnvelope.invalidAmount(req.getString("amount"))
         val result = runCatching {
-            call(mce, player, currency, amount, EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, action))
+            call(
+                mce, player, currency, amount, EconomyEnvelope.businessOrder(taskId),
+                EconomyEnvelope.writeReason(req, action), contextOf(req, action)
+            )
         }.getOrElse { return EconomyEnvelope.executeError(action, it) }
         return BridgeCommandResult.ok(EconomyEnvelope.encodeBalance(result))
     }
+
+    /** 从 payload 取操作者身份(FR-121 注入的 operator/nodeId)构造 mce 操作上下文,透传进 mce 审计流水。 */
+    private fun contextOf(req: JsonObject, action: String): OperationContext =
+        EconomyEnvelope.operationContext(req.getString("operator"), req.getString("nodeId"), action)
 
     /** mce 就绪则返回主服务,否则 null(就绪窗口内 service 抛异常亦兜为 null)。 */
     private fun readyService(): MultiCurrencyEconomyService? =

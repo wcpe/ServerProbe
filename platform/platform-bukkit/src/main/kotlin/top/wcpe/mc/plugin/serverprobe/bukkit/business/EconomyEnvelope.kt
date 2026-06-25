@@ -1,5 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.business
 
+import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContext
+import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContexts
+import top.wcpe.mc.plugin.multicurrencyeconomy.api.enums.InitiatorType
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.IdempotencyMode
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.BalanceOperationResult
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.ConsumeResult
@@ -86,6 +89,25 @@ object EconomyEnvelope {
 
     /** 业务单幂等键:pluginName=JianManager + BusinessOrder(taskId)。 */
     fun businessOrder(taskId: String): IdempotencyMode = IdempotencyMode.BusinessOrder(taskId)
+
+    /**
+     * 构造 mce 操作上下文:把 JianManager 操作者身份透传进 mce 审计流水(FR-121「操作者映射进插件流水」)。
+     *
+     * operator 空(无操作者信息,如系统自发)回退 [OperationContexts.system]();否则 PLUGIN 类型、
+     * initiatorName=JianManager、operator=管理员、sourceAction=`economy.<action>`、nodeId 入 metadata 供平台侧追溯。
+     */
+    fun operationContext(operator: String, nodeId: String, action: String): OperationContext =
+        if (operator.isBlank()) {
+            OperationContexts.system()
+        } else {
+            OperationContexts.of(
+                operator = operator,
+                initiatorType = InitiatorType.PLUGIN,
+                initiatorName = PLUGIN_NAME,
+                sourceAction = "economy.$action",
+                metadata = if (nodeId.isBlank()) emptyMap() else mapOf("nodeId" to nodeId),
+            )
+        }
 
     /** 操作原因:取 payload `reason`,缺省用 `JianManager economy.<action>`(mce 要求 reason 非空)。 */
     fun writeReason(req: JsonObject, action: String): String =

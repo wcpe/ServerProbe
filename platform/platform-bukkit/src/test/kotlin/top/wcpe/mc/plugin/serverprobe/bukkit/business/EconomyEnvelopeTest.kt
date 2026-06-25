@@ -94,4 +94,16 @@ class EconomyEnvelopeTest {
         assertFalse(invalid.success)
         assertTrue(invalid.error.contains("xyz"), "应回显非法金额原值")
     }
+
+    /** 操作上下文:空 operator 回退 SYSTEM;非空把操作者/节点映射进 mce 上下文(FR-121 操作者透传)。 */
+    @Test
+    fun `operationContext 空回退system 非空注入操作者`() {
+        val sys = EconomyEnvelope.operationContext("", "", "deposit")
+        assertEquals("SYSTEM", sys.operator, "空 operator 应回退 SYSTEM")
+
+        val ctx = EconomyEnvelope.operationContext("m2admin", "node-1", "deposit")
+        assertEquals("m2admin", ctx.operator, "操作者应为管理员")
+        assertEquals("economy.deposit", ctx.sourceAction, "来源动作应带域前缀")
+        assertEquals("node-1", ctx.metadata["nodeId"], "节点应入 metadata 供追溯")
+    }
 }
