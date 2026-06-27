@@ -30,15 +30,9 @@ subprojects {
         version { taboolib = "6.3.0-afd75a7" }
     }
 
-    repositories {
-        mavenLocal()
-        maven("https://maven.wcpe.top/repository/maven-public/")
-        maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
-        maven("https://repo.papermc.io/repository/maven-public/")
-        maven("https://oss.sonatype.org/content/repositories/snapshots/")
-        maven("https://jitpack.io")
-        mavenCentral()
-    }
+    // 依赖仓库统一在 settings.gradle.kts 的 dependencyResolutionManagement(PREFER_SETTINGS)集中声明,
+    // 以排除 io.izzel.taboolib 插件硬编码注入的失效镜像 repo.spongepowered.org(详见 settings 注释)。
+    // 此处不再各工程声明 repositories(声明也会被 PREFER_SETTINGS 忽略)。
 
     dependencies {
         compileOnly(kotlin("stdlib"))
