@@ -7,21 +7,22 @@ import top.wcpe.mc.plugin.allininventorysync.api.model.WriteResult
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 
 /**
- * 背包域信封编解码与校验(JBIS FR-125,见 ServerProbe ADR-0016 / JianManager FR-125)。
+ * 背包域信封编解码与校验(JBIS FR-125,见 ServerProbe ADR-0017 取代 ADR-0016 / JianManager FR-125)。
  *
- * [InventoryProvider] 的纯逻辑伴随体:动作常量、manifest、payload 校验、物品 / 基础属性解码、视图 / 回执编码。
+ * [InventoryProvider] 的纯逻辑伴随体:动作常量、manifest、payload 校验、基础属性解码、视图 / 回执编码。
  * 抽出本对象的目的:① 让 [InventoryProvider] 函数数 / 复杂度落在 detekt 阈值内;② 纯逻辑可脱离 Bukkit 运行期单测。
- * 仅引 AllinInventorySync 的对外中性 DTO([ItemDto] / [InventoryViewDto] / [WriteResult] / [BasicAttrsDto],均 `api.model`)
- * 与 core 的 [BridgeCommandResult];不碰 Bukkit API、不调真实服务,故可独立测试。
+ * 仅引 AllinInventorySync 的对外中性 DTO([ItemDto] / [InventoryViewDto] / [WriteResult] / [BasicAttrsDto],均 `api.model`,
+ * AllinInventorySync 2.0.0 起为纯 Java + Lombok)与 core 的 [BridgeCommandResult];不碰 Bukkit API、不调真实服务,故可独立测试。
  *
- * ## 物品传输契约(ADR-0016)
- * - **读富、写以 nbtBase64 为准、读写不对称**:`view` 编码出物品的全部 UI 便利字段(material/amount/displayName/
- *   lore/enchantments)供平台渲染;写只需 **slot + nbtBase64**(后者是 [ItemDto] 全保真往返真源,UI 字段 AllinInventorySync
- *   写门面一概忽略)。
- * - **base/edited 编码为 `List<String>`**:每个元素是一件物品的 JSON 对象串(`{"slot":N,"nbtBase64":"…",…}`)。
- *   探针 JSON 门面([top.wcpe.mc.plugin.serverprobe.core.json.JsonObject])只暴露 `getStringList` 取字符串列表,
- *   无数组对象迭代 / 动态键迭代能力;故用「字符串列表 + 逐串再解析」承载结构化物品集(零 core 改动、保 ADR-14 门面)。
- * - **金额无关**:背包无金额,无经济域的字符串化金额约束。
+ * ## 物品传输契约(ADR-0017 取代 ADR-0016)
+ * - **读:结构化富视图**:`view` 把每件物品的全部 UI 便利字段(material / amount / displayName / lore / enchantments)
+ *   连同全保真 `nbtBase64` 编码出来供平台渲染。
+ * - **物品写不提供**:AllinInventorySync 2.0.0 把背包 / 末影箱写门面的入参退回为不透明分区字节([InventoryWriteDto]
+ *   的 `byte[] base/edited`,GZIP NBT 分区),外部集成无法从结构化物品产出这些 AllinInventorySync 内部字节;故
+ *   `writeInventory` / `writeEnderChest` 暂不支持(经 [itemWriteUnsupported] 明确降级、不进 manifest),待 AllinInventorySync
+ *   重新导出可外部消费的结构化物品写门面再恢复。
+ * - **基础属性写保留**:`writeBasicAttrs` 入参是定形 [BasicAttrsDto](非分区字节),外部可构造,故保留;沿用
+ *   base→edited 净改动 delta 语义与 `taskId` 幂等键。
  */
 object InventoryEnvelope {
 
@@ -38,7 +39,12 @@ object InventoryEnvelope {
 
     // ======================== manifest ========================
 
-    /** 背包域能力清单:只读 `view` + 三个写动作(背包 / 末影箱 / 基础属性)。 */
+    /**
+     * 背包域能力清单:只读 `view` + 基础属性写 `writeBasicAttrs`。
+     *
+     * 物品写(`writeInventory` / `writeEnderChest`)**不进清单**:AllinInventorySync 2.0.0 写门面入参为不透明分区字节,
+     * 外部无法从结构化物品构造,暂不支持(见对象 KDoc / ADR-0017);收到该动作经 [itemWriteUnsupported] 明确降级。
+     */
     fun manifest(): Map<String, Any?> = mapOf(
         "actions" to listOf(
             action(
@@ -46,16 +52,9 @@ object InventoryEnvelope {
                 note = "player 为玩家 UUID;回源含离线,玩家无数据返 exists=false"
             ),
             action(
-                ACTION_WRITE_INVENTORY, listOf("player", "base", "edited", "taskId"), readOnly = false,
-                note = "player 为 UUID;base/edited 为物品 JSON 串列表(各 {slot,nbtBase64,…});taskId 幂等键(CP 生成);operator 由 CP 注入"
-            ),
-            action(
-                ACTION_WRITE_ENDER_CHEST, listOf("player", "base", "edited", "taskId"), readOnly = false,
-                note = "末影箱;base/edited 同 writeInventory(物品 JSON 串列表)"
-            ),
-            action(
                 ACTION_WRITE_BASIC_ATTRS, listOf("player", "base", "edited", "taskId"), readOnly = false,
-                note = "base/edited 为属性对象 {health,foodLevel,xpLevel,xpProgress,xpTotal,gameMode};只施加 base→edited 净改动"
+                note = "base/edited 为属性对象 {health,foodLevel,xpLevel,xpProgress,xpTotal,gameMode};" +
+                    "只施加 base→edited 净改动;taskId 幂等键(CP 生成);operator 由 CP 注入"
             ),
         )
     )
@@ -83,27 +82,6 @@ object InventoryEnvelope {
     /** 操作者:payload 的 operator,空白回退 [DEFAULT_OPERATOR](写门面要求非空操作者)。 */
     fun operatorOf(raw: String): String = raw.ifBlank { DEFAULT_OPERATOR }
 
-    /**
-     * 由解码出的字段构造一件 [ItemDto] 槽位条目(写入用)。
-     *
-     * nbtBase64 是全保真往返真源、写入唯一可信字段;material/amount/displayName 为 UI 便利字段(写门面忽略,仅留痕)。
-     * lore / enchantments 写入不需要(且探针 JSON 门面无动态键迭代),一律置 null。
-     *
-     * @return `slot → ItemDto`;nbtBase64 空白(无效条目)返回 null,由调用方跳过。
-     */
-    fun itemFromParts(slot: Int, nbtBase64: String, material: String, amount: Int, displayName: String?):
-        Pair<Int, ItemDto>? {
-        if (nbtBase64.isBlank()) return null
-        return slot to ItemDto(
-            material = material,
-            amount = amount,
-            displayName = displayName?.ifBlank { null },
-            lore = null,
-            enchantments = null,
-            nbtBase64 = nbtBase64,
-        )
-    }
-
     /** 由解码出的字段构造 [BasicAttrsDto](基础属性写入用)。 */
     @Suppress("LongParameterList")
     fun basicAttrs(
@@ -127,6 +105,12 @@ object InventoryEnvelope {
 
     fun writeTimeout(action: String): BridgeCommandResult =
         BridgeCommandResult.fail("$action 写入超时(落盘回执未在限期内返回)")
+
+    /** 物品写(writeInventory / writeEnderChest)在 AllinInventorySync 2.0.0 分区字节写门面下不可外部消费,明确降级。 */
+    fun itemWriteUnsupported(action: String): BridgeCommandResult = BridgeCommandResult.fail(
+        "$action 暂不支持:AllinInventorySync 2.0.0 物品写门面入参为不透明分区字节,外部集成无法从结构化物品构造" +
+            "(待其导出可消费的结构化物品写门面再恢复);基础属性写 writeBasicAttrs 与读 view 不受影响"
+    )
 
     // ======================== 编码(信封,纯 Map 结构便单测) ========================
 

@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+决策 1 / 2「结构化物品写传输契约」已被 [ADR-0017](0017-inventory-write-degraded-byte-facade.md) 取代——AllinInventorySync 2.0.0 把物品写门面入参退回不透明分区字节、探针侧物品写暂不提供；决策 3 的幂等模型对 `writeBasicAttrs` 仍适用，决策 4 的追踪事件契约仍有效。其余背景 / 理由作为历史保留。
 
 ## 背景
 

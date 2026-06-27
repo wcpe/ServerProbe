@@ -12,32 +12,44 @@ import top.wcpe.mc.plugin.allininventorysync.api.model.ItemDto
 import top.wcpe.mc.plugin.allininventorysync.api.model.WriteResult
 
 /**
- * [InventoryEnvelope] 纯逻辑单元测试(JBIS FR-125)。
+ * [InventoryEnvelope] 纯逻辑单元测试(JBIS FR-125,见 ServerProbe ADR-0017 取代 ADR-0016)。
  *
- * 覆盖不触 [top.wcpe.mc.plugin.serverprobe.core.json.Json] 编解码的纯函数:manifest 契约 / 读写参数校验 /
- * 操作者回退 / 物品 / 属性解码 / 视图 · 物品 · 回执编码(均返回纯 Map,可断言)。真实读写落盘正确性属真机维度,另行真机验收。
+ * 覆盖不触 [top.wcpe.mc.plugin.serverprobe.core.json.Json] 编解码的纯函数:manifest 契约 / 物品写降级 / 读写参数校验 /
+ * 操作者回退 / 基础属性解码 / 视图 · 物品 · 回执编码(均返回纯 Map,可断言)。真实读写落盘正确性属真机维度,另行真机验收。
+ *
+ * AllinInventorySync 2.0.0 起对外 DTO 为纯 Java(Lombok),Kotlin 不允许对 Java 方法 / 构造器用具名实参,
+ * 故本测试构造 DTO 一律按字段声明顺序传位置参。
  */
 class InventoryEnvelopeTest {
 
+    // ItemDto(material, amount, displayName, lore, enchantments, nbtBase64) —— Java DTO 位置参构造。
     private fun item(material: String, nbt: String, displayName: String? = null): ItemDto =
-        ItemDto(material = material, amount = 1, displayName = displayName, lore = null, enchantments = null, nbtBase64 = nbt)
+        ItemDto(material, 1, displayName, null, null, nbt)
 
+    // BasicAttrsDto(health, foodLevel, xpLevel, xpProgress, xpTotal, gameMode)。
     private fun attrs(): BasicAttrsDto = BasicAttrsDto(20.0, 18, 30, 0.5f, 1395, "SURVIVAL")
 
-    /** manifest 应声明 1 只读 view + 3 写动作,readOnly 标志正确且各带 note。 */
+    /** manifest 应声明 1 只读 view + 1 基础属性写,且不含物品写(2.0.0 写门面分区字节不可外部消费,ADR-0017)。 */
     @Test
-    fun `manifest 声明 4 个动作且 readOnly 正确`() {
+    fun `manifest 声明 view 与 writeBasicAttrs 且不含物品写`() {
         val actions = (InventoryEnvelope.manifest()["actions"] as List<*>).map { it as Map<*, *> }
-        assertEquals(4, actions.size, "应为 view + 3 写动作")
+        assertEquals(2, actions.size, "应为 view + writeBasicAttrs 两动作")
         val byName = actions.associateBy { it["action"] }
-        assertTrue(
-            byName.keys.containsAll(listOf("view", "writeInventory", "writeEnderChest", "writeBasicAttrs")),
-            "缺动作:${byName.keys}"
-        )
+        assertTrue(byName.keys.containsAll(listOf("view", "writeBasicAttrs")), "缺动作:${byName.keys}")
+        assertFalse(byName.containsKey("writeInventory"), "物品写不应进 manifest")
+        assertFalse(byName.containsKey("writeEnderChest"), "末影箱写不应进 manifest")
         assertEquals(true, byName["view"]!!["readOnly"], "view 应只读")
-        assertEquals(false, byName["writeInventory"]!!["readOnly"], "writeInventory 应为写")
         assertEquals(false, byName["writeBasicAttrs"]!!["readOnly"], "writeBasicAttrs 应为写")
         actions.forEach { assertTrue((it["note"] as String).isNotBlank(), "每个动作应带 note:${it["action"]}") }
+    }
+
+    /** 物品写降级:writeInventory / writeEnderChest 返回失败且原因点名不透明分区字节。 */
+    @Test
+    fun `itemWriteUnsupported 明确降级`() {
+        val r = InventoryEnvelope.itemWriteUnsupported("writeInventory")
+        assertFalse(r.success, "物品写应降级失败")
+        assertTrue(r.error.contains("writeInventory"), "原因应点名动作:${r.error}")
+        assertTrue(r.error.contains("分区字节"), "原因应说明分区字节不可外部消费:${r.error}")
     }
 
     /** 读参数校验:player 非空通过(null),空白拒绝。 */
@@ -67,26 +79,6 @@ class InventoryEnvelopeTest {
         assertEquals("JianManager", InventoryEnvelope.operatorOf(""), "空回退默认")
         assertEquals("JianManager", InventoryEnvelope.operatorOf("   "), "空白回退默认")
         assertEquals("m3admin", InventoryEnvelope.operatorOf("m3admin"), "非空原样")
-    }
-
-    /** 物品解码:有效 nbt 构造 ItemDto(nbt 为准、UI 字段留痕、lore/ench 置 null);空 nbt 返回 null 跳过。 */
-    @Test
-    fun `itemFromParts 有效构造无效跳过`() {
-        val entry = InventoryEnvelope.itemFromParts(3, "AQID", "DIAMOND_SWORD", 2, "锋利之刃")
-        assertNotNull(entry)
-        assertEquals(3, entry!!.first, "槽位")
-        assertEquals("AQID", entry.second.nbtBase64, "nbt 全保真真源")
-        assertEquals("DIAMOND_SWORD", entry.second.material)
-        assertEquals(2, entry.second.amount)
-        assertEquals("锋利之刃", entry.second.displayName)
-        assertNull(entry.second.lore, "写入不需 lore")
-        assertNull(entry.second.enchantments, "写入不需 enchantments")
-
-        assertNull(InventoryEnvelope.itemFromParts(0, "", "AIR", 0, null), "空 nbt 应跳过")
-        assertNull(
-            InventoryEnvelope.itemFromParts(1, "X", "S", 1, "  ")?.second?.displayName,
-            "空白 displayName 应归一为 null"
-        )
     }
 
     /** 基础属性解码:逐字段构造。 */
@@ -119,6 +111,7 @@ class InventoryEnvelopeTest {
         assertFalse(bare.containsKey("displayName"), "无 displayName 不写入")
         assertFalse(bare.containsKey("lore"), "无 lore 不写入")
 
+        // ItemDto(material, amount, displayName, lore, enchantments, nbtBase64) —— 位置参,带 lore/附魔。
         val rich = ItemDto("SWORD", 1, "名剑", listOf("第一行"), mapOf("minecraft:sharpness" to 5), "cccc")
         val m = InventoryEnvelope.encodeItem(0, rich)
         assertEquals("名剑", m["displayName"])
@@ -129,12 +122,13 @@ class InventoryEnvelopeTest {
     /** 视图编码:exists/online/dataVersion + 物品数组按槽位升序 + 基础属性。 */
     @Test
     fun `encodeView 槽位升序且字段齐全`() {
+        // InventoryViewDto(inventory, enderChest, basicAttrs, online, dataVersion) —— Java DTO 位置参构造。
         val view = InventoryViewDto(
-            inventory = mapOf(5 to item("B", "b5"), 0 to item("A", "a0")),
-            enderChest = mapOf(1 to item("E", "e1")),
-            basicAttrs = attrs(),
-            online = true,
-            dataVersion = 42L,
+            mapOf(5 to item("B", "b5"), 0 to item("A", "a0")),
+            mapOf(1 to item("E", "e1")),
+            attrs(),
+            true,
+            42L,
         )
         val m = InventoryEnvelope.encodeView("uuid-1", view)
         assertEquals(true, m["exists"])
@@ -156,7 +150,8 @@ class InventoryEnvelopeTest {
     /** 回执编码:成功携新版本号(字符串化);失败 newDataVersion 空、errorCode 透传。 */
     @Test
     fun `encodeWriteResult 成功失败字段映射`() {
-        val ok = InventoryEnvelope.encodeWriteResult(WriteResult.success(online = true, newDataVersion = 7L))
+        // WriteResult.success(online, newDataVersion) —— Java 静态工厂,位置参。
+        val ok = InventoryEnvelope.encodeWriteResult(WriteResult.success(true, 7L))
         assertEquals(true, ok["success"])
         assertEquals(true, ok["online"])
         assertEquals("7", ok["newDataVersion"], "版本号字符串化")
