@@ -1,14 +1,5 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.business
 
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContext
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContexts
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.enums.InitiatorType
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.IdempotencyMode
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.BalanceOperationResult
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.ConsumeResult
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.OperationStatus
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.RefundResult
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.TransferOperationResult
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
@@ -18,9 +9,10 @@ import java.math.BigDecimal
  * 经济域信封编解码与校验(JBIS FR-118/120)。
  *
  * [EconomyProvider] 的纯逻辑伴随体:动作常量、manifest、payload 校验、金额解析、幂等键、结果→信封编码。
- * 抽出本对象的目的:① 让 [EconomyProvider] 函数数 / 复杂度落在 detekt 阈值内;② 纯逻辑可脱离 Bukkit 运行期单测。
- * 仍住 platform-bukkit(引用 mce result 类型);不碰 Bukkit API、不调真实服务,故可独立测试。
+ * 本对象不在方法签名中暴露 MultiCurrencyEconomy API 类型，避免独立服未安装 mce 时 IoC 反射扫描触发缺类。
+ * 真实经济域调用发生时 mce 已就绪，此处再通过反射构造幂等键 / 上下文并读取结果 DTO。
  */
+@Suppress("TooManyFunctions")
 object EconomyEnvelope {
 
     /** 经济业务域名,与 Worker 下发的 domain 对应。 */
@@ -37,8 +29,6 @@ object EconomyEnvelope {
     const val ACTION_TRANSFER = "transfer"
     const val ACTION_CONSUME = "consume"
     const val ACTION_REFUND = "refund"
-
-    // ======================== manifest ========================
 
     /** 经济域能力清单:只读 `balance` + 七个写动作。 */
     fun manifest(): Map<String, Any?> = mapOf(
@@ -70,8 +60,6 @@ object EconomyEnvelope {
         return entry
     }
 
-    // ======================== 校验 / 工具 ========================
-
     /** 校验单玩家写动作的公共参数:player/currency 非空、taskId 非空;通过返回 null,否则返回失败结果。 */
     fun requireWriteCommon(player: String, currency: String, taskId: String): BridgeCommandResult? = when {
         player.isEmpty() || currency.isEmpty() -> BridgeCommandResult.fail("缺少 player 或 currency")
@@ -88,26 +76,21 @@ object EconomyEnvelope {
         if (req.contains(key)) parseAmount(req.getString(key)) ?: BigDecimal.ZERO else BigDecimal.ZERO
 
     /** 业务单幂等键:pluginName=JianManager + BusinessOrder(taskId)。 */
-    fun businessOrder(taskId: String): IdempotencyMode = IdempotencyMode.BusinessOrder(taskId)
+    fun businessOrder(taskId: String): Any {
+        val type = Class.forName(IDEMPOTENCY_BUSINESS_ORDER)
+        return type.getConstructor(String::class.java).newInstance(taskId)
+    }
 
-    /**
-     * 构造 mce 操作上下文:把 JianManager 操作者身份透传进 mce 审计流水(FR-121「操作者映射进插件流水」)。
-     *
-     * operator 空(无操作者信息,如系统自发)回退 [OperationContexts.system]();否则 PLUGIN 类型、
-     * initiatorName=JianManager、operator=管理员、sourceAction=`economy.<action>`、nodeId 入 metadata 供平台侧追溯。
-     */
-    fun operationContext(operator: String, nodeId: String, action: String): OperationContext =
-        if (operator.isBlank()) {
-            OperationContexts.system()
-        } else {
-            OperationContexts.of(
-                operator = operator,
-                initiatorType = InitiatorType.PLUGIN,
-                initiatorName = PLUGIN_NAME,
-                sourceAction = "economy.$action",
-                metadata = if (nodeId.isBlank()) emptyMap() else mapOf("nodeId" to nodeId),
-            )
-        }
+    /** 构造 mce 操作上下文:把 JianManager 操作者身份透传进 mce 审计流水。 */
+    fun operationContext(operator: String, nodeId: String, action: String): Any {
+        val contexts = Class.forName(OPERATION_CONTEXTS)
+        if (operator.isBlank()) return contexts.methods.first { it.name == "system" && it.parameterCount == 0 }.invoke(null)
+        val initiatorType = Class.forName(INITIATOR_TYPE)
+        val plugin = initiatorType.enumConstants.first { (it as Enum<*>).name == "PLUGIN" }
+        val metadata = if (nodeId.isBlank()) emptyMap<String, String>() else mapOf("nodeId" to nodeId)
+        val method = contexts.methods.first { it.name == "of" && it.parameterCount == 5 }
+        return method.invoke(null, operator, plugin, PLUGIN_NAME, "economy.$action", metadata)
+    }
 
     /** 操作原因:取 payload `reason`,缺省用 `JianManager economy.<action>`(mce 要求 reason 非空)。 */
     fun writeReason(req: JsonObject, action: String): String =
@@ -123,8 +106,6 @@ object EconomyEnvelope {
     fun executeError(action: String, t: Throwable): BridgeCommandResult =
         BridgeCommandResult.fail("$action 执行异常:${t.message}")
 
-    // ======================== 结果编码(信封,金额字符串化) ========================
-
     /** 编码只读余额查询结果。 */
     fun encodeBalanceQuery(player: String, currency: String, balance: BigDecimal): String = Json.encode(
         linkedMapOf(
@@ -135,19 +116,19 @@ object EconomyEnvelope {
     )
 
     /** 编码 balance 写结果(deposit/withdraw/adjust/set);nonAtomic 标记 set 的非原子取舍。 */
-    fun encodeBalance(r: BalanceOperationResult, nonAtomic: Boolean = false): String = Json.encode(
+    fun encodeBalance(r: Any, nonAtomic: Boolean = false): String = Json.encode(
         linkedMapOf<String, Any?>(
-            "success" to r.success,
-            "status" to r.status.name,
-            "player" to r.playerName,
-            "currency" to r.currencyId,
-            "changeAmount" to r.changeAmount.toPlainString(),
-            "beforeBalance" to (r.beforeBalance?.toPlainString() ?: ""),
-            "afterBalance" to (r.afterBalance?.toPlainString() ?: ""),
-            "ledgerId" to (r.ledgerId?.toString() ?: ""),
-            "idempotentHit" to (r.status == OperationStatus.DUPLICATE_REQUEST),
-            "message" to r.message,
-            "errorCode" to (r.errorCode ?: ""),
+            "success" to read(r, "success"),
+            "status" to statusName(r),
+            "player" to read(r, "playerName"),
+            "currency" to read(r, "currencyId"),
+            "changeAmount" to amountText(read(r, "changeAmount")),
+            "beforeBalance" to amountText(read(r, "beforeBalance")),
+            "afterBalance" to amountText(read(r, "afterBalance")),
+            "ledgerId" to (read(r, "ledgerId")?.toString() ?: ""),
+            "idempotentHit" to (statusName(r) == STATUS_DUPLICATE_REQUEST),
+            "message" to read(r, "message"),
+            "errorCode" to (read(r, "errorCode") ?: ""),
             "nonAtomic" to nonAtomic,
         )
     )
@@ -156,7 +137,7 @@ object EconomyEnvelope {
     fun encodeNoChange(player: String, currency: String, current: BigDecimal): String = Json.encode(
         linkedMapOf<String, Any?>(
             "success" to true,
-            "status" to OperationStatus.SUCCESS.name,
+            "status" to STATUS_SUCCESS,
             "player" to player,
             "currency" to currency,
             "changeAmount" to BigDecimal.ZERO.toPlainString(),
@@ -168,49 +149,74 @@ object EconomyEnvelope {
     )
 
     /** 编码转账结果。 */
-    fun encodeTransfer(r: TransferOperationResult): String = Json.encode(
+    fun encodeTransfer(r: Any): String = Json.encode(
         linkedMapOf<String, Any?>(
-            "success" to r.success,
-            "status" to r.status.name,
-            "from" to r.fromPlayerName,
-            "to" to r.toPlayerName,
-            "currency" to r.currencyId,
-            "amount" to r.amount.toPlainString(),
-            "fromAfterBalance" to (r.fromAfterBalance?.toPlainString() ?: ""),
-            "toAfterBalance" to (r.toAfterBalance?.toPlainString() ?: ""),
-            "transactionNo" to r.transactionNo,
-            "idempotentHit" to (r.status == OperationStatus.DUPLICATE_REQUEST),
-            "message" to r.message,
-            "errorCode" to (r.errorCode ?: ""),
+            "success" to read(r, "success"),
+            "status" to statusName(r),
+            "from" to read(r, "fromPlayerName"),
+            "to" to read(r, "toPlayerName"),
+            "currency" to read(r, "currencyId"),
+            "amount" to amountText(read(r, "amount")),
+            "fromAfterBalance" to amountText(read(r, "fromAfterBalance")),
+            "toAfterBalance" to amountText(read(r, "toAfterBalance")),
+            "transactionNo" to read(r, "transactionNo"),
+            "idempotentHit" to (statusName(r) == STATUS_DUPLICATE_REQUEST),
+            "message" to read(r, "message"),
+            "errorCode" to (read(r, "errorCode") ?: ""),
         )
     )
 
     /** 编码消费结果。 */
-    fun encodeConsume(r: ConsumeResult): String = Json.encode(
+    fun encodeConsume(r: Any): String = Json.encode(
         linkedMapOf<String, Any?>(
-            "success" to r.success,
-            "transactionNo" to r.transactionNo,
-            "consumedAmount" to r.consumedAmount.toPlainString(),
-            "afterBalance" to r.balanceAfter.toPlainString(),
-            "idempotentHit" to r.idempotentHit,
-            "message" to r.message,
-            "errorCode" to (r.errorCode ?: ""),
+            "success" to read(r, "success"),
+            "transactionNo" to read(r, "transactionNo"),
+            "consumedAmount" to amountText(read(r, "consumedAmount")),
+            "afterBalance" to amountText(read(r, "balanceAfter")),
+            "idempotentHit" to read(r, "idempotentHit"),
+            "message" to read(r, "message"),
+            "errorCode" to (read(r, "errorCode") ?: ""),
         )
     )
 
     /** 编码退款结果。 */
-    fun encodeRefund(r: RefundResult): String = Json.encode(
+    fun encodeRefund(r: Any): String = Json.encode(
         linkedMapOf<String, Any?>(
-            "success" to r.success,
-            "transactionNo" to r.transactionNo,
-            "consumeTransactionNo" to r.consumeTransactionNo,
-            "refundAmount" to r.refundAmount.toPlainString(),
-            "totalRefunded" to r.totalRefunded.toPlainString(),
-            "remainingRefundable" to r.remainingRefundable.toPlainString(),
-            "afterBalance" to r.balanceAfter.toPlainString(),
-            "refundType" to r.refundType,
-            "message" to r.message,
-            "errorCode" to (r.errorCode ?: ""),
+            "success" to read(r, "success"),
+            "transactionNo" to read(r, "transactionNo"),
+            "consumeTransactionNo" to read(r, "consumeTransactionNo"),
+            "refundAmount" to amountText(read(r, "refundAmount")),
+            "totalRefunded" to amountText(read(r, "totalRefunded")),
+            "remainingRefundable" to amountText(read(r, "remainingRefundable")),
+            "afterBalance" to amountText(read(r, "balanceAfter")),
+            "refundType" to read(r, "refundType"),
+            "message" to read(r, "message"),
+            "errorCode" to (read(r, "errorCode") ?: ""),
         )
     )
+
+    private fun statusName(result: Any): String = read(result, "status")?.toString() ?: ""
+
+    private fun amountText(raw: Any?): String = when (raw) {
+        null -> ""
+        is BigDecimal -> raw.toPlainString()
+        else -> raw.toString()
+    }
+
+    private fun read(target: Any, property: String): Any? {
+        val suffix = property.substring(0, 1).uppercase() + property.substring(1)
+        for (methodName in listOf("get$suffix", "is$suffix")) {
+            val method = target.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 }
+            if (method != null) return method.invoke(target)
+        }
+        val field = target.javaClass.fields.firstOrNull { it.name == property }
+        return field?.get(target)
+    }
+
+    private const val IDEMPOTENCY_BUSINESS_ORDER =
+        "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.IdempotencyMode\$BusinessOrder"
+    private const val OPERATION_CONTEXTS = "top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContexts"
+    private const val INITIATOR_TYPE = "top.wcpe.mc.plugin.multicurrencyeconomy.api.enums.InitiatorType"
+    private const val STATUS_SUCCESS = "SUCCESS"
+    private const val STATUS_DUPLICATE_REQUEST = "DUPLICATE_REQUEST"
 }

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContext
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.IdempotencyMode
 import java.math.BigDecimal
 
@@ -98,10 +99,10 @@ class EconomyEnvelopeTest {
     /** 操作上下文:空 operator 回退 SYSTEM;非空把操作者/节点映射进 mce 上下文(FR-121 操作者透传)。 */
     @Test
     fun `operationContext 空回退system 非空注入操作者`() {
-        val sys = EconomyEnvelope.operationContext("", "", "deposit")
+        val sys = EconomyEnvelope.operationContext("", "", "deposit") as OperationContext
         assertEquals("SYSTEM", sys.operator, "空 operator 应回退 SYSTEM")
 
-        val ctx = EconomyEnvelope.operationContext("m2admin", "node-1", "deposit")
+        val ctx = EconomyEnvelope.operationContext("m2admin", "node-1", "deposit") as OperationContext
         assertEquals("m2admin", ctx.operator, "操作者应为管理员")
         assertEquals("economy.deposit", ctx.sourceAction, "来源动作应带域前缀")
         assertEquals("node-1", ctx.metadata["nodeId"], "节点应入 metadata 供追溯")

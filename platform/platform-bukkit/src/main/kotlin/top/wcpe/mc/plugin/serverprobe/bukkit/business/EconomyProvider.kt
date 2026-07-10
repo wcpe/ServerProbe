@@ -2,17 +2,6 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.business
 
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.MultiCurrencyEconomyApi
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.context.OperationContext
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.AdjustRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.ConsumeRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.DepositRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.IdempotencyMode
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.RefundRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.TransferRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.request.WithdrawRequest
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.result.BalanceOperationResult
-import top.wcpe.mc.plugin.multicurrencyeconomy.api.service.MultiCurrencyEconomyService
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessHost
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessProvider
@@ -28,30 +17,9 @@ import java.math.BigDecimal
 /**
  * 经济业务 Provider(JBIS,见 ADR-0015 / JianManager FR-118 只读、FR-120 写)。
  *
- * 对接 **MultiCurrencyEconomy** 插件:经其公开 api(`MultiCurrencyEconomyApi`,`compileOnly` 依赖、运行期由
- * 目标服务端提供)读写经济数据。住在 platform-bukkit——业务对接层、唯一认识 mce 具体 API 的地方;
- * 经 [BusinessHost] 注册为 `economy` 域 Provider,由 [BusinessHost] 在独立业务线程池调用(事故域隔离)。
- * 纯解析 / 校验 / 编码逻辑下沉 [EconomyEnvelope](无 Bukkit 依赖、可单测),本类只管装配与真实 API 调用。
- *
- * ## 动作
- * - 只读:`balance`(查余额)。
- * - 写:`deposit`(加)/`withdraw`(扣)/`adjust`(有符号差额校正)/`set`(设为目标值,非原子 read-then-adjust)/
- *   `transfer`(玩家间转账)/`consume`(原子消费,产流水号)/`refund`(按消费流水号退款)。
- *
- * ## 写硬约束(守 mce 契约,JianManager FR-120)
- * - **幂等键**:每个写动作必带 `taskId`(JianManager 侧生成的稳定业务单号,FR-121),映射为
- *   `pluginName="JianManager" + IdempotencyMode.BusinessOrder(taskId)`。**重试须复用同一 taskId**——
- *   同键不同额会触发 mce 高危幂等冲突(MCE-LEDGER-0001);缺 taskId 直接拒绝(不做无幂等保护的写)。
- * - **金额字符串承载**:信封内金额为 [java.math.BigDecimal] 字符串(禁浮点,防多币种精度失真)。
- * - **错误码透传**:mce 业务失败(余额不足/账户冻结/金额非法…)以结构化结果回传(success=false + status + errorCode),
- *   不吞码;仅 Provider 级错误(未就绪/参数缺失/解析失败/调用抛异常)回 [BridgeCommandResult.fail]。
- * - **非原子取舍**:`set` 无原生设值,经「查余额→算差额→adjust」实现,两步之间余额可能被它处改动(标注 nonAtomic)。
- *
- * ## 线程模型
- * 由 [BusinessHost] 在业务线程池(非主线程、非桥读线程)调用;mce 写为同步阻塞且约定要求异步线程,此处天然满足。
- *
- * ## 降级即默认
- * mce 未安装 / 未就绪时各动作降级失败(`经济插件未就绪`),绝不抛、绝不拖垮探针(守 ADR-0015 事故域隔离)。
+ * MultiCurrencyEconomy 是软依赖，本类不能在方法描述符中暴露其 API 类型，否则独立服未安装 mce 时，IoC 反射扫描
+ * `declaredMethods` 会因缺类失败并影响探针启用。真实经济域调用只在插件桥开启且 mce 已就绪时发生，届时通过
+ * 反射访问 API / 服务 / 请求 DTO；未安装 / 未就绪统一降级为业务失败，不影响监控采集与插件桥心跳。
  */
 @Service
 @PlatformSide(Platform.BUKKIT)
@@ -63,11 +31,7 @@ class EconomyProvider : BusinessProvider {
 
     override val domain: String = EconomyEnvelope.DOMAIN
 
-    /**
-     * 依赖注入完成后做平台门 + 桥开关门并自注册。
-     *
-     * 仅 Bukkit 端、且插件桥开启时注册:独立使用探针(桥关闭)或代理端不承接业务对接。
-     */
+    /** 依赖注入完成后做平台门 + 桥开关门并自注册。 */
     @PostConstruct
     fun register() {
         if (Platform.CURRENT != Platform.BUKKIT) return
@@ -76,15 +40,10 @@ class EconomyProvider : BusinessProvider {
         ProbeLogger.info("经济业务 Provider 已注册(domain=${EconomyEnvelope.DOMAIN},对接 MultiCurrencyEconomy,只读+写)")
     }
 
-    /** 经济域能力清单:只读 `balance` + 七个写动作(委托 [EconomyEnvelope.manifest])。 */
+    /** 经济域能力清单:只读 `balance` + 七个写动作。 */
     override fun manifest(): Map<String, Any?> = EconomyEnvelope.manifest()
 
-    /**
-     * 执行一条经济动作。未知动作降级失败。
-     *
-     * @param action 动作名。
-     * @param payload 结构化参数 JSON。
-     */
+    /** 执行一条经济动作。未知动作降级失败。 */
     override fun dispatch(action: String, payload: String): BridgeCommandResult = when (action) {
         EconomyEnvelope.ACTION_BALANCE -> balance(payload)
         EconomyEnvelope.ACTION_DEPOSIT -> deposit(payload)
@@ -97,44 +56,31 @@ class EconomyProvider : BusinessProvider {
         else -> BridgeCommandResult.fail("未知经济动作:$action")
     }
 
-    // ======================== 只读 ========================
-
     /** 查询某玩家某币种余额(只读)。mce 未就绪 / 参数缺失 / 查询异常一律降级失败。 */
     private fun balance(payload: String): BridgeCommandResult {
-        if (!MultiCurrencyEconomyApi.isReady()) return EconomyEnvelope.notReady()
+        val api = readyApiClass() ?: return EconomyEnvelope.notReady()
         val req = Json.parse(payload)
         val player = req.getString("player")
         val currency = req.getString("currency")
         if (player.isEmpty() || currency.isEmpty()) return BridgeCommandResult.fail("balance 缺少 player 或 currency")
-        val amount = runCatching { MultiCurrencyEconomyApi.getBalance(player, currency) }
+        val amount = runCatching { callStatic(api, "getBalance", player, currency) as BigDecimal }
             .getOrElse { return BridgeCommandResult.fail("查询余额失败:${it.message}") }
         return BridgeCommandResult.ok(EconomyEnvelope.encodeBalanceQuery(player, currency, amount))
     }
 
-    // ======================== 写 ========================
-
     /** 存款:把 amount 加到玩家余额。 */
     private fun deposit(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_DEPOSIT) { mce, p, c, amount, key, reason, ctx ->
-            mce.balanceService.deposit(DepositRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
-        }
+        balanceWrite(payload, EconomyEnvelope.ACTION_DEPOSIT, DEPOSIT_REQUEST, "deposit")
 
     /** 取款:从玩家余额扣除 amount(余额不足由 mce 返错码)。 */
     private fun withdraw(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_WITHDRAW) { mce, p, c, amount, key, reason, ctx ->
-            mce.balanceService.withdraw(WithdrawRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
-        }
+        balanceWrite(payload, EconomyEnvelope.ACTION_WITHDRAW, WITHDRAW_REQUEST, "withdraw")
 
     /** 校正:以有符号差额(amount)修正余额(正加负减)。 */
     private fun adjust(payload: String): BridgeCommandResult =
-        balanceWrite(payload, EconomyEnvelope.ACTION_ADJUST) { mce, p, c, amount, key, reason, ctx ->
-            mce.balanceService.adjust(AdjustRequest(p, c, amount, EconomyEnvelope.PLUGIN_NAME, key, reason, ctx))
-        }
+        balanceWrite(payload, EconomyEnvelope.ACTION_ADJUST, ADJUST_REQUEST, "adjust")
 
-    /**
-     * 设值:把余额设为 target。**非原子**——经「查当前余额→算差额→adjust」实现(mce 无原生设值);
-     * 两步之间余额若被它处改动,最终值可能偏离 target(已在 manifest 与输出 nonAtomic 标注)。
-     */
+    /** 设值:把余额设为 target。无原生设值,经「查余额→算差额→adjust」实现。 */
     private fun set(payload: String): BridgeCommandResult {
         val mce = readyService() ?: return EconomyEnvelope.notReady()
         val req = Json.parse(payload)
@@ -145,20 +91,29 @@ class EconomyProvider : BusinessProvider {
         val target = EconomyEnvelope.parseAmount(req.getString("target"))
             ?: return EconomyEnvelope.invalidAmount(req.getString("target"))
         val outcome = runCatching {
-            val current = mce.accountQueryService.getBalance(player, currency)
+            val query = read(mce, "accountQueryService") ?: error("缺少账户查询服务")
+            val current = call(query, "getBalance", player, currency) as BigDecimal
             val delta = target.subtract(current)
             if (delta.signum() == 0) {
                 EconomyEnvelope.encodeNoChange(player, currency, current)
             } else {
+                val balanceService = read(mce, "balanceService") ?: error("缺少余额服务")
                 EconomyEnvelope.encodeBalance(
-                    mce.balanceService.adjust(
-                        AdjustRequest(
-                            player, currency, delta, EconomyEnvelope.PLUGIN_NAME,
-                            EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_SET),
-                            contextOf(req, EconomyEnvelope.ACTION_SET)
+                    call(
+                        balanceService,
+                        "adjust",
+                        newRequest(
+                            ADJUST_REQUEST,
+                            player,
+                            currency,
+                            delta,
+                            EconomyEnvelope.PLUGIN_NAME,
+                            EconomyEnvelope.businessOrder(taskId),
+                            EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_SET),
+                            contextOf(req, EconomyEnvelope.ACTION_SET),
                         )
                     ),
-                    nonAtomic = true
+                    nonAtomic = true,
                 )
             }
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_SET, it) }
@@ -182,12 +137,21 @@ class EconomyProvider : BusinessProvider {
             ?: return EconomyEnvelope.invalidAmount(req.getString("amount"))
         val fee = EconomyEnvelope.optionalAmount(req, "fee")
         val result = runCatching {
-            mce.transferService.transfer(
-                TransferRequest(
-                    fromPlayerName = from, toPlayerName = to, currencyId = currency, amount = amount, feeAmount = fee,
-                    pluginName = EconomyEnvelope.PLUGIN_NAME, idempotency = EconomyEnvelope.businessOrder(taskId),
-                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_TRANSFER),
-                    context = contextOf(req, EconomyEnvelope.ACTION_TRANSFER)
+            val transferService = read(mce, "transferService") ?: error("缺少转账服务")
+            call(
+                transferService,
+                "transfer",
+                newRequest(
+                    TRANSFER_REQUEST,
+                    from,
+                    to,
+                    currency,
+                    amount,
+                    fee,
+                    EconomyEnvelope.PLUGIN_NAME,
+                    EconomyEnvelope.businessOrder(taskId),
+                    EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_TRANSFER),
+                    contextOf(req, EconomyEnvelope.ACTION_TRANSFER),
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_TRANSFER, it) }
@@ -205,11 +169,19 @@ class EconomyProvider : BusinessProvider {
         val amount = EconomyEnvelope.parseAmount(req.getString("amount"))
             ?: return EconomyEnvelope.invalidAmount(req.getString("amount"))
         val result = runCatching {
-            mce.transactionService.consume(
-                ConsumeRequest(
-                    player, currency, amount, EconomyEnvelope.PLUGIN_NAME,
-                    EconomyEnvelope.businessOrder(taskId), EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_CONSUME),
-                    contextOf(req, EconomyEnvelope.ACTION_CONSUME)
+            val transactionService = read(mce, "transactionService") ?: error("缺少交易服务")
+            call(
+                transactionService,
+                "consume",
+                newRequest(
+                    CONSUME_REQUEST,
+                    player,
+                    currency,
+                    amount,
+                    EconomyEnvelope.PLUGIN_NAME,
+                    EconomyEnvelope.businessOrder(taskId),
+                    EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_CONSUME),
+                    contextOf(req, EconomyEnvelope.ACTION_CONSUME),
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_CONSUME, it) }
@@ -235,30 +207,27 @@ class EconomyProvider : BusinessProvider {
             null
         }
         val result = runCatching {
-            mce.transactionService.refund(
-                RefundRequest(
-                    consumeTransactionNo = consumeTxNo, consumeRequestId = consumeReqId, refundAmount = refundAmount,
-                    pluginName = EconomyEnvelope.PLUGIN_NAME, idempotency = EconomyEnvelope.businessOrder(taskId),
-                    reason = EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_REFUND),
-                    context = contextOf(req, EconomyEnvelope.ACTION_REFUND)
+            val transactionService = read(mce, "transactionService") ?: error("缺少交易服务")
+            call(
+                transactionService,
+                "refund",
+                newRequest(
+                    REFUND_REQUEST,
+                    consumeTxNo,
+                    consumeReqId,
+                    refundAmount,
+                    EconomyEnvelope.PLUGIN_NAME,
+                    EconomyEnvelope.businessOrder(taskId),
+                    EconomyEnvelope.writeReason(req, EconomyEnvelope.ACTION_REFUND),
+                    contextOf(req, EconomyEnvelope.ACTION_REFUND),
                 )
             )
         }.getOrElse { return EconomyEnvelope.executeError(EconomyEnvelope.ACTION_REFUND, it) }
         return BridgeCommandResult.ok(EconomyEnvelope.encodeRefund(result))
     }
 
-    // ======================== 写公共骨架 / 服务获取 ========================
-
-    /**
-     * deposit / withdraw / adjust 三个 balance 写动作的公共骨架:校验 player/currency/taskId/amount,
-     * 调 [call] 执行真实 mce 写,统一编码 [BalanceOperationResult]。
-     */
-    private inline fun balanceWrite(
-        payload: String,
-        action: String,
-        call: (MultiCurrencyEconomyService, String, String, BigDecimal, IdempotencyMode, String, OperationContext)
-        -> BalanceOperationResult,
-    ): BridgeCommandResult {
+    /** deposit / withdraw / adjust 三个 balance 写动作的公共骨架。 */
+    private fun balanceWrite(payload: String, action: String, requestClass: String, methodName: String): BridgeCommandResult {
         val mce = readyService() ?: return EconomyEnvelope.notReady()
         val req = Json.parse(payload)
         val player = req.getString("player")
@@ -268,19 +237,78 @@ class EconomyProvider : BusinessProvider {
         val amount = EconomyEnvelope.parseAmount(req.getString("amount"))
             ?: return EconomyEnvelope.invalidAmount(req.getString("amount"))
         val result = runCatching {
+            val balanceService = read(mce, "balanceService") ?: error("缺少余额服务")
             call(
-                mce, player, currency, amount, EconomyEnvelope.businessOrder(taskId),
-                EconomyEnvelope.writeReason(req, action), contextOf(req, action)
+                balanceService,
+                methodName,
+                newRequest(
+                    requestClass,
+                    player,
+                    currency,
+                    amount,
+                    EconomyEnvelope.PLUGIN_NAME,
+                    EconomyEnvelope.businessOrder(taskId),
+                    EconomyEnvelope.writeReason(req, action),
+                    contextOf(req, action),
+                )
             )
         }.getOrElse { return EconomyEnvelope.executeError(action, it) }
         return BridgeCommandResult.ok(EconomyEnvelope.encodeBalance(result))
     }
 
     /** 从 payload 取操作者身份(FR-121 注入的 operator/nodeId)构造 mce 操作上下文,透传进 mce 审计流水。 */
-    private fun contextOf(req: JsonObject, action: String): OperationContext =
+    private fun contextOf(req: JsonObject, action: String): Any =
         EconomyEnvelope.operationContext(req.getString("operator"), req.getString("nodeId"), action)
 
-    /** mce 就绪则返回主服务,否则 null(就绪窗口内 service 抛异常亦兜为 null)。 */
-    private fun readyService(): MultiCurrencyEconomyService? =
-        if (MultiCurrencyEconomyApi.isReady()) runCatching { MultiCurrencyEconomyApi.service }.getOrNull() else null
+    /** mce 就绪则返回主服务,否则 null(未安装 / 就绪窗口异常均降级为 null)。 */
+    private fun readyService(): Any? {
+        val api = readyApiClass() ?: return null
+        return runCatching { callStatic(api, "getService") }.getOrNull()
+    }
+
+    /** mce API 类存在且 isReady=true 则返回类对象。 */
+    private fun readyApiClass(): Class<*>? {
+        val api = runCatching { Class.forName(MCE_API) }.getOrNull() ?: return null
+        val ready = runCatching { callStatic(api, "isReady") as? Boolean }.getOrNull() ?: false
+        return if (ready) api else null
+    }
+
+    private fun newRequest(className: String, vararg args: Any?): Any {
+        val type = Class.forName(className)
+        val ctor = type.constructors.firstOrNull { it.parameterCount == args.size }
+            ?: error("未找到请求构造器:$className/${args.size}")
+        return ctor.newInstance(*args)
+    }
+
+    private fun call(target: Any, methodName: String, vararg args: Any?): Any {
+        val method = target.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == args.size }
+            ?: error("未找到 MCE 方法:$methodName/${args.size}")
+        return method.invoke(target, *args)
+    }
+
+    private fun callStatic(type: Class<*>, methodName: String, vararg args: Any?): Any {
+        val method = type.methods.firstOrNull { it.name == methodName && it.parameterCount == args.size }
+            ?: error("未找到 MCE 静态方法:$methodName/${args.size}")
+        return method.invoke(null, *args)
+    }
+
+    private fun read(target: Any, property: String): Any? {
+        val suffix = property.substring(0, 1).uppercase() + property.substring(1)
+        for (methodName in listOf("get$suffix", "is$suffix")) {
+            val method = target.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 }
+            if (method != null) return method.invoke(target)
+        }
+        val field = target.javaClass.fields.firstOrNull { it.name == property }
+        return field?.get(target)
+    }
+
+    private companion object {
+        const val MCE_API = "top.wcpe.mc.plugin.multicurrencyeconomy.api.MultiCurrencyEconomyApi"
+        const val DEPOSIT_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.DepositRequest"
+        const val WITHDRAW_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.WithdrawRequest"
+        const val ADJUST_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.AdjustRequest"
+        const val TRANSFER_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.TransferRequest"
+        const val CONSUME_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.ConsumeRequest"
+        const val REFUND_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.RefundRequest"
+    }
 }

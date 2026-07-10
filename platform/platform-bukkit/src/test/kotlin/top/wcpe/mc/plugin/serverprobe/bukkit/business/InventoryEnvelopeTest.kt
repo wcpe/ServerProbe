@@ -84,7 +84,7 @@ class InventoryEnvelopeTest {
     /** 基础属性解码:逐字段构造。 */
     @Test
     fun `basicAttrs 逐字段构造`() {
-        val a = InventoryEnvelope.basicAttrs(19.5, 17, 12, 0.25f, 130, "CREATIVE")
+        val a = InventoryEnvelope.basicAttrs(19.5, 17, 12, 0.25f, 130, "CREATIVE") as BasicAttrsDto
         assertEquals(19.5, a.health)
         assertEquals(17, a.foodLevel)
         assertEquals(12, a.xpLevel)
