@@ -47,6 +47,8 @@ internal class ConfigJsonObject(private val section: ConfigurationSection) : Jso
 
     override fun getLong(key: String, default: Long): Long = section.getLong(key, default)
 
+    override fun getDouble(key: String, default: Double): Double = section.getDouble(key, default)
+
     override fun getBoolean(key: String, default: Boolean): Boolean = section.getBoolean(key, default)
 
     override fun getStringList(key: String): List<String> = section.getStringList(key)

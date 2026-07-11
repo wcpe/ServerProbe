@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.business
 
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
+import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 
 /**
  * 背包域信封编解码与校验(JBIS FR-125,见 ServerProbe ADR-0017 取代 ADR-0016 / JianManager FR-125)。
@@ -33,8 +34,8 @@ object InventoryEnvelope {
             ),
             action(
                 ACTION_WRITE_BASIC_ATTRS, listOf("player", "base", "edited", "taskId"), readOnly = false,
-                note = "base/edited 为属性对象 {health,foodLevel,xpLevel,xpProgress,xpTotal,gameMode};" +
-                    "只施加 base→edited 净改动;taskId 幂等键(CP 生成);operator 由 CP 注入"
+                note = "base/edited 为 {dataVersion,basicAttrs:{health,foodLevel,xpLevel,xpProgress,xpTotal," +
+                    "gameMode}} 容器(兼容扁平直发);只施加 base→edited 净改动;taskId 幂等键(CP 生成);operator 由 CP 注入"
             ),
         )
     )
@@ -80,6 +81,26 @@ object InventoryEnvelope {
             String::class.java,
         )
         return ctor.newInstance(health, foodLevel, xpLevel, xpProgress, xpTotal, gameMode)
+    }
+
+    /**
+     * 解码 base/edited 容器为 BasicAttrsDto(经 [basicAttrs] 反射构造)。
+     *
+     * 容器契约(JianManager FR-126/127 前端与审计既定):`{dataVersion, basicAttrs:{health,foodLevel,...}}`
+     * 嵌套结构、数值字段为 JSON 数值;兼容扁平直发(无 basicAttrs 层)与字符串承载数值。
+     * 数值逐项先按字符串解析、再按数值节点兜底,均取不到回退默认——曾因只读容器顶层 + 仅按字符串解析,
+     * 契约 payload 全字段回退默认(血量 0.0)把在线玩家写死。
+     */
+    fun decodeBasicAttrs(container: JsonObject): Any {
+        val attrs = container.getObject("basicAttrs") ?: container
+        return basicAttrs(
+            health = attrs.getString("health").toDoubleOrNull() ?: attrs.getDouble("health"),
+            foodLevel = attrs.getString("foodLevel").toIntOrNull() ?: attrs.getInt("foodLevel"),
+            xpLevel = attrs.getString("xpLevel").toIntOrNull() ?: attrs.getInt("xpLevel"),
+            xpProgress = attrs.getString("xpProgress").toFloatOrNull() ?: attrs.getDouble("xpProgress").toFloat(),
+            xpTotal = attrs.getString("xpTotal").toIntOrNull() ?: attrs.getInt("xpTotal"),
+            gameMode = attrs.getString("gameMode").ifBlank { "SURVIVAL" },
+        )
     }
 
     fun notReady(): BridgeCommandResult = BridgeCommandResult.fail("背包插件(AllinInventorySync)未就绪")

@@ -163,4 +163,86 @@ class InventoryEnvelopeTest {
         assertEquals("OWNED_ELSEWHERE", fail["errorCode"], "错误码透传")
         assertEquals("他服在线持有", fail["message"])
     }
+
+    /**
+     * 基础属性解码——JianManager 前端真实契约 payload(FR-125/126/127):
+     * base/edited 为 `{dataVersion, basicAttrs:{...}}` 嵌套容器,数值字段为 JSON 数值(非字符串)。
+     * 回归:曾直读容器顶层 + 仅按字符串解析 → 全字段回退默认(血量 0.0),在线玩家被写死。
+     * 桩语义按最严苛情形:数值节点 getString 类型不符返回 default(与接口约定一致),数值只能经 getDouble/getInt 取。
+     */
+    @Test
+    fun `decodeBasicAttrs 解析前端契约嵌套数值容器`() {
+        val base = MapJsonObject(
+            mapOf(
+                "dataVersion" to 15,
+                "basicAttrs" to mapOf(
+                    "health" to 20.0, "foodLevel" to 20, "xpLevel" to 10,
+                    "xpProgress" to 0.0, "xpTotal" to 0, "gameMode" to "SURVIVAL",
+                ),
+            )
+        )
+        val edited = MapJsonObject(
+            mapOf(
+                "dataVersion" to 15,
+                "basicAttrs" to mapOf(
+                    "health" to 19.5, "foodLevel" to 18, "xpLevel" to 7,
+                    "xpProgress" to 0.25, "xpTotal" to 130, "gameMode" to "CREATIVE",
+                ),
+            )
+        )
+
+        val b = InventoryEnvelope.decodeBasicAttrs(base) as BasicAttrsDto
+        assertEquals(20.0, b.health, "base 血量应为 20.0 而非默认 0.0")
+        assertEquals(20, b.foodLevel)
+        assertEquals(10, b.xpLevel)
+        assertEquals("SURVIVAL", b.gameMode)
+
+        val e = InventoryEnvelope.decodeBasicAttrs(edited) as BasicAttrsDto
+        assertEquals(19.5, e.health, "edited 血量应为 19.5 而非默认 0.0")
+        assertEquals(18, e.foodLevel)
+        assertEquals(7, e.xpLevel)
+        assertEquals(0.25f, e.xpProgress)
+        assertEquals(130, e.xpTotal)
+        assertEquals("CREATIVE", e.gameMode)
+    }
+
+    /** 基础属性解码兼容:扁平直发(无 basicAttrs 嵌套)与字符串承载数值同样可解。 */
+    @Test
+    fun `decodeBasicAttrs 兼容扁平与字符串承载`() {
+        val flatStrings = MapJsonObject(
+            mapOf(
+                "health" to "19.5", "foodLevel" to "17", "xpLevel" to "12",
+                "xpProgress" to "0.25", "xpTotal" to "130", "gameMode" to "CREATIVE",
+            )
+        )
+        val a = InventoryEnvelope.decodeBasicAttrs(flatStrings) as BasicAttrsDto
+        assertEquals(19.5, a.health)
+        assertEquals(17, a.foodLevel)
+        assertEquals(12, a.xpLevel)
+        assertEquals(0.25f, a.xpProgress)
+        assertEquals(130, a.xpTotal)
+        assertEquals("CREATIVE", a.gameMode)
+    }
+
+    /**
+     * 只读 JSON 树桩:嵌套 Map 承载,取值语义对齐 [top.wcpe.mc.plugin.serverprobe.core.json.JsonObject]
+     * 接口约定(缺失或类型不符返回默认值)——即数值节点 getString 拿不到、字符串节点 getDouble/getInt 拿不到,
+     * 复现"数值承载 + 仅按字符串解析必回退默认"的最严苛情形。
+     */
+    private class MapJsonObject(private val map: Map<String, Any?>) :
+        top.wcpe.mc.plugin.serverprobe.core.json.JsonObject {
+        override fun getString(key: String, default: String): String = map[key] as? String ?: default
+        override fun getInt(key: String, default: Int): Int = (map[key] as? Number)?.toInt() ?: default
+        override fun getLong(key: String, default: Long): Long = (map[key] as? Number)?.toLong() ?: default
+        override fun getDouble(key: String, default: Double): Double = (map[key] as? Number)?.toDouble() ?: default
+        override fun getBoolean(key: String, default: Boolean): Boolean = map[key] as? Boolean ?: default
+        override fun getStringList(key: String): List<String> =
+            (map[key] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+
+        override fun contains(key: String): Boolean = map.containsKey(key)
+
+        @Suppress("UNCHECKED_CAST")
+        override fun getObject(key: String): top.wcpe.mc.plugin.serverprobe.core.json.JsonObject? =
+            (map[key] as? Map<String, Any?>)?.let { MapJsonObject(it) }
+    }
 }

@@ -46,6 +46,9 @@ interface JsonObject {
     /** 取长整型字段；缺失返回 [default]。 */
     fun getLong(key: String, default: Long = 0L): Long
 
+    /** 取双精度浮点字段；缺失或类型不符返回 [default]。 */
+    fun getDouble(key: String, default: Double = 0.0): Double
+
     /** 取布尔字段；缺失返回 [default]。 */
     fun getBoolean(key: String, default: Boolean = false): Boolean
 

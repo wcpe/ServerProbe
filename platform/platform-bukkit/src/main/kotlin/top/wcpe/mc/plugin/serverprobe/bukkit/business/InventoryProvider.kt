@@ -7,7 +7,6 @@ import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessHost
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessProvider
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
-import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
@@ -85,8 +84,8 @@ class InventoryProvider : BusinessProvider {
                 "writeBasicAttrs",
                 operator,
                 player,
-                decodeBasicAttrs(baseObj),
-                decodeBasicAttrs(editedObj),
+                InventoryEnvelope.decodeBasicAttrs(baseObj),
+                InventoryEnvelope.decodeBasicAttrs(editedObj),
                 taskId,
             ) as CompletableFuture<*>
         }.getOrElse { return InventoryEnvelope.executeError(action, it) }
@@ -105,16 +104,6 @@ class InventoryProvider : BusinessProvider {
                     InventoryEnvelope.executeError(action, t)
                 }
             }
-
-    /** 解码基础属性对象:门面无 getDouble,数值字段以字符串承载,逐项解析(非法回退默认)。 */
-    private fun decodeBasicAttrs(obj: JsonObject): Any = InventoryEnvelope.basicAttrs(
-        health = obj.getString("health").toDoubleOrNull() ?: 0.0,
-        foodLevel = obj.getString("foodLevel").toIntOrNull() ?: 0,
-        xpLevel = obj.getString("xpLevel").toIntOrNull() ?: 0,
-        xpProgress = obj.getString("xpProgress").toFloatOrNull() ?: 0f,
-        xpTotal = obj.getString("xpTotal").toIntOrNull() ?: 0,
-        gameMode = obj.getString("gameMode").ifBlank { "SURVIVAL" },
-    )
 
     /** AllinInventorySync 就绪则返回 api,否则 null(未安装 / 就绪窗口异常均降级为 null)。 */
     private fun readyApi(): Any? {

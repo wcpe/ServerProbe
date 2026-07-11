@@ -52,6 +52,7 @@ class JsonFacadeTest {
 
         override fun getInt(key: String, default: Int): Int = default
         override fun getLong(key: String, default: Long): Long = default
+        override fun getDouble(key: String, default: Double): Double = default
         override fun getBoolean(key: String, default: Boolean): Boolean = default
         override fun getStringList(key: String): List<String> = emptyList()
         override fun contains(key: String): Boolean = false
