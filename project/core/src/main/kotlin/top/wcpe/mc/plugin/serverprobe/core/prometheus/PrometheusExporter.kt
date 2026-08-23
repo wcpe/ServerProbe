@@ -3,6 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 import com.sun.net.httpserver.HttpServer
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostEnable
@@ -40,6 +41,10 @@ class PrometheusExporter {
     @Inject
     lateinit var readApi: ProbeReadApi
 
+    /** 运行期 CPU 归因采样器(FR2.6);供 /metrics 一并导出各插件样本占比(未启用时无数据跳过)。 */
+    @Inject
+    lateinit var cpuSampler: CpuAttributionSampler
+
     /** 运行中的 HTTP 服务句柄;未开启或起服失败时为 null。 */
     @Volatile
     private var server: HttpServer? = null
@@ -69,7 +74,12 @@ class PrometheusExporter {
             }
             httpServer.createContext(
                 METRICS_PATH,
-                MetricsHttpHandler(readApi, ProbeConfig.metricsToken(), ProbeConfig.metricsAllowedIps())
+                MetricsHttpHandler(
+                    readApi,
+                    ProbeConfig.metricsToken(),
+                    ProbeConfig.metricsAllowedIps(),
+                    cpuSampler
+                )
             )
             httpServer.start()
             server = httpServer

@@ -61,6 +61,17 @@ http-monitor:
   # 从 agent 增量拉取外呼记录的周期(tick;20 tick = 1 秒)。默认 20(约 1 秒)。
   drain-period-ticks: 20
 
+# 运行期 CPU 采样归因(FR2.6,M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
+# 得到"哪个插件运行期更吃线程"的近似占比(/probe cpu 查看,Prometheus 导出)。
+# 默认关闭(P2 增强,采样有一定开销)。注:运行期 CPU 火焰图不自研,建议并用 spark。
+cpu:
+  # 是否开启运行期 CPU 归因。默认 false(关闭)。
+  enabled: false
+  # 采样周期(单位:tick;20 tick = 1 秒)。默认 20(约 1 秒)。
+  sample-period-ticks: 20
+  # 聚合窗口(轮,每采样周期一轮)。默认 60(约 1 分钟)。
+  window-rounds: 60
+
 # Prometheus /metrics 导出端点(FR4.2),对接 Grafana 长期看板与告警。
 # Bukkit 与 BungeeCord 各为独立进程、各起一个端点;同机部署两端请配置不同 port。
 # 安全默认:端点默认【关闭】,且默认仅本机(127.0.0.1)可访问。开放到外网前务必配置 token 与/或 IP 白名单。
@@ -78,6 +89,23 @@ metrics:
   token: ""
   # 允许访问的来源 IP 白名单(与 token 叠加生效)。默认仅本机,避免裸奔对外。
   # 仅精确 IP 匹配,不支持 CIDR 网段;经 IPv6 回环访问需另填 IPv6 地址(如 ::1)。
+  allowed-ips:
+    - "127.0.0.1"
+
+# Web 面板(FR4.3,M3,P2):启动画像详情 / 历史趋势 / 总览,浏览器访问。
+# 基于 JDK 内置 HttpServer 零依赖;安全默认:默认【关闭】,且默认仅本机可访问。
+# 开放到外网前务必配置 token 与/或 IP 白名单。
+web:
+  # 是否开启 Web 面板。默认 false(关闭)。
+  enabled: false
+  # 绑定地址。默认 127.0.0.1(仅本机回环)。
+  host: "127.0.0.1"
+  # 监听端口。默认 9941(与 /metrics 的 9940 区分)。
+  port: 9941
+  # 鉴权 token。留空=不启用 token 鉴权(此时仅靠下方 allowed-ips 限制)。
+  # 非空时请求需携带请求头 Authorization: Bearer <token> 方可访问。
+  token: ""
+  # 允许访问的来源 IP 白名单(与 token 叠加生效)。默认仅本机。
   allowed-ips:
     - "127.0.0.1"
 

@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.prometheus
 
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
 
 /**
  * Prometheus 文本格式化器(FR4.2,exposition format 0.0.4)。
@@ -39,13 +40,14 @@ object PrometheusTextFormatter {
     /**
      * 将指标快照渲染为 Prometheus exposition 文本。
      *
-     * 渲染顺序:JVM 指标(恒有)→ 服务器指标(服务端非空)→ 代理端指标(代理端非空)。
+     * 渲染顺序:JVM 指标(恒有)→ 服务器指标(服务端非空)→ 代理端指标(代理端非空)→ 运行期 CPU 归因(可选)。
      * 各区块内对不可用字段静默跳过(见类 KDoc)。
      *
      * @param snapshot 待渲染的指标快照;为 null(探针尚无任何采样)时返回空字符串。
+     * @param cpuMetrics 运行期 CPU 归因(FR2.6);为 null/空(未启用或无样本)时不导出对应序列。
      * @return Prometheus 文本;snapshot 为 null 时为空串。
      */
-    fun format(snapshot: MetricSnapshot?): String {
+    fun format(snapshot: MetricSnapshot?, cpuMetrics: List<PluginCpuMetric>? = null): String {
         if (snapshot == null) {
             return ""
         }
@@ -59,7 +61,25 @@ object PrometheusTextFormatter {
         appendJvm(writer, snapshot)
         snapshot.server?.let { appendServer(writer, it) }
         snapshot.proxy?.let { appendProxy(writer, it) }
+        appendCpu(writer, cpuMetrics)
         return sb.toString()
+    }
+
+    /**
+     * 追加运行期 CPU 归因区块(FR2.6,可选)。
+     *
+     * 涵盖:各插件窗口样本计数(counter,label plugin)与占比百分比(gauge,label plugin)。
+     * 参数为 null/空(未启用或窗口无样本)时整区块跳过。
+     */
+    private fun appendCpu(writer: MetricWriter, cpuMetrics: List<PluginCpuMetric>?) {
+        if (cpuMetrics.isNullOrEmpty()) {
+            return
+        }
+        for (metric in cpuMetrics) {
+            val pluginLabel = listOf("plugin" to metric.plugin)
+            writer.counter("plugin_cpu_samples_total", metric.sampleCount.toDouble(), pluginLabel)
+            writer.gauge("plugin_cpu_percent", metric.percent, pluginLabel)
+        }
     }
 
     /**
@@ -141,24 +161,31 @@ object PrometheusTextFormatter {
         writer.gauge("server_uptime_seconds", server.uptimeMs / MILLIS_PER_SECOND)
 
         // 各世界计数(gauge,label world);-1(Folia 受限/N/A)不导出
-        val worlds = server.worlds ?: return
-        for (world in worlds) {
+        server.worlds?.forEach { world ->
             val worldLabel = listOf("world" to world.name)
             writer.gaugeIfNonNegative("world_loaded_chunks", world.loadedChunks.toLong(), worldLabel)
             writer.gaugeIfNonNegative("world_entities", world.entityCount.toLong(), worldLabel)
             writer.gaugeIfNonNegative("world_tile_entities", world.tileEntityCount.toLong(), worldLabel)
         }
+
+        // 在线玩家 ping 分布(gauge,label range;FR2.4);null(无人/不支持)不导出
+        server.pingDistribution?.forEach { bucket ->
+            writer.gauge("players_ping_bucket", bucket.count.toDouble(), listOf("range" to bucket.label))
+        }
     }
 
     /**
-     * 追加代理端区块指标(M1,仅代理端非空)。
+     * 追加代理端区块指标(M1 + FR2.5,仅代理端非空)。
      *
-     * 涵盖:代理总在线、各后端子服在线(label backend)。
+     * 涵盖:代理总在线、各后端子服在线(label backend)与子服 RTT(label backend;-1 不导出)。
      */
     private fun appendProxy(writer: MetricWriter, proxy: top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics) {
         writer.gauge("proxy_players_online", proxy.totalOnline.toDouble())
         for (backend in proxy.backends) {
             writer.gauge("proxy_backend_players_online", backend.online.toDouble(), listOf("backend" to backend.name))
+            if (backend.pingMs >= 0) {
+                writer.gauge("proxy_backend_ping_ms", backend.pingMs.toDouble(), listOf("backend" to backend.name))
+            }
         }
     }
 

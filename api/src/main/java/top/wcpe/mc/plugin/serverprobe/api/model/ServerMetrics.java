@@ -22,4 +22,8 @@ public final class ServerMetrics {
      * (历史快照不含该字段),尚未采集到时亦为 null。
      */
     java.util.List<WorldMetrics> worlds;
+    /**
+     * 在线玩家 ping 分布(FR2.4);默认 null 以保持向后兼容,尚未采集时亦为 null。
+     */
+    java.util.List<PingBucket> pingDistribution;
 }

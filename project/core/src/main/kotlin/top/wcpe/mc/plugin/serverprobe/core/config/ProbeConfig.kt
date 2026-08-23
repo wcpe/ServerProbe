@@ -312,6 +312,78 @@ object ProbeConfig {
             .coerceAtLeast(MIN_ALERT_WEBHOOK_TIMEOUT_MS)
 
     /**
+     * 是否开启运行期 CPU 采样归因(FR2.6,M3,P2),默认 false(关闭)。
+     *
+     * P2 增强,采样有一定开销;默认关闭,需显式开启。关闭时
+     * [top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler] 不启动采样任务。
+     *
+     * @return 是否开启运行期 CPU 归因。
+     */
+    fun cpuEnabled(): Boolean = conf.getBoolean(KEY_CPU_ENABLED, DEFAULT_CPU_ENABLED)
+
+    /**
+     * CPU 采样周期(单位 ticks),默认 20(约 1 秒)。
+     *
+     * @return 采样周期 tick 数。
+     */
+    fun cpuSamplePeriodTicks(): Long = conf.getLong(KEY_CPU_SAMPLE_PERIOD_TICKS, DEFAULT_CPU_SAMPLE_PERIOD_TICKS)
+
+    /**
+     * CPU 归因聚合窗口(轮),默认 60(约 1 分钟 @ 1 秒采样周期)。
+     *
+     * 窗口内各插件累计样本数/占比即
+     * [top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler.snapshot] 输出。
+     *
+     * @return 窗口轮数。
+     */
+    fun cpuWindowRounds(): Int = conf.getInt(KEY_CPU_WINDOW_ROUNDS, DEFAULT_CPU_WINDOW_ROUNDS)
+
+    /**
+     * 是否开启 Web 面板(FR4.3,M3,P2),默认 false(关闭)。
+     *
+     * 出于安全默认:端点关闭、仅本地可访问,需显式开启。关闭时
+     * [top.wcpe.mc.plugin.serverprobe.core.web.WebPanelServer] 不起服。
+     *
+     * @return 是否开启 Web 面板。
+     */
+    fun webEnabled(): Boolean = conf.getBoolean(KEY_WEB_ENABLED, DEFAULT_WEB_ENABLED)
+
+    /**
+     * Web 面板绑定地址,默认 `127.0.0.1`(仅本机回环,不对外暴露)。
+     *
+     * @return 绑定主机地址。
+     */
+    fun webHost(): String = conf.getString(KEY_WEB_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_WEB_HOST
+
+    /**
+     * Web 面板监听端口,默认 9941(与 Prometheus 9940 区分)。
+     *
+     * @return 监听端口。
+     */
+    fun webPort(): Int = conf.getInt(KEY_WEB_PORT, DEFAULT_WEB_PORT)
+
+    /**
+     * Web 面板鉴权 token,默认空串(不启用 token 鉴权)。
+     *
+     * 非空时要求请求头 `Authorization: Bearer <token>` 匹配方可访问。
+     *
+     * @return 鉴权 token;未配置时为空串。
+     */
+    fun webToken(): String = conf.getString(KEY_WEB_TOKEN)?.trim() ?: DEFAULT_WEB_TOKEN
+
+    /**
+     * Web 面板 IP 白名单,默认 `["127.0.0.1"]`(仅本机)。
+     *
+     * @return 允许访问的 IP 列表(恒非空,至少含本机回环)。
+     */
+    fun webAllowedIps(): List<String> {
+        val configured = runCatching { conf.getStringList(KEY_WEB_ALLOWED_IPS) }.getOrNull()
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+        return configured?.takeIf { it.isNotEmpty() } ?: DEFAULT_WEB_ALLOWED_IPS
+    }
+
+    /**
      * 解析告警规则集(FR5):把 `alert.rules` 下各命名规则解析为 [AlertRule] 列表。
      *
      * 集中收口规则解析:命名规则 → 固定 [AlertType] 的映射、阈值/持续周期默认值、level 字符串转枚举
@@ -497,6 +569,30 @@ object ProbeConfig {
     /** 配置键名:告警规则段根。 */
     private const val KEY_ALERT_RULES = "alert.rules"
 
+    /** 配置键名:CPU 归因总开关。 */
+    private const val KEY_CPU_ENABLED = "cpu.enabled"
+
+    /** 配置键名:CPU 采样周期(ticks)。 */
+    private const val KEY_CPU_SAMPLE_PERIOD_TICKS = "cpu.sample-period-ticks"
+
+    /** 配置键名:CPU 归因聚合窗口(轮)。 */
+    private const val KEY_CPU_WINDOW_ROUNDS = "cpu.window-rounds"
+
+    /** 配置键名:Web 面板总开关。 */
+    private const val KEY_WEB_ENABLED = "web.enabled"
+
+    /** 配置键名:Web 面板绑定地址。 */
+    private const val KEY_WEB_HOST = "web.host"
+
+    /** 配置键名:Web 面板监听端口。 */
+    private const val KEY_WEB_PORT = "web.port"
+
+    /** 配置键名:Web 面板鉴权 token。 */
+    private const val KEY_WEB_TOKEN = "web.token"
+
+    /** 配置键名:Web 面板 IP 白名单。 */
+    private const val KEY_WEB_ALLOWED_IPS = "web.allowed-ips"
+
     /** 规则子键名:阈值。 */
     private const val SUB_THRESHOLD = "threshold"
 
@@ -589,6 +685,30 @@ object ProbeConfig {
 
     /** 默认告警总开关:关闭(需显式开启)。 */
     private const val DEFAULT_ALERT_ENABLED = false
+
+    /** 默认 CPU 归因总开关:关闭(P2 增强,需显式开启)。 */
+    private const val DEFAULT_CPU_ENABLED = false
+
+    /** 默认 CPU 采样周期(ticks),约 1 秒。 */
+    private const val DEFAULT_CPU_SAMPLE_PERIOD_TICKS = 20L
+
+    /** 默认 CPU 归因聚合窗口(轮),约 1 分钟 @ 1 秒采样周期。 */
+    private const val DEFAULT_CPU_WINDOW_ROUNDS = 60
+
+    /** 默认 Web 面板总开关:关闭(需显式开启)。 */
+    private const val DEFAULT_WEB_ENABLED = false
+
+    /** 默认 Web 面板绑定地址:仅本机回环。 */
+    private const val DEFAULT_WEB_HOST = "127.0.0.1"
+
+    /** 默认 Web 面板监听端口(与 Prometheus 9940 区分)。 */
+    private const val DEFAULT_WEB_PORT = 9941
+
+    /** 默认 Web 面板鉴权 token:空串(不启用 token 鉴权)。 */
+    private const val DEFAULT_WEB_TOKEN = ""
+
+    /** 默认 Web 面板 IP 白名单:仅本机回环(配置缺失/异常时兜底,杜绝裸奔)。 */
+    private val DEFAULT_WEB_ALLOWED_IPS = listOf("127.0.0.1")
 
     /** 默认日志告警通道开关:开启。 */
     private const val DEFAULT_ALERT_CHANNEL_LOG = true

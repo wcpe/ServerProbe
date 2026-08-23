@@ -75,10 +75,21 @@ class BukkitServerCollector : ServerMetricsCollectorApi {
      *
      * @return 当前时刻的 [ServerMetrics]。
      */
-    override fun collect(): ServerMetrics = ServerMetrics.builder()
-        .tick(tickSampler.sample())
-        .onlinePlayers(Bukkit.getOnlinePlayers().size)
-        .maxPlayers(Bukkit.getMaxPlayers())
-        .uptimeMs(ManagementFactory.getRuntimeMXBean().uptime)
-        .build()
+    override fun collect(): ServerMetrics {
+        val players = Bukkit.getOnlinePlayers()
+        // 在线玩家 ping 分布(FR2.4):1.16.1+ 有 Player#getPing()(内存读取,开销小);
+        // 低版本无该方法时会抛 NoSuchMethodError,此处 runCatching 兜底为"不可用",绝不成为事故源。
+        // 在线但全部 ping 不可用(如低版本)时分布置 null(N/A),与"无人"区分。
+        val pings = players.mapNotNull { p ->
+            runCatching { p.ping }.getOrNull()?.takeIf { it >= 0 }
+        }
+        val pingDistribution = if (pings.isNotEmpty()) PingBuckets.bucket(pings) else null
+        return ServerMetrics.builder()
+            .tick(tickSampler.sample())
+            .onlinePlayers(players.size)
+            .maxPlayers(Bukkit.getMaxPlayers())
+            .uptimeMs(ManagementFactory.getRuntimeMXBean().uptime)
+            .pingDistribution(pingDistribution)
+            .build()
+    }
 }

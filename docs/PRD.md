@@ -151,22 +151,23 @@
 | FR2.1 | JVM 指标 | P0 | ✅ 已交付 |
 | FR2.2 | 服务器 TPS/MSPT | P0 | ✅ 已交付 |
 | FR2.3 | 世界指标 | P1 | ✅ 已交付(Folia 路线 1,仅区块数) |
-| FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ◑ 在线已交付;ping 分布 / 流量计划 |
-| FR2.5 | 代理端(BungeeCord) | P1 | ◑ 总在线 + 各子服在线已交付;ping / 路由 / 每玩家 ping 计划 |
-| FR2.6 | 插件**运行期** CPU 归因 | P2 | ○ 计划(M3;**启动期**栈采样已由 agent 提供) |
+| FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ✅ 在线 + ping 分布已交付,Paper 1.20.1 真机降级验证(流量 P2 计划) |
+| FR2.5 | 代理端(BungeeCord) | P1 | ✅ 总在线 + 各子服在线 + ping/可达性 + 玩家路由 + 每玩家 ping 已交付,服务端侧降级真机验证 |
+| FR2.6 | 插件**运行期** CPU 归因 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(ThreadMXBean 采样按 ClassLoader 归并,默认关闭) |
 | FR3 | 存储与聚合(环形缓冲 / 文件落盘 / 聚合) | P0 | ✅ 已交付 |
-| FR4.1 | 游戏内命令 `/probe`(health/startup/tps/gc/world/proxy,+ flamegraph/http 见 FR1.7) | P0 | ✅ 已交付 |
+| FR4.1 | 游戏内命令 `/probe`(health/startup/tps/gc/world/ping/proxy,+ flamegraph/http 见 FR1.7) | P0 | ✅ 已交付 |
 | FR4.2 | Prometheus `/metrics` | P1 | ✅ 已交付 |
-| FR4.3 | Web 面板 | P2 | ○ 计划(M3) |
+| FR4.3 | Web 面板 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(总览 / 启动画像详情 / 历史趋势,鉴权 + 绑定地址,默认关闭) |
 | FR4.4 | 历史文件对比 | P1 | ✅ 已交付 |
 | FR5 | 告警(阈值 + 防抖 + 三通道) | P1 | ✅ 已交付 |
 | FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付¹ |
-| FR7 | 方法级精确归因(Incision) | P2 | ○ 计划(M4,默认关闭,先 PoC) |
+| FR7 | 方法级精确归因(Incision) | P2 | ◑ PoC 方案就绪(见 specs/incision-poc.md),待真机验证织入/开销/回滚后启用(默认关闭) |
 | FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
-| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(JBIS:经济整域真机收口;背包已随 AllinInventorySync 2.0.0 重对接——读 / 属性写 / 事件,物品写暂降级(ADR-0017),代码 + 单测完待真机) |
+| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(经济 Provider + 事件上报 + 背包 Provider + 追踪事件均代码 + 单测完成,待真机收口:经济整域真机、背包读写真机;物品写暂降级(ADR-0017)) |
 
 > ¹ 已交付但**仅 1.21.4 Paper 单端真机验证**;其他端(1.8 / Folia / BungeeCord)仅编译通过、未逐一真机。
 > ✅ 已交付项随 **0.1.0**(2026-06-20)首发,版本口径即 `@v0.1.0`;◑ 部分与 ○ 计划项留后续版本。
+> **2026-08-23 真机补验**(`D:\Game\MinecraftTest\s1`,Paper 1.20.1 + JDK21,含 CoreLib / AllinInventorySync 1.0.0-RC2 / MultiCurrencyEconomy 1.2.0):FR1/FR2.1-2.3/FR2.4(降级)/FR2.5(服务端侧)/FR2.6/FR4.1(八子命令经 RCON)/FR4.2/FR4.3(三页)/FR8 真机通过;FR9 经济 + 背包 Provider 真机注册成功(发现 mce/AllinInventorySync;端到端桥下发需 JianManager Worker)。修复两个真机回归:BungeeProxyCollector 签名隔离(见 CHANGELOG)、CL 注册字段反射。
 
 ### FR1 启动性能剖析(P0,首要)
 - **FR1.1** 端到端启动总时长(`ServerLoadEvent` − JVM 启动时刻)。
@@ -182,9 +183,9 @@
 - **FR2.1 JVM(P0)**:堆/非堆内存、各内存池、GC 次数与耗时(young/old)、线程数/死锁、类加载、进程&系统 CPU、uptime、启动参数。**全版本+全平台通用**。
 - **FR2.2 服务器(P0,Bukkit)**:TPS(1/5/15min)、MSPT(均值+p95/p99)、在线人数、运行时长。**TPS/MSPT 需按 §5.4 做版本兼容 + Folia 语义处理**。
 - **FR2.3 世界(P1,Bukkit)**:按世界的区块数、实体数(按类型)、方块实体数(限频);**Folia 用 `callRegion{}`**。
-- **FR2.4 网络(P1)**:在线人数、ping 分布。(流量/数据包速率需 Netty 注入,P2)
-- **FR2.5 代理端(P1,BungeeCord)**:总在线、各后端子服在线数、子服 ping/可达性、玩家路由、每玩家 ping、JVM 全套。
-- **FR2.6 插件运行时归因(P2)**:事件监听/调度任务耗时(本插件自采)。**各插件 CPU 占比/火焰图不自研,建议并用 [spark](https://spark.lucko.me)**。注:**启动期**主线程栈采样已由可选 premain agent 特化提供(见 FR1.7,抓启动期"无日志卡顿"热点);此处指**运行期**的常态 CPU 归因。
+- **FR2.4 网络(P1)**:在线人数、ping 分布(按固定区间桶统计在线玩家 RTT,1.16.1+ 经 `Player#getPing()`,低版本降级 N/A)。(流量/数据包速率需 Netty 注入,P2)
+- **FR2.5 代理端(P1,BungeeCord)**:总在线、各后端子服在线数、子服 ping/可达性(后台周期 ping,回调计时 RTT)、玩家路由、每玩家 ping、JVM 全套。
+- **FR2.6 插件运行时归因(P2)**:`ThreadMXBean` 周期采样全部线程栈,栈帧经插件 ClassLoader 归并(类名 → 插件解析缓存),窗口聚合各插件样本计数与占比;默认关闭(`cpu.enabled`)。**各插件 CPU 火焰图不自研,建议并用 [spark](https://spark.lucko.me)**。注:**启动期**主线程栈采样已由可选 premain agent 特化提供(见 FR1.7,抓启动期"无日志卡顿"热点);此处指**运行期**的常态 CPU 归因。
 - **约束**:采集周期可配;主线程只做轻量取值(MSPT 仅 `nanoTime`);聚合/遍历异步或限频;调度走 `submit`。
 
 ### FR3 存储与聚合(P0)
@@ -193,9 +194,9 @@
 - **FR3.3** 聚合:TPS 滑窗、MSPT 分位直方图、GC 差分。
 
 ### FR4 数据呈现(四通道)
-- **FR4.1 游戏内命令(P0)**:`/probe health|startup|tps|gc|world|proxy`,权限受控。
+- **FR4.1 游戏内命令(P0)**:`/probe health|startup|tps|gc|world|ping|proxy|cpu`,权限受控。
 - **FR4.2 Prometheus `/metrics`(P1)**:Bukkit 与 BC 各一套,端口可配,对接 Grafana。
-- **FR4.3 Web 面板(P2)**:启动画像详情、历史趋势、(可选)火焰图;需鉴权+绑定地址。
+- **FR4.3 Web 面板(P2)**:启动画像详情、历史趋势、总览;需鉴权+绑定地址。基于 JDK 内置 `HttpServer` 零依赖。
 - **FR4.4 历史文件对比(P1)**:见 FR1.5/FR3.2。
 
 ### FR5 告警(P1)

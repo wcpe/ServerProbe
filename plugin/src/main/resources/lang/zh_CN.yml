@@ -83,13 +83,32 @@ alert-recovered: "§a[告警恢复] §2{0} §7已恢复正常:当前 §f{1}§7,�
 # 死锁为事件型:{1} 为死锁线程数
 alert-deadlock: "§c[告警] §4检测到死锁线程 §f{1} §4个,请立即排查!"
 
-# proxy 代理端(总在线 + 各子服在线)
+# proxy 代理端(总在线 + 各子服在线 + ping/路由/每玩家 ping)
 command-proxy-server-side: "§e此为服务端,代理端请在 BungeeCord 执行 /probe proxy。"
 command-proxy-title: "§6===== §e代理端概览 §6====="
 command-proxy-total: "§7总在线: §f{0}"
-command-proxy-backends-title: "§7各子服在线:"
+command-proxy-backends-title: "§7各子服在线(ping):"
 command-proxy-backends-empty: "§8  (无子服)"
-command-proxy-backend-line: "§8  - §f{0}§7: §f{1}"
+command-proxy-backend-line: "§8  - §f{0}§7: §f{1} §7在线 §8[{2}]"
+command-proxy-pings-title: "§7每玩家 ping(Top {0}):"
+command-proxy-pings-empty: "§8  (无数据)"
+command-proxy-ping-line: "§8  - §f{0}§7: §f{1}ms"
+command-proxy-routes-title: "§7玩家路由:"
+command-proxy-routes-empty: "§8  (无数据)"
+command-proxy-route-line: "§8  - §f{0}§7 → §f{1}"
+
+# ping 分布(FR2.4)
+command-help-ping: "§a/probe ping §7- 查看在线玩家 ping 分布"
+command-ping-title: "§6===== §e在线玩家 ping 分布 §6====="
+command-ping-empty: "§e暂无 ping 数据(可能当前无在线玩家或版本不支持)。"
+command-ping-line: "§8  - §f{0}§7: §f{1} §7人"
+
+# cpu 运行期归因(FR2.6)
+command-help-cpu: "§a/probe cpu §7- 查看运行期各插件 CPU 采样归因 Top-N"
+command-cpu-disabled: "§e运行期 CPU 归因未启用,请在 config.yml 设置 §fcpu.enabled: true §e后重启。"
+command-cpu-empty: "§e暂无 CPU 采样数据(采样窗口为空,请稍候再试)。"
+command-cpu-title: "§6===== §e运行期 CPU 归因(样本占比) §6====="
+command-cpu-line: "§8  - §f{0}§7: §f{1} §7样本 §8({2})"
 
 # flamegraph 火焰图导出
 command-flamegraph-agent-absent: "§e火焰图需要启动 agent，请在启动命令添加 §7-javaagent:plugins/ServerProbe.jar"

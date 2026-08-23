@@ -132,4 +132,7 @@ bin/
 .env
 # Maven 构建产物(以防混用)
 target/
-.mvn/timing.properties
+.mvn/timing.properties.workbuddy
+
+# WorkBuddy 会话数据(不入库)
+.workbuddy/

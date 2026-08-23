@@ -83,13 +83,32 @@ alert-recovered: "§a[Recovered] §2{0} §7back to normal: current §f{1}§7, th
 # deadlock is event-type: {1} is the deadlocked thread count
 alert-deadlock: "§c[Alert] §4Detected §f{1} §4deadlocked thread(s), investigate now!"
 
-# proxy side (total online + per-backend online)
+# proxy side (total online + per-backend online + ping/routes/per-player ping)
 command-proxy-server-side: "§eThis is the server side; run /probe proxy on BungeeCord for proxy data."
 command-proxy-title: "§6===== §eProxy Overview §6====="
 command-proxy-total: "§7Total online: §f{0}"
-command-proxy-backends-title: "§7Per-backend online:"
+command-proxy-backends-title: "§7Per-backend online (ping):"
 command-proxy-backends-empty: "§8  (no backends)"
-command-proxy-backend-line: "§8  - §f{0}§7: §f{1}"
+command-proxy-backend-line: "§8  - §f{0}§7: §f{1} §7online §8[{2}]"
+command-proxy-pings-title: "§7Per-player ping (Top {0}):"
+command-proxy-pings-empty: "§8  (no data)"
+command-proxy-ping-line: "§8  - §f{0}§7: §f{1}ms"
+command-proxy-routes-title: "§7Player routes:"
+command-proxy-routes-empty: "§8  (no data)"
+command-proxy-route-line: "§8  - §f{0}§7 -> §f{1}"
+
+# ping distribution (FR2.4)
+command-help-ping: "§a/probe ping §7- View online player ping distribution"
+command-ping-title: "§6===== §eOnline Player Ping Distribution §6====="
+command-ping-empty: "§eNo ping data yet (possibly no players online or unsupported version)."
+command-ping-line: "§8  - §f{0}§7: §f{1} §7players"
+
+# cpu runtime attribution (FR2.6)
+command-help-cpu: "§a/probe cpu §7- View runtime per-plugin CPU sample attribution Top-N"
+command-cpu-disabled: "§eRuntime CPU attribution is disabled. Set §fcpu.enabled: true §ein config.yml and restart."
+command-cpu-empty: "§eNo CPU sample data yet (window empty, try again later)."
+command-cpu-title: "§6===== §eRuntime CPU Attribution (sample share) §6====="
+command-cpu-line: "§8  - §f{0}§7: §f{1} §7samples §8({2})"
 
 # flamegraph export
 command-flamegraph-agent-absent: "§eFlamegraph requires startup agent, add §7-javaagent:plugins/ServerProbe.jar §eto the start command"

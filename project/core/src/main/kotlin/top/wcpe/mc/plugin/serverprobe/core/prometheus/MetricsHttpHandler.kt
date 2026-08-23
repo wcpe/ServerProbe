@@ -27,7 +27,8 @@ import java.net.InetSocketAddress
 class MetricsHttpHandler(
     private val readApi: ProbeReadApi,
     private val token: String,
-    private val allowedIps: List<String>
+    private val allowedIps: List<String>,
+    private val cpuSampler: top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler? = null
 ) : HttpHandler {
 
     /**
@@ -44,7 +45,10 @@ class MetricsHttpHandler(
                 respond(exchange, denyStatus, denyStatus.reason)
                 return
             }
-            val body = PrometheusTextFormatter.format(readApi.latestSnapshot())
+            val body = PrometheusTextFormatter.format(
+                readApi.latestSnapshot(),
+                cpuSampler?.snapshot(CPU_SNAPSHOT_LIMIT)
+            )
             respondMetrics(exchange, body)
         } catch (e: Exception) {
             // 单次请求异常:记 WARN 并尽力回 500,不影响线程池与其它请求
@@ -173,5 +177,8 @@ class MetricsHttpHandler(
 
         /** 纯文本内容类型(鉴权拒绝/错误响应用)。 */
         private const val CONTENT_TYPE_TEXT = "text/plain; charset=utf-8"
+
+        /** CPU 归因导出条数上限(控制响应体积)。 */
+        private const val CPU_SNAPSHOT_LIMIT = 50
     }
 }

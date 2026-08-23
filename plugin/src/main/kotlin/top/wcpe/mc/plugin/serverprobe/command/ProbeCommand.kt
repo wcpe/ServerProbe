@@ -12,6 +12,7 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.PingBucket
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
@@ -20,6 +21,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.taboolib.ioc.annotation.Inject
 import java.io.File
 
@@ -70,6 +72,12 @@ object ProbeCommand {
     lateinit var httpCallStore: HttpCallStore
 
     /**
+     * 运行期 CPU 归因采样器(core),由 IOC 注入;供 `/probe cpu` 查看各插件样本占比(FR2.6)。
+     */
+    @Inject
+    lateinit var cpuSampler: CpuAttributionSampler
+
+    /**
      * 主命令 / 帮助:列出全部子命令(全程 i18n)。
      *
      * 不使用 `createHelper()`(其 `§cUsage:` 前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
@@ -84,7 +92,9 @@ object ProbeCommand {
             sender.sendLang("command-help-tps")
             sender.sendLang("command-help-gc")
             sender.sendLang("command-help-world")
+            sender.sendLang("command-help-ping")
             sender.sendLang("command-help-proxy")
+            sender.sendLang("command-help-cpu")
             sender.sendLang("command-help-flamegraph")
             sender.sendLang("command-help-http")
         }
@@ -196,11 +206,59 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe proxy`:代理端总在线与各子服在线(M1,A 方案)。
+     * `/probe ping`:在线玩家 ping 分布(FR2.4)。
      *
-     * 取 `latestSnapshot()?.proxy`:在代理端(BungeeCord)呈现总在线 + 各子服 `name: online`;
-     * 在服务端 `proxy` 为 null,提示"此为服务端,代理端请在 BungeeCord 执行 /probe proxy";
-     * 尚无采样时提示"采集中"。子服 ping/可达性、玩家路由留 M2。
+     * 取 `latestSnapshot()?.server?.pingDistribution`:服务端各 ping 区间桶人数;
+     * server 为 null(代理端)提示该端无此指标;分布为 null(无人或版本不支持)提示暂无数据。
+     */
+    @CommandBody(permission = "serverprobe.command.ping")
+    val ping = subCommand {
+        execute<ProxyCommandSender> { sender, _, _ ->
+            val snapshot = readApi.latestSnapshot()
+            if (snapshot == null) {
+                sender.sendLang("command-no-data")
+                return@execute
+            }
+            val server = snapshot.server
+            if (server == null) {
+                sender.sendLang("command-server-only")
+                return@execute
+            }
+            sendPing(sender, server.pingDistribution)
+        }
+    }
+
+    /**
+     * `/probe cpu`:运行期各插件 CPU 采样归因 Top-N(FR2.6)。
+     *
+     * 取 [CpuAttributionSampler.snapshot](窗口内各插件样本计数 + 占比)。
+     * 未启用采样(`cpu.enabled=false`,默认)时提示启用方式;已启用但窗口内无样本时提示暂无。
+     */
+    @CommandBody(permission = "serverprobe.command.cpu")
+    val cpu = subCommand {
+        execute<ProxyCommandSender> { sender, _, _ ->
+            if (!ProbeConfig.cpuEnabled()) {
+                sender.sendLang("command-cpu-disabled")
+                return@execute
+            }
+            val metrics = cpuSampler.snapshot(ProbeConfig.startupTopN())
+            if (metrics.isEmpty()) {
+                sender.sendLang("command-cpu-empty")
+                return@execute
+            }
+            sender.sendLang("command-cpu-title")
+            metrics.forEach { m ->
+                sender.sendLang("command-cpu-line", m.plugin, m.sampleCount, ProbeFormat.percentOrNull(m.percent / 100.0) ?: "0%")
+            }
+        }
+    }
+
+    /**
+     * `/probe proxy`:代理端总在线、各子服在线与 ping、玩家路由、每玩家 ping(FR2.5)。
+     *
+     * 取 `latestSnapshot()?.proxy`:在代理端(BungeeCord)呈现总在线 + 各子服 `name: online [ping]` +
+     * 每玩家 ping Top-N + 玩家路由;在服务端 `proxy` 为 null,提示"此为服务端,代理端请在
+     * BungeeCord 执行 /probe proxy";尚无采样时提示"采集中"。
      */
     @CommandBody(permission = "serverprobe.command.proxy")
     val proxy = subCommand {
@@ -560,12 +618,13 @@ object ProbeCommand {
     }
 
     /**
-     * 渲染 proxy 详情:代理总在线 + 各子服在线明细(M1,A 方案)。
+     * 渲染 proxy 详情(FR2.5):代理总在线 + 各子服在线(含 ping)+ 每玩家 ping Top-N + 玩家路由。
      *
      * @param sender 命令发送者。
      * @param proxy 代理端指标。
      */
     private fun sendProxy(sender: ProxyCommandSender, proxy: ProxyMetrics) {
+        val na = sender.asLangText("command-na")
         sender.sendLang("command-proxy-title")
         sender.sendLang("command-proxy-total", proxy.totalOnline)
         sender.sendLang("command-proxy-backends-title")
@@ -573,8 +632,50 @@ object ProbeCommand {
             sender.sendLang("command-proxy-backends-empty")
         } else {
             proxy.backends.forEach { backend ->
-                sender.sendLang("command-proxy-backend-line", backend.name, backend.online)
+                // ping 未测到(-1)时显示 N/A;可达性含于 ping 列(不可达显示 N/A 已隐含)
+                val pingText = if (backend.pingMs >= 0) "${backend.pingMs}ms" else na
+                sender.sendLang("command-proxy-backend-line", backend.name, backend.online, pingText)
             }
+        }
+
+        // 每玩家 ping Top-N(按 RTT 升序取最低 N 个,异常值 -1 排最后)
+        val pings = proxy.playerPings.orEmpty().sortedWith(compareBy({ it.pingMs }, { it.name }))
+        sender.sendLang("command-proxy-pings-title", PROXY_PING_TOP_N)
+        if (pings.isEmpty()) {
+            sender.sendLang("command-proxy-pings-empty")
+        } else {
+            pings.take(PROXY_PING_TOP_N).forEach { pp ->
+                val text = if (pp.pingMs >= 0) pp.pingMs else na
+                sender.sendLang("command-proxy-ping-line", pp.name, text)
+            }
+        }
+
+        // 玩家路由(玩家 → 子服)
+        sender.sendLang("command-proxy-routes-title")
+        val routes = proxy.playerRoutes.orEmpty()
+        if (routes.isEmpty()) {
+            sender.sendLang("command-proxy-routes-empty")
+        } else {
+            routes.forEach { route ->
+                sender.sendLang("command-proxy-route-line", route.name, route.server)
+            }
+        }
+    }
+
+    /**
+     * 渲染 ping 分布(FR2.4):逐区间桶输出在线人数。
+     *
+     * @param sender 命令发送者。
+     * @param distribution 各 ping 区间桶;为 null(无在线玩家或版本不支持)时提示暂无数据。
+     */
+    private fun sendPing(sender: ProxyCommandSender, distribution: List<PingBucket>?) {
+        if (distribution.isNullOrEmpty()) {
+            sender.sendLang("command-ping-empty")
+            return
+        }
+        sender.sendLang("command-ping-title")
+        distribution.forEach { bucket ->
+            sender.sendLang("command-ping-line", bucket.label, bucket.count)
         }
     }
 
@@ -598,6 +699,9 @@ object ProbeCommand {
             sender.sendLang("command-http-line", c.plugin, c.method, c.url, code, c.durationMs, caller)
         }
     }
+
+    /** `/probe proxy` 每玩家 ping 展示条数。 */
+    private const val PROXY_PING_TOP_N = 10
 
     /** 是否"应用层"栈帧(排除 JDK/JVM 帧),用于挑选外呼的触发处。 */
     private fun isAppFrame(frame: String): Boolean =
