@@ -89,6 +89,19 @@
 **版本号当前权威来源 = 根 `gradle.properties` 的 `version` 字段**（Gradle 构建原生读取并注入各模块产物）。SDD 约定的根 `VERSION` 单一来源文件**本项目暂未引入**（避免与 `gradle.properties` 产生双源）；是否引入并接入构建，待维护者定夺。
 > 版本口径 = **`0.1.0`**（2026-06-20 首发，本地 tag `v0.1.0`，未推送）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
 
+### 8.1 提交历史治理（摘要）
+
+提交历史治理以 [`../.claude/rules/git-commit.md`](../.claude/rules/git-commit.md) 为唯一依据；本文只保留频繁提交、逻辑提交与主线整理的协作摘要，不复制具体操作细则。
+
+- 开发分支应频繁提交安全检查点，不得长期堆积未提交变更；`fixup!`、`squash!` 只可作为合并前会被整理掉的临时标记。
+- 合并前审查全部提交，清理 WIP、临时标记、拼写问题和跟随修复；过大或多意图提交按逻辑拆分。
+- 最终逻辑提交必须单一意图、不混类型、可独立理解、可独立回滚、可构建，并通过影响范围内的测试与质量验证门；边界不按文件、时间、阶段或版本机械划分。
+- `main` / `master` 只保留逻辑提交，合并优先采用保留这些提交的 rebase / fast-forward 等方式。一个需求允许由多个逻辑提交组成；小型单意图 PR 可以是一条提交，多意图 PR 必须保留多条提交。
+- 禁止把整个版本或大型多意图 PR squash 成一个提交，也禁止整版本大提交。
+- 版本由多个逻辑提交组成；发版另建只含版本号、CHANGELOG 和发布元数据的 `chore(release): 发布 X.Y.Z`，并创建 `vX.Y.Z` tag。
+- 公开、已推送、已被协作者依赖或已被正式版本标签引用的历史不得 rebase、squash、amend 或 force push；问题用新 `fix`，撤销用 `git revert`，只有未共享本地分支可以整理。
+- 严禁 force push `main` / `master`；不得跳过 hooks。提交信息继续遵循 Conventional Commits、英文小写 type/scope、简体中文标题正文且禁止 AI 尾注。
+
 ## 9. 文档如何长期演进（本次会话之后）
 
 | 文档 | 演进方式 |

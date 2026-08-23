@@ -12,6 +12,6 @@
 | [static-analysis.md](static-analysis.md) | **风格漂移**：格式化与静态检查工具链 + CI 门禁 |
 | [comments.md](comments.md) | 注释中文 |
 | [config-files.md](config-files.md) | YAML 配置规范 |
-| [git-commit.md](git-commit.md) | 提交规范与文档入库边界 |
+| [git-commit.md](git-commit.md) | **提交信息规范**、**逻辑提交粒度**、**主线历史整理**与**文档入库边界** |
 
 > 完整演进与维护流程见 [../../docs/CONTRIBUTING.md](../../docs/CONTRIBUTING.md)。
