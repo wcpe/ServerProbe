@@ -29,11 +29,12 @@ taboolib {
     // TabooLib 打包阶段（taboolibMainTask）会用 ASM ClassRemapper 按此前缀改写全部 .class：
     // 既改写 ASM 自身的包名，也同步改写 agent 类对 ASM 的全部引用，二者保持一致。
     relocate("org.objectweb.asm", "top.wcpe.mc.plugin.serverprobe.agent.shadow.asm")
+    // 以项目内的同名实现替换 IoC 的扫描器：先按平台过滤，再反射方法，避免 Bungee 解析 Bukkit 方法签名。
+    exclude("top/wcpe/taboolib/ioc/scan/ComponentVisitor")
     env {
         install(Basic)
         install(Bukkit)
         install(BukkitUtil)
-        install(BukkitUI)
         install(CommandHelper)
         install(I18n)
         // 代理端平台,生成 bungee.yml 描述符,实现单 jar 多端

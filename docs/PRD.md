@@ -152,7 +152,7 @@
 | FR2.2 | 服务器 TPS/MSPT | P0 | ✅ 已交付 |
 | FR2.3 | 世界指标 | P1 | ✅ 已交付(Folia 路线 1,仅区块数) |
 | FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ✅ 在线 + ping 分布已交付,Paper 1.20.1 真机降级验证(流量 P2 计划) |
-| FR2.5 | 代理端(BungeeCord) | P1 | ✅ 总在线 + 各子服在线 + ping/可达性 + 玩家路由 + 每玩家 ping 已交付,服务端侧降级真机验证 |
+| FR2.5 | 代理端(BungeeCord) | P1 | ◑ 能力已交付，BungeeCord + Java 8 已真机加载启用；命令、端点与多子服真机待补 |
 | FR2.6 | 插件**运行期** CPU 归因 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(ThreadMXBean 采样按 ClassLoader 归并,默认关闭) |
 | FR3 | 存储与聚合(环形缓冲 / 文件落盘 / 聚合) | P0 | ✅ 已交付 |
 | FR4.1 | 游戏内命令 `/probe`(health/startup/tps/gc/world/ping/proxy,+ flamegraph/http 见 FR1.7) | P0 | ✅ 已交付 |
@@ -160,14 +160,15 @@
 | FR4.3 | Web 面板 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(总览 / 启动画像详情 / 历史趋势,鉴权 + 绑定地址,默认关闭) |
 | FR4.4 | 历史文件对比 | P1 | ✅ 已交付 |
 | FR5 | 告警(阈值 + 防抖 + 三通道) | P1 | ✅ 已交付 |
-| FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付¹ |
-| FR7 | 方法级精确归因(Incision) | P2 | ◑ PoC 方案就绪(见 specs/incision-poc.md),待真机验证织入/开销/回滚后启用(默认关闭) |
+| FR6 | 全版本与多平台(单 jar) | P0 | ◑ BungeeCord + Java 8 已加载启用；其余平台真机验收未完成¹ |
+| FR7 | 方法级精确归因(Incision) | P2 | ◑ Paper + JDK21 已确认织入链路；待开销、回滚与失败降级验收(默认关闭) |
 | FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
-| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ◑ 开发中(经济 Provider + 事件上报 + 背包 Provider + 追踪事件均代码 + 单测完成,待真机收口:经济整域真机、背包读写真机;物品写暂降级(ADR-0017)) |
+| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ○ 本期跳过；既有代码与端到端验收留后续版本 |
 
-> ¹ 已交付但**仅 1.21.4 Paper 单端真机验证**;其他端(1.8 / Folia / BungeeCord)仅编译通过、未逐一真机。
+> ¹ BungeeCord + Java 8 已完成加载与启用真机验证；1.8 / 低版本 Spigot / Folia 仍仅构建通过，Bungee 命令与端点尚未真机验证。
 > ✅ 已交付项随 **0.1.0**(2026-06-20)首发,版本口径即 `@v0.1.0`;◑ 部分与 ○ 计划项留后续版本。
 > **2026-08-23 真机补验**(`D:\Game\MinecraftTest\s1`,Paper 1.20.1 + JDK21,含 CoreLib / AllinInventorySync 1.0.0-RC2 / MultiCurrencyEconomy 1.2.0):FR1/FR2.1-2.3/FR2.4(降级)/FR2.5(服务端侧)/FR2.6/FR4.1(八子命令经 RCON)/FR4.2/FR4.3(三页)/FR8 真机通过;FR9 经济 + 背包 Provider 真机注册成功(发现 mce/AllinInventorySync;端到端桥下发需 JianManager Worker)。修复两个真机回归:BungeeProxyCollector 签名隔离(见 CHANGELOG)、CL 注册字段反射。
+> **2026-08-24 补验**：BungeeCord + Java 8 单 jar 已加载、启用并启动代理采集；Paper 1.21.11 + JDK21 已确认 FR7 的 `enablePlugin` Incision PoC 织入链路。两项的未完成验收以 `docs/specs/` 记录为准。
 
 ### FR1 启动性能剖析(P0,首要)
 - **FR1.1** 端到端启动总时长(`ServerLoadEvent` − JVM 启动时刻)。
@@ -206,7 +207,7 @@
 - 单 jar 运行于 Bukkit 系 1.8–1.21.11(含 Folia)+ BungeeCord。
 - **代理端定位 = 网络与子服健康监控**;不采世界/区块/实体/TPS/MSPT。
 - **验收**:同一 jar 在 1.8 Spigot、1.21.x Paper、Folia、BungeeCord 上均能正常加载并采集对应指标。
-  - **0.1.0 真机口径(收窄)**:**仅 1.21.4 Paper 单端经真机验证**;1.8 / Spigot 低版本 / Folia / BungeeCord 当前为**构建通过、实验性、尚未逐一真机**。完整多端真机留后续版本补齐后再上调口径(连带 FR2.5 BungeeCord、FR4.2 BungeeCord 端 Prometheus 的真机同此)。
+  - **0.1.0 真机口径(收窄)**：1.21.4 Paper 单端已验证；BungeeCord + Java 8 已验证加载与启用。1.8 / Spigot 低版本 / Folia 仍为构建通过，Bungee 的命令与 Prometheus 端点尚未真机；完整多端真机留后续版本补齐后再上调口径。
 
 ### FR7 方法级精确归因(P2,可选,Incision,默认关闭)
 先 PoC(§5.5),验证通过才启用。用途:`enablePlugin` 精确插桩、特定事件/方法耗时。
