@@ -29,6 +29,12 @@ dependencyResolutionManagement {
                 includeGroup("com.mojang")
             }
         }
+        // 聚合仓库仅镜像 NMS 坐标的 POM，mapped 与 universal jar 从原仓库完整解析。
+        maven("https://repo.tabooproject.org/repository/releases/") {
+            content {
+                includeGroup("ink.ptms.core")
+            }
+        }
         mavenCentral()
         maven("https://maven.aliyun.com/repository/central")
         maven("https://maven.wcpe.top/repository/maven-public/")
