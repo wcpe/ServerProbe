@@ -15,4 +15,10 @@ dependencies {
     compileOnly(project(":project:core"))
     // BungeeCord 服务端 API(ProxyServer / ServerInfo 等),代理端采集 totalOnline 与各子服在线
     compileOnly("net.md-5:bungeecord-api:1.20-R0.2")
+    testImplementation("net.md-5:bungeecord-api:1.20-R0.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

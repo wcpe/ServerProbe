@@ -19,7 +19,6 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.PreDestroy
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 
 /**
  * BungeeCord 代理端指标采集器(FR2.5)。
@@ -96,46 +95,18 @@ class BungeeProxyCollector : ProxyMetricsCollector {
     }
 
     /**
-     * 对当前全部子服发起一轮 ping,更新 [pingCache]。
+     * 对当前全部子服调用 Callback 式 ping,更新 [pingCache]。
      *
-     * 用同步版 `ServerInfo.ping().get(timeout)` 在后台异步线程阻塞等待(非主线程,可接受),
-     * RTT = 发起至返回耗时。BungeeCord 的 `ServerPing` 不含 RTT,只能由调用侧计时。
-     *
-     * **注意**:全部用 `for` 循环(不用 lambda),BungeeCord 类型只出现在局部变量,不进方法签名,
-     * 避免 Bukkit 端 IOC 扫描反射崩溃(见类 KDoc)。
+     * BungeeCord 2088 仅保留 `ping(Callback)`,不再提供无参 Future 重载；反射适配封装在
+     * [BungeeServerPingInvoker]，其静态签名不含 BungeeCord 类型，保持 Bukkit 端扫描安全。
      */
-    // 单子服 ping 需广捕兜底:任何异常只降级该子服、绝不让后台任务挂掉(探针红线),故 catch(Throwable) 有意为之。
-    @Suppress("TooGenericExceptionCaught")
     private fun pingAllBackends() {
         val proxy = server<ProxyServer>()
         for (info in proxy.servers.values) {
-            pingStartTimes[info.name] = System.currentTimeMillis()
-            try {
-                // 反射调用无参 ping()(返回 Future<*>):避免编译期绑定 BungeeCord 方法签名重载歧义,
-                // 也保持本类方法签名无 BungeeCord 类型;运行期仅 Bungee 端执行,Bukkit 端不触碰。
-                val ping = runCatching {
-                    val method = info.javaClass.getMethod("ping")
-                    val future = method.invoke(info) as java.util.concurrent.Future<*>
-                    future.get(PING_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                }.getOrNull()
-                val start = pingStartTimes.remove(info.name)
-                if (ping != null && start != null) {
-                    val rtt = (System.currentTimeMillis() - start).toInt().coerceAtLeast(0)
-                    pingCache[info.name] = BackendPing(pingMs = rtt, reachable = true)
-                } else {
-                    pingCache[info.name] = BackendPing(pingMs = -1, reachable = false)
-                }
-            } catch (t: Throwable) {
-                // 单个子服 ping 失败(如配置异常)不影响整体;记录不可达
-                pingStartTimes.remove(info.name)
-                ProbeLogger.warn("子服 ${info.name} ping 失败:${t.message}")
-                pingCache[info.name] = BackendPing(pingMs = -1, reachable = false)
-            }
+            val result = BungeeServerPingInvoker.ping(info, PING_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+            pingCache[info.name] = BackendPing(result.pingMs, result.reachable)
         }
     }
-
-    /** 本轮 ping 的发起时刻(子服名 → epoch 毫秒),用于推算 RTT。 */
-    private val pingStartTimes = ConcurrentHashMap<String, Long>()
 
     /**
      * 采集当前代理端指标快照。
