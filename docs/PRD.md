@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 项目 | ServerProbe —— Minecraft 服务器运维探针 |
-| 版本 | 0.1.0(2026-06-20 首发;本地 tag,真机仅 1.21.4 Paper) |
+| 版本 | 0.2.0(2026-08-24) |
 | 日期 | 2026-06-08 |
 | 适用平台 | Bukkit 系(CraftBukkit/Spigot/Paper/Folia)**1.8 – 1.21.11 全版本** + BungeeCord 代理端,**单 jar 多端** |
 | 运行 JRE | Java 8+(随服务端;1.17+ 服务端运行于 17+,1.20.5+ 运行于 21+) |
@@ -29,7 +29,7 @@
 - 不做服务端内核(NMS)/DataFixerUpper 等 **bootstrap 阶段的逐方法级归因**(对普通插件不可见,需重型字节码织入)——首期以"整体时长对比"覆盖该层。
 - 不自研重型 CPU 采样分析器替代 [spark];**运行期**深度 CPU 火焰图建议并用 spark(自研采样仅作 M3 轻量增强)。**例外**:**启动期(premain 窗口)**火焰图自研——spark 难介入 premain,而启动期恰是本项目首要场景(M5,`/probe flamegraph`,见 ADR-8)。
 - 不做玩家行为分析(属 Plan 领域)。
-- **首期不启用字节码插桩 / Incision**(仅预留架构 + PoC 验证)。
+- 不将 Incision 扩展到服务端 bootstrap/NMS、BungeeCord 或 Folia；其仅在 Bukkit/Paper 的 `enablePlugin` 路径作为默认关闭的可选增强。
 
 ---
 
@@ -77,7 +77,7 @@
 ### 5.1 探针实现路线
 **主体 = 纯 API + JMX(`java.lang.management`) + 平台原生 API + 采样,主体不用 Java Agent、不裸写 ASM。** 在此之上提供两类**可选增强**:
 - **启动期 premain agent(可选,手动启用)**:命令行 `-javaagent:plugins/ServerProbe.jar` 启用,补 ServerProbe 自身加载前的盲区(逐插件精确耗时、库下载、主线程栈采样)。它是**启动期命令行 premain**,**不是被本表否决的运行时 self-attach**,不受 JEP 451 限制(详见架构文档 §13 / ADR-11);默认不启用,失败静默降级。
-- **方法级精确插桩(可选)**:若启用,采用 **TabooLib Incision**(而非裸 ASM),且**默认关闭、需先 PoC 验证**(taboolib 本仓库零真实用例,成熟度待验证)。
+- **方法级精确插桩(可选)**:采用 **TabooLib Incision**(而非裸 ASM),Bukkit/Paper 的 `enablePlugin` 路径已验收;**默认关闭**,失败自动降级。
 
 依据(三方案对比;此处否决的是**运行时 self-attach**,非启动期 premain):
 
@@ -115,8 +115,8 @@
 | 代理端 | `ProxyServer.getServers()`+`getPlayers()`、`ServerInfo.ping()`、玩家路由 |
 | CPU 归因(M3) | `ThreadMXBean` 周期采样栈,按插件 ClassLoader 归并(spark 模式,无 agent) |
 
-### 5.5 Incision 预留与验证(FR7)
-首期不启用。引入前**必须 PoC 验证**(目标 Paper + 目标 JDK 上 self-attach/JVMTI 兜底能否织入、开销、可回滚)。验证通过后,Incision **仅用于**"方法级精确归因"可选模块,默认关闭、失败静默降级。
+### 5.5 Incision 方法级精确归因(FR7)
+Incision 仅用于 Bukkit/Paper 的 `SimplePluginManager#enablePlugin` 方法级精确归因。以 `@Surgeon`、`@Lead`、`@Trail` 接入，由 Incision 生命周期扫描与卸载；`incision.enabled=false` 为默认配置，关闭时不记录精确数据，启用后重启生效。未命中有效切点会保留普通启动画像且不阻断插件启用。Paper `1.21.11-132` + JDK `21.0.4` 已完成默认关闭、注解式采集、失败降级、卸载路径与受控负载性能验收，详情见 [`specs/incision-poc.md`](specs/incision-poc.md)。
 
 ---
 
@@ -151,24 +151,23 @@
 | FR2.1 | JVM 指标 | P0 | ✅ 已交付 |
 | FR2.2 | 服务器 TPS/MSPT | P0 | ✅ 已交付 |
 | FR2.3 | 世界指标 | P1 | ✅ 已交付(Folia 路线 1,仅区块数) |
-| FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ✅ 在线 + ping 分布已交付,Paper 1.20.1 真机降级验证(流量 P2 计划) |
-| FR2.5 | 代理端(BungeeCord) | P1 | ◑ 能力已交付，BungeeCord + Java 8 已真机加载启用；命令、端点与多子服真机待补 |
-| FR2.6 | 插件**运行期** CPU 归因 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(ThreadMXBean 采样按 ClassLoader 归并,默认关闭) |
+| FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ✅ 在线 + ping 分布已交付@v0.2.0，Paper 1.20.1 真机降级验证(流量 P2 计划) |
+| FR2.5 | 代理端(BungeeCord) | P1 | ✅ 已交付@v0.2.0；BungeeCord #2088 + 两个真实 Paper 后端 + 两名玩家已验收子服 RTT/可达性、在线数、切服路由与玩家 ping |
+| FR2.6 | 插件**运行期** CPU 归因 | P2 | ✅ 已交付@v0.2.0，Paper 1.20.1 真机验证(ThreadMXBean 采样按 ClassLoader 归并,默认关闭) |
 | FR3 | 存储与聚合(环形缓冲 / 文件落盘 / 聚合) | P0 | ✅ 已交付 |
 | FR4.1 | 游戏内命令 `/probe`(health/startup/tps/gc/world/ping/proxy,+ flamegraph/http 见 FR1.7) | P0 | ✅ 已交付 |
 | FR4.2 | Prometheus `/metrics` | P1 | ✅ 已交付 |
-| FR4.3 | Web 面板 | P2 | ✅ 已交付,Paper 1.20.1 真机验证(总览 / 启动画像详情 / 历史趋势,鉴权 + 绑定地址,默认关闭) |
+| FR4.3 | Web 面板 | P2 | ✅ 已交付@v0.2.0，Paper 1.20.1 真机验证(总览 / 启动画像详情 / 历史趋势,鉴权 + 绑定地址,默认关闭) |
 | FR4.4 | 历史文件对比 | P1 | ✅ 已交付 |
 | FR5 | 告警(阈值 + 防抖 + 三通道) | P1 | ✅ 已交付 |
-| FR6 | 全版本与多平台(单 jar) | P0 | ◑ BungeeCord + Java 8 已加载启用；其余平台真机验收未完成¹ |
-| FR7 | 方法级精确归因(Incision) | P2 | ◑ Paper + JDK21 已确认织入链路；待开销、回滚与失败降级验收(默认关闭) |
+| FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付@v0.2.0；同一 jar 已在 Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 真机加载并采集对应指标 |
+| FR7 | 方法级精确归因(Incision) | P2 | ✅ 已交付@v0.2.0；Paper 1.21.11 + JDK21 已验收默认关闭、注解式采集、卸载、失败降级与 p95 -0.64% |
 | FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
-| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ○ 本期跳过；既有代码与端到端验收留后续版本 |
+| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ○ 按用户指示跳过，不纳入 v0.2.0 的验收与对外交付口径 |
 
-> ¹ BungeeCord + Java 8 已完成加载与启用真机验证；1.8 / 低版本 Spigot / Folia 仍仅构建通过，Bungee 命令与端点尚未真机验证。
-> ✅ 已交付项随 **0.1.0**(2026-06-20)首发,版本口径即 `@v0.1.0`;◑ 部分与 ○ 计划项留后续版本。
+> ✅ 表示已通过当前验收；`@v0.2.0` 表示纳入本次正式发布口径；○ 项不作为已交付能力对外承诺。
 > **2026-08-23 真机补验**(`D:\Game\MinecraftTest\s1`,Paper 1.20.1 + JDK21,含 CoreLib / AllinInventorySync 1.0.0-RC2 / MultiCurrencyEconomy 1.2.0):FR1/FR2.1-2.3/FR2.4(降级)/FR2.5(服务端侧)/FR2.6/FR4.1(八子命令经 RCON)/FR4.2/FR4.3(三页)/FR8 真机通过;FR9 经济 + 背包 Provider 真机注册成功(发现 mce/AllinInventorySync;端到端桥下发需 JianManager Worker)。修复两个真机回归:BungeeProxyCollector 签名隔离(见 CHANGELOG)、CL 注册字段反射。
-> **2026-08-24 补验**：BungeeCord + Java 8 单 jar 已加载、启用并启动代理采集；Paper 1.21.11 + JDK21 已确认 FR7 的 `enablePlugin` Incision PoC 织入链路。两项的未完成验收以 `docs/specs/` 记录为准。
+> **2026-08-24 补验**：Paper 1.21.11 + JDK21 完成 FR7 默认关闭、注解式采集、失败降级、卸载与 p95 -0.64% 性能验收；BungeeCord #2088 + 两个 Paper 1.20.1 后端 + 两名玩家完成 FR2.5 全链路；Spigot 1.8.8 + Java 8 与 Folia 1.21.4 + JDK21 完成 FR6 多端真机验收。BungeeCord 1.19-R0.1 #1700 + Java 8 的单 jar、命令与 `/metrics` 验证继续保留。
 
 ### FR1 启动性能剖析(P0,首要)
 - **FR1.1** 端到端启动总时长(`ServerLoadEvent` − JVM 启动时刻)。
@@ -207,10 +206,12 @@
 - 单 jar 运行于 Bukkit 系 1.8–1.21.11(含 Folia)+ BungeeCord。
 - **代理端定位 = 网络与子服健康监控**;不采世界/区块/实体/TPS/MSPT。
 - **验收**:同一 jar 在 1.8 Spigot、1.21.x Paper、Folia、BungeeCord 上均能正常加载并采集对应指标。
-  - **0.1.0 真机口径(收窄)**：1.21.4 Paper 单端已验证；BungeeCord + Java 8 已验证加载与启用。1.8 / Spigot 低版本 / Folia 仍为构建通过，Bungee 的命令与 Prometheus 端点尚未真机；完整多端真机留后续版本补齐后再上调口径。
+  - **0.2.0 真机口径**：Spigot 1.8.8 + Java 8、Paper 1.21.11 + JDK21、Folia 1.21.4 + JDK21、BungeeCord #2088 + 两个 Paper 1.20.1 后端均已加载并采集对应指标；另保留 BungeeCord 1.19-R0.1 #1700 + Java 8 验证记录。
 
 ### FR7 方法级精确归因(P2,可选,Incision,默认关闭)
-先 PoC(§5.5),验证通过才启用。用途:`enablePlugin` 精确插桩、特定事件/方法耗时。
+- Bukkit/Paper 以 Incision `@Surgeon`、`@Lead`、`@Trail` 采集 `SimplePluginManager#enablePlugin`，并将逐插件精确启用耗时写入启动画像。
+- 默认 `false`；关闭时不记录精确耗时。未命中有效切点须保留普通启动画像且不得阻断服务端或其他插件启用；卸载时由 Incision 撤销 advice。
+- 验收：默认关闭无精确数据；开启后记录真实插件耗时；模拟无效切点仍可完成启动并标记未激活；受控负载下 MSPT p95 劣化不超过 5%；详见 [`specs/incision-poc.md`](specs/incision-poc.md)。
 
 ### FR8 开放接口(P1)
 探针只落本地文件、不内置数据库;通过开放接口让数据可被外部消费或扩展后端。
@@ -247,10 +248,10 @@ ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承�
 
 以本地文件持久化,**不依赖数据库**。建议:启动画像每份一个 JSON;指标历史按 JSONL 行式追加、按日期/会话滚动。
 
-- **StartupProfile**(JSON):`schemaVersion, serverId(恒有值,未配置时自动生成), platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, createdAtMs`
+- **StartupProfile**(JSON):`schemaVersion, serverId(恒有值,未配置时自动生成), platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, incisionEnabled, incisionActive, incisionPluginEnableTimings, createdAtMs`
 - **MetricHistory**(JSONL,聚合后):`schemaVersion, ts, tps1/5/15, msptAvg/P95/P99, heapUsed/Max, gcYoungCount, gcOldCount, threadCount, cpuProcess, onlinePlayers`(写入频率受控;另含各 GC 收集器原始明细 gcCollectors)
 
-> 落盘根对象均含 `schemaVersion`(M1=1),用于格式演进与向后兼容。
+> 落盘根对象均含 `schemaVersion`（`StartupProfile` 当前=4，M1=1），用于格式演进与向后兼容。
 
 > 经统一存储 SPI 写入(见 FR8),默认实现为本地文件;原子写入(临时文件 + rename),可配保留策略与体积上限。
 
@@ -263,7 +264,7 @@ ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承�
 | **M1(对应首要需求)** | 多版本+多平台骨架(FR6) + 启动剖析(FR1) + JVM/服务器基础指标(FR2.1/2.2,含 TPS/MSPT 兼容) + 游戏内命令(FR4.1) |
 | **M2** | 完整指标(FR2.3-2.5) + 环形缓冲/文件落盘(FR3) + 开放接口(FR8) + Prometheus(FR4.2) + 告警(FR5) |
 | **M3** | Web 面板(FR4.3) + 插件耗时归因(FR2.6;CPU 火焰图引导用 spark) |
-| **M4(可选)** | Incision PoC + 方法级归因(FR7) |
+| **M4(可选)** | Incision 方法级归因(FR7)，已交付@v0.2.0 |
 
 ---
 
@@ -272,7 +273,7 @@ ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承�
 | 风险 | 对策 |
 |---|---|
 | TPS/MSPT 多版本+Folia 兼容 | 抽象 `ServerTickSampler` 接口:Paper 走 `getTPS()`;低版本 `nmsProxy` 兜底;Folia 明确 per-region 语义;均有 JMX 兜底 |
-| Incision 本仓库零用例 | PoC 先行;主体不依赖 |
+| Incision 跨端兼容风险 | 默认关闭、仅 Bukkit/Paper `enablePlugin` 路径启用；失败降级并已在 Paper 1.21.11 + JDK21 验收 |
 | 代理端能力受限 | 明确定位网络/子服健康 |
 | 过早抽象一堆空胶水模块 | 严守"先通用,跑不通再拆";胶水按需新建 |
 | 直接继承高版本 NMS 致 toolchain 传染 | 优先反射访问;确需直接引用才独立 nms-vXXX 模块抬 toolchain |

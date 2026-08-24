@@ -5,20 +5,29 @@
 本文件格式遵循 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本(SemVer)](https://semver.org/lang/zh-CN/)。
 
-> 首个版本 **0.1.0(2026-06-20)** 已发布(本地 tag `v0.1.0`,未推送、无公开下载产物)。`规划路线` 段列出后续计划版本(版本号为初步规划,以实际发布为准)。
+> 最新版本 **0.2.0(2026-08-24)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
 
 ---
 
 ## [未发布] (Unreleased)
 
+## [0.2.0] - 2026-08-24
+
+> FR9 业务对接代码不纳入本版本验收与对外能力承诺。
+
+### 变更
+- **标签发布自动化**：推送 `v*` 标签后，GitHub Actions 执行完整构建、上传 `ServerProbe-*.jar`，并创建或更新对应 GitHub Release。
+
 ### 新增
+- **Incision 方法级精确归因(FR7)**：Bukkit/Paper 端以 VanillaModify 同款 `@Surgeon`、`@Lead`、`@Trail` 接入 `SimplePluginManager#enablePlugin`；TabooLib Gradle 插件升级为 `2.0.37-fix`、运行库升级为 `6.3.0-5b6fe60`，运行期模块改用可用镜像。`incision.enabled` 默认 `false`，关闭时不写精确数据；无效切点保持普通启动画像。Paper `1.21.11-132` + JDK `21.0.4` 真机验证已记录 `IncisionTarget` 精确耗时；受控 5ms/tick 负载下 MSPT p95 为 `6.7194ms → 6.6765ms`（`-0.64%`）。
 - **在线玩家 ping 分布(FR2.4)**:服务端按固定区间桶(`<50ms`/`50-100ms`/`100-200ms`/`200-500ms`/`500ms+`)统计在线玩家 RTT 分布,1.16.1+ 经 `Player#getPing()`(内存读取、开销小),低版本无该方法时降级 N/A(绝不成为事故源)。纯分桶逻辑抽 `PingBuckets`(可单测,5 例边界/非法/空列表)。新增 `/probe ping` 子命令查看分布;Prometheus 导出 `serverprobe_players_ping_bucket{range}`。api 模型 `ServerMetrics` 加 `pingDistribution`(向后兼容,默认 null)。`./gradlew build` 全模块编译 + detekt + 单测全绿;真机各版本口径待端到端复验。
-- **代理端子服 ping / 可达性 / 玩家路由 / 每玩家 ping(FR2.5)**:platform-bungee 采集器扩展——① 子服 ping/可达性:后台周期任务(`submit` 异步)逐子服 `ServerInfo.ping()` 回调计时 RTT(发起→回调耗时,因 BungeeCord `ServerPing` 不含 RTT),缓存进 `ConcurrentHashMap`,`collect()` 只读缓存,不阻塞采集/代理主线程;② 玩家路由:遍历代理玩家取其所在子服;③ 每玩家 ping:遍历取 `ProxiedPlayer#getPing()`。api 模型新增 `PlayerPing`/`PlayerRoute`,`BackendServer` 加 `pingMs`/`reachable`,`ProxyMetrics` 加 `playerPings`/`playerRoutes`(均向后兼容)。`/probe proxy` 呈现各子服在线 + ping、每玩家 ping Top-10、玩家路由;Prometheus 导出 `serverprobe_proxy_backend_ping_ms{backend}`(-1 不导出)。`./gradlew build` 全模块编译 + IOC 静态分析(errors=0) + detekt 全绿;真机(BungeeCord + 多子服)待端到端复验。
+- **代理端子服 ping / 可达性 / 玩家路由 / 每玩家 ping(FR2.5)**:platform-bungee 后台调用 `ServerInfo#ping(Callback)` 计时 RTT并缓存，采集线程只读结果；同时采集玩家所在子服与玩家 ping。BungeeCord #2088 + 两个 Paper 1.20.1 后端 + 两名玩家真机已验证总在线、后端在线、RTT/可达性、切服路由与玩家 ping；BungeeCord `1.19-R0.1 #1700` + Java 8 另已验证单 jar、命令与 `/metrics`。
+- **多端兼容性验收(FR6)**：同一发行 jar 已在 Spigot 1.8.8 + Java 8、Paper 1.21.x + JDK21、Folia 1.21.4 + JDK21 与 BungeeCord 真机加载并采集对应指标；Folia 全局 TPS 按设计降级为 N/A。
 - **运行期 CPU 采样归因(FR2.6,M3,P2)**:core 新增 `CpuAttributionSampler`(`ThreadMXBean.dumpAllThreads` 周期采样全部线程栈,每线程至多 40 帧)+ `PluginClassLoaderRegistry`(插件 ClassLoader 注册表 + 类名→插件解析缓存,避免每帧遍历 CL)。窗口滑动聚合(默认 60 轮 ≈ 1 分钟),输出各插件样本计数与占比。platform-bukkit 新增 `BukkitPluginClassLoaderRegistrar`(反射取 `JavaPlugin#getClassLoader`,兼容各版本可见性)。新增 `/probe cpu` 子命令;Prometheus 导出 `serverprobe_plugin_cpu_samples_total{plugin}` / `serverprobe_plugin_cpu_percent{plugin}`。**默认关闭**(`cpu.enabled=false`,P2 增强)。`./gradlew build` 全模块编译 + IOC(errors=0) + detekt + 单测(注册表归并/缓存/注销)全绿;真机(Paper 多插件负载)待端到端复验。
 - **Web 面板(FR4.3,M3,P2)**:core 新增 `WebPanelServer`(JDK 内置 `HttpServer` 零依赖,daemon 线程池)+ `WebPanelHtml`(无状态纯渲染)。三个只读页面:总览 `/`(最新快照 JVM/TPS/在线/内存)、启动画像 `/startup`(总时长/慢插件 Top-N/世界耗时)、历史趋势 `/history`(最近 120 份快照 TPS/MSPT/在线时序表);自包含 HTML(内联 CSS、无 CDN、文本 HTML 转义防注入)。安全:token(`Authorization: Bearer`)+ IP 白名单双重校验,默认仅本机、**默认关闭**(`web.enabled=false`),起服失败/单请求异常静默降级(探针不成事故源)。`./gradlew build` 全模块编译 + IOC(errors=0) + detekt + 单测(页面占位/转义)全绿;真机(浏览器访问三页)待端到端复验。
 
 ### 修复
-- **BungeeCord 单 jar 平台隔离**：移除未使用的 `BukkitUI` 环境模块，避免 Bungee 启动加载 `bukkit-nms`；以项目内兼容扫描器在反射前按 `@PlatformSide` 过滤 IoC 组件，避免解析 Bukkit 方法签名。BungeeCord + Java 8 真机已完成加载与启用；命令、Prometheus 端点与多子服联调仍待验收。
+- **BungeeCord 单 jar 平台隔离**：移除未使用的 `BukkitUI` 环境模块，避免 Bungee 启动加载 `bukkit-nms`；以项目内兼容扫描器在反射前按 `@PlatformSide` 过滤 IoC 组件，避免解析 Bukkit 方法签名。BungeeCord Java 8 与 #2088 多子服环境均已验收。
 - **业务对接 agent 骨架(JBIS,ADR-0015)**:ServerProbe 演进为 JianManager 业务对接 agent 的探针侧骨架。`core/bridge` 新增 `BusinessProvider` 接口(业务域 / 动作 / 能力清单 / 派发)+ `BusinessHost`(域键路由 + **事故域隔离**:独立 daemon 业务线程池 + 有界超时 + 异常边界 + 合并 manifest);`BridgeCommand` 加 `domain`/`payload`,`BridgeClient` 收到带 domain 的业务 `command` 帧时路由到对应 Provider,治理命令走既有路径(业务 / 监控分流)。Provider 卡死 / 抛异常只降级该次回执,**监控采集与桥读线程不受影响**。core 平台无关(无 Bukkit 符号),业务 Provider 实现落 platform 层。`./gradlew build` 编译 + 单测(路由 / 未注册降级 / 抛异常隔离 / 卡死有界超时 / 注册)+ detekt 全绿;**业务 Provider 接入(经济等)与端到端真机待续**。
 - **经济业务 Provider(对接 MultiCurrencyEconomy,JBIS)**:platform-bukkit 新增 `EconomyProvider`(`economy` 域),`compileOnly` MultiCurrencyEconomy 公开 api(运行期由目标服务端提供),经 `MultiCurrencyEconomyApi` 发现 + 就绪判定;首个动作只读 `economy.balance`(按 player + currency 查余额,金额以 BigDecimal 字符串承载防失真),mce 未就绪 / 参数缺失 / 查询异常一律降级失败。`@Service` + `@PlatformSide(BUKKIT)` + `@PostConstruct` 平台门 + 桥开关门自注册到 `BusinessHost`(沿用 `BukkitBridgeCommandHandler` 范式)。`./gradlew build` 全模块编译 + IOC 静态分析 + detekt 全绿;**真机(真 MultiCurrencyEconomy 服查真实余额)待端到端复验**。
 - **业务能力清单桥查询(JBIS 元查询)**:`BridgeClient` 收到保留元命令(domain=`jbis` + action=`manifest`)时返回 `BusinessHost` 汇总的各业务 Provider 能力清单 JSON,供 JianManager 动态发现业务能力(不硬编码具体插件);该元命令不派发到任何业务 Provider。core 编译 + detekt 全绿。
@@ -28,7 +37,7 @@
 - **背包追踪事件上报(JBIS,对接 JM FR-126)**:platform-bukkit 新增 `BukkitInventoryEventListener`(`object` + `@SubscribeEvent(bind=FQCN)`,软依赖按名绑定避免漏注册,同经济监听器教训),订阅 AllinInventorySync `TrackedItemActionEvent`(重点物品流转:登录携带 / 丢出 / 拾取 / 移入容器),折算为 `inventory` 业务**事件**经反向 WS 桥上报本机 Worker。信封 data 携 playerName / playerUuid / action / ruleId / ruleDescription / material / amount / displayName / occurredAt;物品只编 Bukkit-API 便利字段(无 `nbtBase64`——全保真 codec 在 AllinInventorySync core 非 api,见 ADR-0016);瞬时观测无插件侧持久 ID,去重键 `playerUuid:action:occurredAtMs:seq`(会话单调 seq 去歧义)。`@SubscribeEvent` 收 `OptionalEvent`、`get<T>()` 取强类型(无 AllinInventorySync 时 bind 不触发,零副作用);整段 runCatching 兜底(事故域隔离,绝不拖垮探针)。纯折算逻辑抽 `InventoryEventEnvelope`(可单测,3 例);plugin softdepend `AllinInventorySync`。`./gradlew build` 全绿;**真机(重点物品流转汇聚到 JM)待端到端复验**。
 
 ### 修复
-- **BungeeProxyCollector 方法签名含 BungeeCord 类型致 Bukkit 端 IOC 容器中断(真机修,严重回归)**:新版采集器的 `info.ping { result, error -> }` 回调 lambda 与 `players.map { p -> }` lambda,参数类型(`ServerPing`/`ProxiedPlayer`)进入了合成方法签名——探针 IOC 容器在 **Bukkit 端也会扫描本类**,`ClassScanner.resolveInjectMethods` 反射 `getDeclaredMethods` 时因 Bukkit 端无 BungeeCord API 抛 `NoClassDefFoundError`,**整个容器初始化中断,ProbeRegistry 等全部 bean 漏注册,插件 enable 直接失败**(真机 Paper 1.20.1 复现:`[IoC] 必需的字段注入失败: BukkitServerCollector.registry — 未找到匹配的 Bean`)。修复:全部改用 `for` 循环(局部变量类型不进方法签名)+ 反射调用无参 `ping()`(返回 `Future<*>`),**本类硬约束:严禁在 lambda 参数中直接引用 BungeeCord 类型**(类 KDoc 已注明)。真机复验:插件正常 enable、全部采集/Web/Prometheus/命令工作。
+- **BungeeCord 类型隔离与新版 ping API 兼容**：采集器不再让 `ServerPing`/`ProxiedPlayer` 进入可被 Bukkit IOC 反射的方法签名；子服延迟改为反射查找 `ping(Callback)` 并以动态代理接收回调，失败或超时统一降级为不可达。成功、失败、超时单测与 BungeeCord #2088 多后端真机均通过。
 - **BukkitPluginClassLoaderRegistrar 反射取 classLoader 兼容性(真机修,FR2.6)**:原用 `getMethod("getClassLoader")`,Paper 1.20.1 的 `JavaPlugin.classLoader` 为 private 且无公开 getter,致真机**注册 0 个插件 ClassLoader、CPU 归因归并失败**。改 `getDeclaredField("classLoader")` + `setAccessible(true)` 读取(兼容各版本可见性)。真机复验:注册 4 个插件(ServerProbe/CoreLib/AllinInventorySync/MultiCurrencyEconomy),`/probe cpu` 与 `serverprobe_plugin_cpu_*` 正常输出。
 - **背包基础属性写解码对齐 JianManager 契约(FR-125/126/127,真机修)**:`InventoryProvider.writeBasicAttrs` 的 base/edited 解码原直读容器顶层字段且仅按字符串解析,而 JianManager 前端与 CP 审计的既定契约为 `{dataVersion,basicAttrs:{health,foodLevel,xpLevel,xpProgress,xpTotal,gameMode}}` 嵌套容器、数值字段为 JSON 数值——致契约 payload 全字段回退默认(血量 0.0/饱食 0/经验 0)写入 AllinInventorySync,**在线玩家被直接写死、离线玩家上线即死**(真机 Paper 1.20.1 + AllinInventorySync 2.1.0 复现)。解码逻辑下沉 `InventoryEnvelope.decodeBasicAttrs`(可单测):容器先取 `basicAttrs` 嵌套、缺失回退扁平直发;数值逐项先按字符串解析、再经新增 `JsonObject.getDouble`/`getInt` 按数值节点兜底;manifest note 同步为嵌套契约。真机复验:契约格式在线/离线写属性精确落库生效(xp 20→9、hp 20→15.5)、物品与其余属性不动、幂等重发 dv 不前移、玩家存活。补嵌套数值容器 + 扁平字符串兼容两单测(先红后绿)。
 - **经济事件监听器按名绑定避免漏注册(对接 JM FR-122,真机修)**:`BukkitEconomyEventListener` 原用 `@SubscribeEvent` 直收 mce `PlayerEconomyChangeEvent`/`PlayerEconomyCatchupEvent`——探针 enable 时(即便 plugin.yml softdepend mce 保证后于 mce 加载)TabooLib 仍按方法反射参数类型解析事件类失败(`事件未能找到` WARN),致监听器**漏注册、经济事件零捕获**。改 `@SubscribeEvent(bind="事件全限定名")` 按名绑定(不在 enable 时解析类)+ 处理器收 `taboolib.common.platform.event.OptionalEvent`、`get<T>()` 取强类型(无 mce 时该 bind 自然不触发,零副作用);并在 `plugin/build.gradle.kts` 的 `description.dependencies` 加 `name("MultiCurrencyEconomy").optional(true)` softdepend 保序。真机(Paper1.20.1+mce)重启后 WARN 消失、监听器注册成功。
@@ -102,19 +111,9 @@
 
 ---
 
-## 规划路线(Roadmap)
+## 后续
 
-> 0.1.0 已发布(含启动剖析 + JVM/服务器/世界指标 + 存储聚合 + 命令/Prometheus/告警 + 开放接口 + 可选启动 agent)。以下为后续计划版本,与 PRD §10 迭代规划(M3–M4)对应;版本号为初步规划,实际发布时以最终实现为准。
-
-### [0.2.0] - 计划中:M3 Web 面板 + 运行期 CPU 采样归因 + 多端真机补齐
-
-- **Web 面板(FR4.3)**:启动画像详情、历史趋势、(可选)火焰图;需鉴权 + 绑定地址。
-- **运行期 CPU 采样归因(FR2.6)**:`ThreadMXBean` 周期采样栈,按插件 ClassLoader 归并(spark 模式,无 agent),给出各插件运行期 CPU 占比。
-- **多端真机补齐(FR6 / FR2.5)**:1.8 / Folia / BungeeCord 真机验证;Folia per-region TPS/MSPT + `callRegion{}` 实体采集;代理端 ping / 路由 / 每玩家 ping。
-
-### [0.3.0] - 计划中(可选):M4 Incision PoC + 方法级归因
-
-- **Incision PoC(§5.5)**:在目标 Paper + 目标 JDK 上验证 self-attach / JVMTI 兜底能否织入、开销与可回滚性。
-- **方法级精确归因(FR7)**:验证通过后启用,用于 `enablePlugin` 精确插桩、特定事件/方法耗时;**默认关闭**,失败静默降级。
+FR9 按用户指示不纳入 `v0.2.0` 验收与对外交付口径，后续安排以 PRD 为准。
 
 [未发布]: https://github.com/
+[0.2.0]: https://github.com/

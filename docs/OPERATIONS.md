@@ -2,7 +2,7 @@
 
 > 部署、升级、备份恢复、回滚、排障的操作指南。运维方式变化时更新。
 >
-> 现状边界(诚实标注):本项目**尚未发布正式构建产物**,需自行构建;**仅在 1.21.4 Paper 单端真机验证全通过**,其余端(1.8 / Folia / BungeeCord)仅编译通过、功能未逐一真机。本手册描述的命令、路径、配置键以 `README.md`、`plugin/src/main/resources/config.yml` 与代码实际为准。
+> 版本状态：`v0.2.0` 已正式发布；GitHub Release 附带构建 jar。Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 的真机口径见 `README.md`。
 
 ---
 
@@ -19,7 +19,7 @@
 2. 重启服务端,首次启动自动生成默认配置 `plugins/ServerProbe/config.yml`。
 3. 进服执行 `/probe`(或下方健康检查命令)验证插件已加载、命令可用。
 
-> 当前尚未发布正式产物,`plugins/` 中没有现成 jar 可下载。需自行用 `./gradlew build` 构建**发行版本**(见第 6 节),产物位于各模块的 `build/libs/` 下,取最终发行 jar 放入 `plugins/`。
+> 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载 `ServerProbe-*.jar` 即可部署；也可自行用 `./gradlew build` 构建，产物位于各模块的 `build/libs/` 下。
 
 **健康检查**
 
@@ -39,6 +39,7 @@
 | `metrics.enabled` | `false` | Prometheus `/metrics` 端点开关(默认关闭、仅本机) |
 | `alert.enabled` | `false` | 告警引擎开关(默认关闭) |
 | `http-monitor.enabled` | `true` | HTTP/TCP 外呼监控(需挂载 agent 方生效) |
+| `incision.enabled` | `false` | Bukkit/Paper `enablePlugin` 方法级精确归因；启用后需重启，失败自动降级 |
 | `debug` | `false` | 是否输出 DEBUG 级调试日志 |
 | `server-name` | `""` | 实例名;留空自动生成稳定实例 ID |
 
@@ -56,6 +57,20 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 - **为何安全**:这是**启动期命令行 premain**(由 JVM 在 `main` 之前加载),**不是运行时 self-attach**,在 Paper + JDK21/24 上零警告、不受 JEP 451 限制;premain 顶层 `catch(Throwable)` 兜底,启用失败一律静默降级,不会崩 JVM。
 - **当前边界**:仅 **1.21.4 Paper 单端真机验证**;Folia 无单一主线程,主线程栈采样降级标 N/A;BungeeCord 端推迟。引入唯一新依赖 ASM(已 relocate 隔离)。
 
+### 1.2 可选：启用 Incision 方法级归因
+
+仅 Bukkit/Paper 端支持。将配置改为以下内容后重启服务端：
+
+```yaml
+incision:
+  enabled: true
+```
+
+- 成功采集时，启动画像的 `incisionActive=true`，并含 `incisionPluginEnableTimings`。
+- 未命中有效切点时仍按普通启动画像继续，记录为 `incisionActive=false`；无需移除 jar。
+- Incision 生命周期在停服卸载 advice。恢复默认采集行为只需改回 `false` 后重启。
+- 已在 Paper `1.21.11-132` + JDK `21.0.4` 真机验收；Spigot、Folia、BungeeCord 不在本功能验证范围内。
+
 ---
 
 ## 2. 升级
@@ -63,7 +78,7 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 1. 用新版本 `ServerProbe-*.jar` 替换 `plugins/` 下的旧 jar。
 2. 重启服务端。
 
-- **配置兼容**:落盘根对象均含 `schemaVersion`(M1 = 1),用于格式演进与向后兼容;新版本读旧文件、旧版本读新文件均以 `schemaVersion` 容错。配置文件向后兼容,新增项使用默认值,无需手工迁移。
+- **配置兼容**:落盘根对象均含 `schemaVersion`(`StartupProfile` 当前 = 4，M1 = 1),用于格式演进与向后兼容;新版本读旧文件、旧版本读新文件均以 `schemaVersion` 容错。配置文件向后兼容,新增项使用默认值,无需手工迁移。
 - **破坏性变更**:升级前查阅 `CHANGELOG.md`,确认本次升级是否包含破坏性变更(配置键改名、落盘格式 `schemaVersion` 跃迁等)再操作。
 
 ---
@@ -115,12 +130,18 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 - 查看启动日志确认 agent 是否加载。premain 启用失败会**静默降级**为纯插件模式,这属正常容错,不会崩 JVM。
 - 未挂载 agent 时,`/probe flamegraph`、`/probe http` 及启动画像中的逐插件精确耗时 / 库下载耗时 / 主线程热点等增强项不可用,属预期。
 
-**③ 日志位置与 debug 开关**
+**③ Incision 未激活或自动降级**
+
+- 确认 `incision.enabled: true` 后已完整重启服务端；默认 `false` 时不记录精确耗时是预期行为。
+- `incisionActive=false` 且精确耗时列表为空表示未命中有效切点，插件和服务端仍会继续启用。
+- 若需停用采集，改回 `false` 并重启；停服时 Incision 自动卸载 advice。
+
+**④ 日志位置与 debug 开关**
 
 - 探针日志走服务端控制台 / 日志文件,级别 ERROR / WARN / INFO / DEBUG。
 - 将 `config.yml` 的 `debug: true` 打开后重启,可输出 DEBUG 级调试日志用于排查;问题定位后建议改回 `false` 避免刷屏。
 
-**④ Folia 下的预期降级(非故障)**
+**⑤ Folia 下的预期降级(非故障)**
 
 - TPS / MSPT 全局标 **N/A**(Folia 无全局主线程 tick)。
 - 世界采集走路线 1:仅区块数,实体 / 方块实体计数置 **N/A**。
@@ -146,6 +167,4 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 | `./gradlew taboolibBuildApi -PDeleteCode` | 构建**开发版本**(含 TabooLib 本体,供开发者使用,不可运行;`-PDeleteCode` 移除逻辑代码以减小体积) |
 | `./gradlew test` | 运行单元测试 |
 
-**版本号权威来源 = 根 `gradle.properties` 的 `version` 字段**(当前 `1.0.0-SNAPSHOT`,Gradle 构建原生读取)。
-
-> 版本口径存在不一致:规划路线(`CHANGELOG.md` Roadmap / PRD §10)将 M1 首版标为 `0.1.0`,而 `README.md` 徽章 / PRD 标注为 `v0.2-draft`,根 `gradle.properties` 则为 `1.0.0-SNAPSHOT`。三套口径不统一,**以 `gradle.properties` 为构建实际值**,统一对外口径待项目维护者定夺。
+**版本号权威来源 = 根 `gradle.properties` 的 `version` 字段**(当前 `0.2.0`,Gradle 构建原生读取)。
