@@ -23,6 +23,12 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         mavenLocal()
+        // Mojang 原始库完整托管 DataFixerUpper，聚合仓库缺少目标 jar 时优先从此处解析。
+        maven("https://libraries.minecraft.net/") {
+            content {
+                includeGroup("com.mojang")
+            }
+        }
         mavenCentral()
         maven("https://maven.aliyun.com/repository/central")
         maven("https://maven.wcpe.top/repository/maven-public/")
