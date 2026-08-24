@@ -115,7 +115,7 @@ web:
 探针**不访问数据库**,把数据沉淀到**本地文件**,支撑"与上次 / 基线对比"和事故回溯。
 
 落盘内容与路径(均位于插件数据目录下的 `data/`):
-- **启动画像**:每份写为**一个 JSON 文件**(`StartupProfile`),归档于 `data/startup/`,保留份数由 `history-retention`(默认 30)控制。
+- **启动画像**:每份写为**一个 JSON 文件**(`StartupProfile`),归档于 `data/startup/`,保留份数由 `history-retention`(默认 30)控制。Bukkit/Paper 启用 `incision.enabled` 且织入成功时，画像会额外记录 `incisionEnabled`、`incisionActive` 与 `incisionPluginEnableTimings`。
 - **指标历史**:每个采集周期的快照(`MetricSnapshot`)以 **JSONL 行式追加**,**按实例分目录、按自然日滚动**:
 
   ```

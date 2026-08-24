@@ -2,7 +2,7 @@
 
 > 对外接口的单一真源。始终原地更新到当前契约。涵盖四类对外出口:① 跨插件只读 API ② 存储后端 SPI ③ Prometheus 导出端点 ④ 游戏内命令。
 >
-> 本文档忠于**当前代码现状**:方法签名、参数名、返回类型、权限节点、配置键均以源码与 `config.yml` 为准。PRD/README 中标注"规划中"而代码尚未实现的能力(如 Web/HTTP 只读面板、代理子服 ping/路由),不构成对外契约,文内若提及会明确标注"规划中,未实现"。
+> 本文档忠于**当前代码现状**:方法签名、参数名、返回类型、权限节点、配置键均以源码与 `config.yml` 为准。PRD/README 中标注"规划中"而代码尚未实现的能力不构成对外契约；Web 面板与代理子服 ping/路由已在 v0.2.0 交付。
 
 ## 1. 通用约定
 
@@ -14,7 +14,7 @@
   - 调用方应在 ServerProbe 容器就绪后调用(如自身 `ENABLE`/`ACTIVE` 之后);过早调用得到 null 属正常,稍后重试即可。
   - 读内存快照/聚合的方法(`latestSnapshot`、`recentSnapshots`、`recentSnapshotsSince`、`aggregated`、`lastStartupProfile`、`lastStartupComparisonSummary`)为轻量内存操作,可在主线程安全调用,**不触发采集、不读盘**。
   - **可能读盘**的方法(`historyStartupProfiles`,以及 SPI 的 `readStartupProfiles` / `readHistory`)宜在异步上下文调用,避免阻塞主线程。
-- **版本演进**:落盘对象自带 `schemaVersion`(`MetricSnapshot` 当前 = 1;`StartupProfile` M5 起 = 3,A3 = 2,M1 = 1),新增字段均带默认值,旧档反序列化降级为默认值,保持向后兼容。
+- **版本演进**:落盘对象自带 `schemaVersion`(`MetricSnapshot` 当前 = 1;`StartupProfile` 当前 = 4,FR7 = 4,M5 = 3,A3 = 2,M1 = 1),新增字段均带默认值,旧档反序列化降级为默认值,保持向后兼容。
 
 ## 2. 错误约定
 
@@ -80,7 +80,7 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 
 **`AggregatedMetrics`**(聚合结果,字段除 `windowSampleCount` 外均可空,**null = 本窗口不可计算**):`windowSampleCount: Int`、`tpsAvg`、`msptP95`、`msptP99`、`gcYoungRatePerSec`、`gcOldRatePerSec`、`gcYoungTimeRatePerSec`、`gcOldTimeRatePerSec`(后六者均 `Double?`)。
 
-**`StartupProfile`**(启动画像):基础字段 `schemaVersion`、`serverId`、`platform`、`mcVersion`、`jvmStartTimeMs`、`totalMs`、`phaseTimings`、`pluginTimings`、`worldTimings`、`jvmArgs`、`createdAtMs`。**启动 agent 增强字段**(仅 `-javaagent:plugins/ServerProbe.jar` 挂载时有值,否则 `agentAttached = false` 且其余为 null):`agentAttached`、`premainNanos`、`agentPluginLoadTimings`、`agentPluginEnableTimings`、`libraryTimings`、`mainThreadHotspots`、`timelineEvents`、`threadStacks`、`configTimings`、`eventTimings`、`commandTimings`、`sampleIntervalMs`、`httpCalls`。
+**`StartupProfile`**(启动画像):基础字段 `schemaVersion`、`serverId`、`platform`、`mcVersion`、`jvmStartTimeMs`、`totalMs`、`phaseTimings`、`pluginTimings`、`worldTimings`、`jvmArgs`、`createdAtMs`。**Incision 可选字段**：`incisionEnabled` 表示本次启动是否请求采集，`incisionActive` 表示目标切点已实际执行，`incisionPluginEnableTimings` 仅在实际采集时提供逐插件精确启用耗时；默认关闭或未命中有效切点时 `incisionActive=false` 且列表为 null。**启动 agent 增强字段**(仅 `-javaagent:plugins/ServerProbe.jar` 挂载时有值,否则 `agentAttached = false` 且其余为 null):`agentAttached`、`premainNanos`、`agentPluginLoadTimings`、`agentPluginEnableTimings`、`libraryTimings`、`mainThreadHotspots`、`timelineEvents`、`threadStacks`、`configTimings`、`eventTimings`、`commandTimings`、`sampleIntervalMs`、`httpCalls`。
 
 ## 4. 存储 SPI:MetricStore(FR8.2)
 

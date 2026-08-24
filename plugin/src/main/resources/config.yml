@@ -72,6 +72,12 @@ cpu:
   # 聚合窗口(轮,每采样周期一轮)。默认 60(约 1 分钟)。
   window-rounds: 60
 
+# Incision 方法级精确归因(FR7):织入 SimplePluginManager.enablePlugin 获取逐插件精确耗时。
+# 默认关闭;开启需要重启。织入失败会自动降级为普通启动画像,不会阻止插件启用。
+incision:
+  # 是否开启 Incision 织入。默认 false(关闭);改为 true 后重启服务器生效。
+  enabled: false
+
 # Prometheus /metrics 导出端点(FR4.2),对接 Grafana 长期看板与告警。
 # Bukkit 与 BungeeCord 各为独立进程、各起一个端点;同机部署两端请配置不同 port。
 # 安全默认:端点默认【关闭】,且默认仅本机(127.0.0.1)可访问。开放到外网前务必配置 token 与/或 IP 白名单。

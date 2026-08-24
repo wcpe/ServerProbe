@@ -44,7 +44,7 @@ ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服
 |---|---|---|---|---|---|
 | **api** | 契约层(**纯 Java + Lombok 不可变模型**,ADR-13):指标模型、采集器接口 `*Collector`、只读 API/存储 SPI、公共枚举。零平台 API、**零 Kotlin metadata**,任意 Kotlin(含 1.x)/Java 版本可编译依赖。 | Java 8 | 通用 | `Basic` | `lombok`(仅编译期) |
 | **core**(现 `project:core`) | 通用核心:采集编排/调度、JMX 采集(`java.lang.management.*`)、聚合/滑窗/分位、阈值告警、呈现格式化、**本地文件存储 + 开放接口**。面向 api 接口编程。 | Java 8 | 通用 | `Basic`+`I18n` | `project(":api")` |
-| **platform-bukkit** | Bukkit/Paper/**Folia** 采集:在线人数、世界/区块/实体计数、TPS/MSPT、插件列表。Folia 分流(`Folia.isFolia` + `callRegion{}`)写在此。 | Java 8 | Bukkit(含 Folia) | `Basic`+`Bukkit`+`BukkitUtil`+`I18n` | `project(":api")` + `ink.ptms.core:*:universal` + `io.paper:folia-api` |
+| **platform-bukkit** | Bukkit/Paper/**Folia** 采集:在线人数、世界/区块/实体计数、TPS/MSPT、插件列表；可选 Incision `@Surgeon` `enablePlugin` 采集入口。Folia 分流(`Folia.isFolia` + `callRegion{}`)写在此。 | Java 8 | Bukkit(含 Folia) | `Basic`+`Bukkit`+`BukkitUtil`+`I18n`+`Incision` | `project(":api")` + `ink.ptms.core:*:universal` + `io.paper:folia-api` |
 | **platform-bungee** | 代理端采集:子服在线/总人数、子服 ping/路由、`ProxyServer` 指标。标 `@PlatformSide(Platform.BUNGEE)`。 | Java 8 | BungeeCord | `Basic`+`BungeeCord` | `project(":api")` + `net.md-5:bungeecord-chat` |
 | **nms-vXXX**(可选,**按需才建**) | 仅当某指标必须**直接继承/引用** NMS 专有类型(无法反射绕过)时才建,如低版本读 `MinecraftServer.recentTps`。沿用 `nmsProxy {name}Impl$versionId` 多 Impl 范式。 | Java 8(全反射)/ 高 toolchain(直接 extends 高版本类) | Bukkit | — | `project(":api")`+`project(":platform-bukkit")` + 对应版本服务端 |
 | **plugin** | 壳 + 打包:TabooLib 描述、IOC 自动接管、合并各模块产物进单 jar。 | Java 8 | 多端 | 全量 | `taboo(project(...))` |
@@ -167,7 +167,7 @@ TabooLib **完全不封装** TPS/MSPT。ServerProbe 抽象 `ServerTickSampler` �
 | (可选,M5)多线程折叠栈采样 | premain agent 对 `Server thread` / `Netty Server IO` / `ServerMain` 5ms 抓**完整调用栈**、折叠聚合 | 启动期"无日志卡顿"热点 + 调用层级(火焰图数据源) |
 | (可选,M5)启动火焰图 + 嵌套时间线 | `/probe flamegraph` 由折叠栈/时间线生成自包含 HTML | 多层多线程火焰图 + 区间嵌套时间线 |
 | (可选,M5)HTTP/TCP 外呼监控(运行期常驻) | premain agent 插桩 `HttpURLConnection.getInputStream` + `Socket.connect` | 哪个插件/代码发起对外请求、目标、耗时、响应码、(脱敏)参数 |
-| (可选,M4)精确插桩 | Incision 织入 `enablePlugin` | 方法级 |
+| (可选,M4)精确插桩 | `@Surgeon` 在 CONST 阶段注册 `@Lead`/`@Trail` 到 `enablePlugin`；`incision.enabled=true` 时 advice 采集，Incision 生命周期自动卸载 | 逐插件精确启用耗时写入 `StartupProfile`；默认关闭时不记录 |
 
 **盲区(及其补法)**:服务端 bootstrap(DFU/注册表)早于任何插件加载,普通插件不可见,只能整体时长对比。**ServerProbe 自身加载前的盲区**(早于本插件 onEnable 的插件计时、库下载、无日志卡顿)可由**可选的 premain Java Agent**补上(命令行 `-javaagent` 手动启用,见 §13);代价是需手动加启动参数,不加则纯插件模式正常工作。
 

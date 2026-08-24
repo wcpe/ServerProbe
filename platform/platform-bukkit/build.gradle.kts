@@ -6,6 +6,7 @@ taboolib {
         install(Bukkit)
         install(BukkitUtil)
         install(I18n)
+        install(Incision)
     }
 }
 

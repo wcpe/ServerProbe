@@ -17,6 +17,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
+import top.wcpe.mc.plugin.serverprobe.core.incision.IncisionStartupData
 
 /**
  * [StartupProfileBuilder] 单元测试。
@@ -38,17 +39,17 @@ class StartupProfileBuilderTest {
             WorldTiming.builder().name("world_nether").loadMs(0L).build()
         )
 
-        val profile = StartupProfileBuilder().build(
+        val profile = StartupProfileBuilder().build(StartupProfileInput(
             mcVersion = "1.21.4",
             platform = ProbePlatform.BUKKIT,
             serverId = "test-server",
             totalMs = 12_345L,
             pluginTimings = pluginTimings,
             worldTimings = worldTimings
-        )
+        ))
 
-        // schemaVersion:M5 起为 3
-        assertEquals(3, profile.schemaVersion, "schemaVersion 应为 3")
+        // schemaVersion:FR7 起为 4
+        assertEquals(4, profile.schemaVersion, "schemaVersion 应为 4")
 
         // 入参透传
         assertEquals("test-server", profile.serverId, "serverId 应透传")
@@ -85,6 +86,9 @@ class StartupProfileBuilderTest {
         assertNull(profile.commandTimings, "未挂载时 commandTimings 应为 null")
         assertNull(profile.sampleIntervalMs, "未挂载时 sampleIntervalMs 应为 null")
         assertNull(profile.httpCalls, "未挂载时 httpCalls 应为 null")
+        assertFalse(profile.incisionEnabled, "默认应关闭 Incision")
+        assertFalse(profile.incisionActive, "默认不应有活动织入")
+        assertNull(profile.incisionPluginEnableTimings, "默认不应有 Incision 耗时")
     }
 
     /** agent 已挂载时,各 agent 增强字段(含 M5 时间线/折叠栈/配置·事件·命令)应从 [AgentStartupData] 透传填入画像。 */
@@ -134,7 +138,7 @@ class StartupProfileBuilderTest {
             httpCalls = httpCalls
         )
 
-        val profile = StartupProfileBuilder().build(
+        val profile = StartupProfileBuilder().build(StartupProfileInput(
             mcVersion = "1.21.4",
             platform = ProbePlatform.BUKKIT,
             serverId = "test-server",
@@ -142,7 +146,7 @@ class StartupProfileBuilderTest {
             pluginTimings = emptyList(),
             worldTimings = emptyList(),
             agentData = agentData
-        )
+        ))
 
         assertTrue(profile.agentAttached, "agent 挂载时 agentAttached 应为 true")
         assertEquals(987_654L, profile.premainNanos, "premainNanos 应透传")
@@ -163,7 +167,7 @@ class StartupProfileBuilderTest {
     /** agent 数据 attached=false 时,即使传入也应按未挂载降级。 */
     @Test
     fun `build agent 未挂载数据降级为默认`() {
-        val profile = StartupProfileBuilder().build(
+        val profile = StartupProfileBuilder().build(StartupProfileInput(
             mcVersion = "1.21.4",
             platform = ProbePlatform.BUKKIT,
             serverId = "test-server",
@@ -171,12 +175,37 @@ class StartupProfileBuilderTest {
             pluginTimings = emptyList(),
             worldTimings = emptyList(),
             agentData = AgentStartupData.notAttached()
-        )
+        ))
 
         assertFalse(profile.agentAttached, "attached=false 的数据应使 agentAttached 为 false")
         assertNull(profile.premainNanos, "未挂载降级时 premainNanos 应为 null")
         assertNull(profile.libraryTimings, "未挂载降级时 libraryTimings 应为 null")
         assertNull(profile.mainThreadHotspots, "未挂载降级时 mainThreadHotspots 应为 null")
         assertNull(profile.threadStacks, "未挂载降级时 threadStacks 应为 null")
+    }
+
+    /** Incision 织入已生效时,精确逐插件耗时应并入启动画像。 */
+    @Test
+    fun `build Incision 织入数据透传`() {
+        val incisionTimings = listOf(PluginTiming.builder().name("Alpha").enableMs(118L).build())
+        val incisionData = IncisionStartupData(
+            enabled = true,
+            active = true,
+            pluginEnableTimings = incisionTimings
+        )
+
+        val profile = StartupProfileBuilder().build(StartupProfileInput(
+            mcVersion = "1.21.4",
+            platform = ProbePlatform.BUKKIT,
+            serverId = "test-server",
+            totalMs = 1L,
+            pluginTimings = emptyList(),
+            worldTimings = emptyList(),
+            incisionData = incisionData
+        ))
+
+        assertTrue(profile.incisionEnabled, "启用开关应透传")
+        assertTrue(profile.incisionActive, "活动织入状态应透传")
+        assertEquals(incisionTimings, profile.incisionPluginEnableTimings, "Incision 耗时应透传")
     }
 }

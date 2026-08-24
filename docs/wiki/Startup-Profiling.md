@@ -160,7 +160,7 @@ java -javaagent:plugins/ServerProbe.jar -jar paper.jar
 
 ## 八、数据落盘与对比
 
-每次启动画像作为**一份 JSON**异步落本地文件(`StartupProfile`:`schemaVersion, serverId, platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, createdAtMs`),用于"与上次 / 基线对比"。挂载 agent 时还含**增强字段**(`agentAttached`/`premainNanos`/`agentPluginLoadTimings`/`agentPluginEnableTimings`/`libraryTimings`/`mainThreadHotspots`/`timelineEvents`/`threadStacks`/`configTimings`/`eventTimings`/`commandTimings`),均带默认值、向后兼容(`schemaVersion` M5 起为 3);未挂载时为默认/`null`。落盘通道详见 [数据呈现与对接](Data-Output.md)。
+每次启动画像作为**一份 JSON**异步落本地文件(`StartupProfile`:`schemaVersion, serverId, platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, incisionEnabled, incisionActive, incisionPluginEnableTimings, createdAtMs`),用于"与上次 / 基线对比"。挂载 agent 时还含**增强字段**(`agentAttached`/`premainNanos`/`agentPluginLoadTimings`/`agentPluginEnableTimings`/`libraryTimings`/`mainThreadHotspots`/`timelineEvents`/`threadStacks`/`configTimings`/`eventTimings`/`commandTimings`),均带默认值、向后兼容(`schemaVersion` 当前为 4，M5 为 3);未挂载时为默认/`null`。Bukkit/Paper 开启 `incision.enabled` 后，`incisionActive=true` 时会追加逐插件精确启用耗时；默认关闭或降级时不产生该列表。落盘通道详见 [数据呈现与对接](Data-Output.md)。
 
 ---
 

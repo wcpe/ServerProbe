@@ -22,7 +22,7 @@
 
 关键事实:**探针 90%+ 的指标用现成稳定 API 即可,连 spark 都不用 Java Agent。** 因此主体采用纯 API + JMX(`java.lang.management`)+ 平台原生 API + 采样。设计原则之一就是"只读优先,绝不成为事故源"。
 
-方法级**精确**插桩作为**可选增强**保留:若启用,采用 **TabooLib Incision**(而非裸 ASM),且**默认关闭、需先 PoC 验证**(本仓库零真实用例,成熟度待验证),失败静默降级。
+方法级**精确**插桩作为**可选增强**提供：Bukkit/Paper 的 `enablePlugin` 路径采用 **TabooLib Incision**（而非裸 ASM），**默认关闭**；启用失败自动降级且不阻断插件启用。已在 Paper 1.21.11 + JDK21 完成织入、回滚和性能验收。
 
 > 注意区分:上表否决的是**运行时 self-attach**(Paper/JDK21+ 默认禁用)。ServerProbe 另提供一个**可选的启动期 premain agent**(命令行 `-javaagent:plugins/ServerProbe.jar` 手动启用,补加载前盲区,见[启动剖析指南](Startup-Profiling.md))——它走标准 `premain` 入口、**不是 self-attach**,不受 JEP 451 限制;默认不启用,失败静默降级。"主体不用 Java Agent"与"提供可选 premain agent 增强"并不矛盾。
 
@@ -96,7 +96,7 @@ ServerProbe 自身专注于**指标监控 + 启动剖析**:JVM/服务器指标�
 
 **首期不能**,只能到"逐插件 onEnable 耗时"粒度(通过生命周期打点 + 解析 `logs/latest.log`)。
 
-方法级**精确**归因(FR7)需要 Incision 字节码插桩,属 P2 可选项,**默认关闭,且引入前必须先 PoC 验证**(目标 Paper + 目标 JDK 上能否织入、开销、可回滚)。验证通过后才会用于 `enablePlugin` 精确插桩等场景。
+方法级**精确**归因(FR7)是 P2 可选项，当前仅在 Bukkit/Paper 的 `enablePlugin` 路径提供。配置 `incision.enabled=true` 后重启启用；默认关闭，失败自动降级，停服时自动回滚。Paper 1.21.11 + JDK21 已完成验收。
 
 ---
 

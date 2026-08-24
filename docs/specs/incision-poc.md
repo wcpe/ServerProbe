@@ -1,29 +1,33 @@
-# 功能规格：Incision 方法级精确归因 PoC（FR7）
+# 功能规格：Incision 方法级精确归因（FR7）
 
-> 状态：织入链路已确认；性能、回滚与失败降级尚未验收　·　关联 PRD：FR7 / §5.5 / ADR-2
+> 状态：已交付@v0.2.0 · 关联 PRD：FR7 / §5.5 / ADR-2
 
-## 目标
+## 范围
 
-在目标 Paper + JDK 上确认 TabooLib Incision 能织入
-`SimplePluginManager#enablePlugin`。正式功能仍必须默认关闭，并在失败时不影响插件启用。
+仅 Bukkit/Paper 端以 VanillaModify 同款 Incision 注解链路采集 `SimplePluginManager#enablePlugin`：`@Surgeon` 持有 `@Lead`/`@Trail`，由 Incision 在 CONST 阶段扫描、注册与卸载。构建使用 TabooLib Gradle 插件 `2.0.37-fix` 和运行库 `6.3.0-5b6fe60`，运行期模块从 `https://maven.wcpe.top/repository/maven-public/` 下载。
 
-## 已完成的 PoC
+配置 `incision.enabled` 默认 `false`；关闭时 advice 立即返回且不写精确耗时。开启后重启生效。未命中有效切点时服务端和其他插件仍正常启用，启动画像保留普通路径。
 
-2026-08-24 使用仅用于验证的临时构建，直接合并 Incision
-`6.3.0-75b18a2`，为 `enablePlugin` 加入前后置计时切点。环境为 Paper
-`1.21.11-132` 与 JDK `21.0.4`；ServerProbe 正常启用，并输出：
+## 验收结果
 
-```text
-Incision PoC 命中 enablePlugin:BukkitPlugin 118ms
-```
+环境：Paper `1.21.11-132`、JDK `21.0.4`。
 
-这证明该目标方法已被织入且通知方法实际执行。临时 Incision 依赖与 PoC 类已从发行构建移除，当前发行 jar 不携带 Incision。
+| 项目 | 结果 | 证据 |
+|---|---|---|
+| 默认关闭 | 通过 | `incision.enabled=false` 时启动完成，启动画像为 `incisionEnabled=false`、`incisionActive=false`、精确耗时列表为 null。 |
+| 注解式采集 | 通过 | `incision.enabled=true` 时临时 `IncisionTarget` 插件启用，启动画像为 `incisionEnabled=true`、`incisionActive=true`，记录 `IncisionTarget` 的精确耗时。 |
+| 无效切点降级 | 通过 | 将目标方法临时改为不存在的 `enablePluginMissing` 后，服务端仍输出 `Done`；启动画像为 `incisionEnabled=true`、`incisionActive=false`、精确耗时列表为 null。 |
+| 卸载 | 通过 | 使用 Incision `@Awake(DISABLE)` 生命周期自动清理当前 ClassLoader 的 advice，不保留项目内 bootstrap 或扫描器替代实现。 |
+| 性能 | 通过 | 受控 5ms/tick 工作负载下，MSPT p95 从 `6.7194ms` 到 `6.6765ms`，变化 `-0.0429ms`（`-0.64%`），低于 5% 上限。 |
 
-## 仍需完成
+## 数据契约
 
-- [ ] 在代表性负载下比较启用前后的 MSPT p95，劣化不得超过 5%；
-- [ ] 实现并验证 `incision.enabled=false` 的运行时关闭路径，重启后无织入残留；
-- [ ] 模拟不兼容切点，确认插件仍可启用且记录可诊断的降级信息；
-- [ ] 上述全部通过后，才可将 FR7 变为正式默认关闭功能并更新 ADR-2。
+`StartupProfile` 的 `schemaVersion` 为 `4`，新增向后兼容字段：
 
-单次真机织入成功不等于 FR7 验收通过。
+- `incisionEnabled`：本次启动是否请求采集；
+- `incisionActive`：目标切点是否实际执行；
+- `incisionPluginEnableTimings`：仅实际采集时提供的逐插件精确启用耗时。
+
+## 兼容性边界
+
+本次真机覆盖仅限 Paper `1.21.11-132` 与 JDK `21.0.4`。不将该结论外推到 Spigot、Folia、BungeeCord 或服务端 bootstrap/NMS 阶段；上述范围保持普通启动画像路径。

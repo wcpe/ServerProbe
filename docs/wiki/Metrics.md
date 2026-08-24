@@ -117,7 +117,7 @@ TabooLib **不封装** TPS。探针抽象 `ServerTickSampler`,按环境选实现
 | 事件 / 任务耗时 | 各事件、调度任务耗时 | 采样 |
 | 各插件 CPU 占比 | 按插件归并的 CPU 占用 | `ThreadMXBean` 周期采样栈,按插件 ClassLoader 归并(spark 模式,**无 Java Agent**) |
 
-> 方法级**精确**归因(FR7)需 Incision 字节码插桩,**默认关闭、需先 PoC 验证**,见 [常见问题FAQ](FAQ.md)。
+> 方法级**精确**归因(FR7)使用 Incision 织入 Bukkit/Paper 的 `enablePlugin`，**默认关闭**；Paper 1.21.11 + JDK21 已完成验收，见 [常见问题FAQ](FAQ.md)。
 
 ---
 

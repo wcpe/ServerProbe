@@ -8,19 +8,20 @@ import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform;
  * 汇总端到端总时长、各生命周期分段、慢插件榜、世界加载耗时与 JVM 参数快照,
  * 用于"开服慢"定位及与上次/基线对比。每次启动落盘为一份 JSON(详见 PRD §9)。
  *
- * **启动 agent 增强字段(A3/M5,向后兼容)**:末尾的 agentAttached/premainNanos/
+ * **启动 agent 与 Incision 增强字段(A3/M5/FR7,向后兼容)**:末尾的 agentAttached/premainNanos/
  * agentPluginLoadTimings/agentPluginEnableTimings/libraryTimings/mainThreadHotspots/
  * timelineEvents/threadStacks/configTimings/eventTimings/commandTimings
  * 仅当 JVM 以 `-javaagent:plugins/ServerProbe.jar` 挂载启动 agent 时才有值;
  * **未挂载时全为默认**(agentAttached = false,其余为 null)。
  * agent 在 system ClassLoader 中从字节码插桩与栈采样直接测得,其逐插件 load/enable 耗时
  * **精度高于**基于 `logs/latest.log` 时间差的日志解析(pluginTimings);二者并存,展示侧择优。
- * 这些字段均带默认值,故旧档(无这些字段)反序列化时降级为默认值,不破坏既有落盘格式。
+ * 以及 incisionEnabled/incisionActive/incisionPluginEnableTimings 均带默认值,故旧档(无这些字段)
+ * 反序列化时降级为默认值,不破坏既有落盘格式。
  */
 @lombok.Value
 @lombok.Builder(toBuilder = true)
 public final class StartupProfile {
-    /** 落盘格式版本号,M5 起 = 3(A3 = 2,M1 = 1);用于格式演进与向后兼容。 */
+    /** 落盘格式版本号,FR7 起 = 4(M5 = 3,A3 = 2,M1 = 1);用于格式演进与向后兼容。 */
     int schemaVersion;
     /**
      * 实例标识(自动生成或配置覆盖的 server-name)。
@@ -78,4 +79,12 @@ public final class StartupProfile {
     Long sampleIntervalMs;
     /** 启动期对外网络外呼快照(M5);定格画像时缓冲内的外呼记录,用于报告呈现。未挂载时为 null。 */
     java.util.List<HttpCall> httpCalls;
+    /** Incision 配置是否请求启用;默认 false,旧档反序列化时降级为 false。 */
+    @lombok.Builder.Default
+    Boolean incisionEnabled = false;
+    /** Incision 是否已成功织入目标方法;失败降级或默认关闭时为 false。 */
+    @lombok.Builder.Default
+    Boolean incisionActive = false;
+    /** Incision 实测的逐插件 onEnable 耗时;织入未激活时为 null,已激活但暂无样本时为空列表。 */
+    java.util.List<PluginTiming> incisionPluginEnableTimings;
 }

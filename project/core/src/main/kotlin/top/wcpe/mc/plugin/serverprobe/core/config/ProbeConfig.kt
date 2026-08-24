@@ -322,6 +322,15 @@ object ProbeConfig {
     fun cpuEnabled(): Boolean = conf.getBoolean(KEY_CPU_ENABLED, DEFAULT_CPU_ENABLED)
 
     /**
+     * 是否开启 Incision 方法级精确归因,默认 false。
+     *
+     * 关闭时 advice 直接返回且不记录精确耗时;未命中有效切点时平台侧降级为普通启动画像。
+     *
+     * @return 是否请求启用 Incision。
+     */
+    fun incisionEnabled(): Boolean = conf.getBoolean(KEY_INCISION_ENABLED, DEFAULT_INCISION_ENABLED)
+
+    /**
      * CPU 采样周期(单位 ticks),默认 20(约 1 秒)。
      *
      * @return 采样周期 tick 数。
@@ -572,6 +581,9 @@ object ProbeConfig {
     /** 配置键名:CPU 归因总开关。 */
     private const val KEY_CPU_ENABLED = "cpu.enabled"
 
+    /** 配置键名:Incision 方法级精确归因总开关。 */
+    private const val KEY_INCISION_ENABLED = "incision.enabled"
+
     /** 配置键名:CPU 采样周期(ticks)。 */
     private const val KEY_CPU_SAMPLE_PERIOD_TICKS = "cpu.sample-period-ticks"
 
@@ -688,6 +700,9 @@ object ProbeConfig {
 
     /** 默认 CPU 归因总开关:关闭(P2 增强,需显式开启)。 */
     private const val DEFAULT_CPU_ENABLED = false
+
+    /** 默认 Incision 方法级精确归因开关:关闭(需显式开启)。 */
+    private const val DEFAULT_INCISION_ENABLED = false
 
     /** 默认 CPU 采样周期(ticks),约 1 秒。 */
     private const val DEFAULT_CPU_SAMPLE_PERIOD_TICKS = 20L

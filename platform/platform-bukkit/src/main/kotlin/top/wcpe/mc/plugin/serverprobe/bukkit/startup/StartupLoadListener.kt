@@ -15,8 +15,10 @@ import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.incision.IncisionStartupDataStore
 import top.wcpe.mc.plugin.serverprobe.core.startup.PhaseTimingRecorder
 import top.wcpe.mc.plugin.serverprobe.core.startup.StartupComparator
+import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileInput
 import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileBuilder
 import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder
 import top.wcpe.mc.plugin.serverprobe.core.store.InstanceId
@@ -62,6 +64,10 @@ object StartupLoadListener {
     /** 存储后端(core),用于读取上次画像做对比、并持久化本次画像。 */
     @Inject
     lateinit var store: MetricStore
+
+    /** Incision 启动期数据缓冲(core);默认关闭时提供空降级快照。 */
+    @Inject
+    lateinit var incisionStartupDataStore: IncisionStartupDataStore
 
     /**
      * 服务器就绪回调:主线程即时测量,延迟异步装配启动画像。
@@ -124,15 +130,16 @@ object StartupLoadListener {
         }
         // 世界耗时:agent 挂载且测得 createWorld 耗时时择优用实测值,否则回退占位 0
         val worldTimings = resolveWorldTimings(worldNames, agentData)
-        val profile = profileBuilder.build(
+        val profile = profileBuilder.build(StartupProfileInput(
             mcVersion = mcVersion,
             platform = ProbePlatform.BUKKIT,
             serverId = InstanceId.resolve(ProbeConfig.configuredServerName()),
             totalMs = totalMs,
             pluginTimings = pluginTimings,
             worldTimings = worldTimings,
-            agentData = agentData
-        )
+            agentData = agentData,
+            incisionData = incisionStartupDataStore.snapshot()
+        ))
         // 先读上次画像再落盘:读取须先于保存,否则会读到刚被覆盖的本次画像
         val previous = store.lastStartupProfile()
         // 对比摘要在此算一次,既用于日志输出,又写入持有者供 /probe startup 读取(零重复计算)

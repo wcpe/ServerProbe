@@ -4,7 +4,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     java
-    id("io.izzel.taboolib") version "2.0.28" apply false
+    id("io.izzel.taboolib") version "2.0.37-fix" apply false
     id("org.jetbrains.kotlin.jvm") version "2.1.0" apply false
     id("com.google.devtools.ksp") version "2.1.0-1.0.29" apply false
     id("top.wcpe.taboolib.ioc") version "0.0.6" apply false
@@ -26,8 +26,10 @@ subprojects {
         env {
             // 仅装公共 Basic;平台/功能 install 由各子模块在自身 build.gradle.kts 按需追加,避免平台污染
             install(Basic)
+            // 运行期模块从可用镜像解析，避免 tabooproject 上对应版本缺失导致插件无法加载。
+            repoTabooLib = "https://maven.wcpe.top/repository/maven-public/"
         }
-        version { taboolib = "6.3.0-afd75a7" }
+        version { taboolib = "6.3.0-5b6fe60" }
     }
 
     // 依赖仓库统一在 settings.gradle.kts 的 dependencyResolutionManagement(PREFER_SETTINGS)集中声明,

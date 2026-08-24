@@ -5,8 +5,21 @@ import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
+import top.wcpe.mc.plugin.serverprobe.core.incision.IncisionStartupData
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.lang.management.ManagementFactory
+
+/** 组装启动画像所需的平台测量数据。 */
+data class StartupProfileInput(
+    val mcVersion: String,
+    val platform: ProbePlatform,
+    val serverId: String,
+    val totalMs: Long,
+    val pluginTimings: List<PluginTiming>,
+    val worldTimings: List<WorldTiming>,
+    val agentData: AgentStartupData? = null,
+    val incisionData: IncisionStartupData = IncisionStartupData.disabled()
+)
 
 /**
  * 启动画像装配器(FR1)。
@@ -24,59 +37,47 @@ class StartupProfileBuilder {
     /**
      * 组装一份启动画像。
      *
-     * @param mcVersion Minecraft 版本(如 "1.21.4");代理端为其对应版本标识。
-     * @param platform 启动来源平台。
-     * @param serverId 实例标识。
-     * @param totalMs 端到端启动总时长(毫秒)。
-     * @param pluginTimings 各插件 onEnable 耗时明细(慢插件榜数据源,来自日志解析)。
-     * @param worldTimings 各世界加载耗时明细。
-     * @param agentData 启动 agent 早期数据;为 null 或其 [AgentStartupData.attached] 为 false 时,
-     *  画像的 agent 增强字段全部填默认(未挂载降级)。
+     * @param input 平台测得的基础耗时、可选 agent 与 Incision 数据。
      * @return 组装完成的启动画像。
      */
-    fun build(
-        mcVersion: String,
-        platform: ProbePlatform,
-        serverId: String,
-        totalMs: Long,
-        pluginTimings: List<PluginTiming>,
-        worldTimings: List<WorldTiming>,
-        agentData: AgentStartupData? = null
-    ): StartupProfile {
+    fun build(input: StartupProfileInput): StartupProfile {
         val runtimeBean = ManagementFactory.getRuntimeMXBean()
         // agent 未挂载(null 或 attached=false):增强字段全 null,与旧档默认值一致
-        val agentAttached = agentData?.attached == true
+        val agentAttached = input.agentData?.attached == true
         return StartupProfile.builder()
             .schemaVersion(SCHEMA_VERSION)
-            .serverId(serverId)
-            .platform(platform)
-            .mcVersion(mcVersion)
+            .serverId(input.serverId)
+            .platform(input.platform)
+            .mcVersion(input.mcVersion)
             .jvmStartTimeMs(runtimeBean.startTime)
-            .totalMs(totalMs)
+            .totalMs(input.totalMs)
             .phaseTimings(PhaseTimingRecorder.phaseTimings())
-            .pluginTimings(pluginTimings)
-            .worldTimings(worldTimings)
+            .pluginTimings(input.pluginTimings)
+            .worldTimings(input.worldTimings)
             .jvmArgs(runtimeBean.inputArguments)
             .createdAtMs(System.currentTimeMillis())
             .agentAttached(agentAttached)
-            .premainNanos(if (agentAttached) agentData?.premainNanos else null)
-            .agentPluginLoadTimings(if (agentAttached) agentData?.loadTimings else null)
-            .agentPluginEnableTimings(if (agentAttached) agentData?.enableTimings else null)
-            .libraryTimings(if (agentAttached) agentData?.libraryTimings else null)
-            .mainThreadHotspots(if (agentAttached) agentData?.hotspots else null)
-            .timelineEvents(if (agentAttached) agentData?.timelineEvents else null)
-            .threadStacks(if (agentAttached) agentData?.threadStacks else null)
-            .configTimings(if (agentAttached) agentData?.configTimings else null)
-            .eventTimings(if (agentAttached) agentData?.eventTimings else null)
-            .commandTimings(if (agentAttached) agentData?.commandTimings else null)
-            .sampleIntervalMs(if (agentAttached) agentData?.sampleIntervalMs else null)
-            .httpCalls(if (agentAttached) agentData?.httpCalls else null)
+            .premainNanos(if (agentAttached) input.agentData?.premainNanos else null)
+            .agentPluginLoadTimings(if (agentAttached) input.agentData?.loadTimings else null)
+            .agentPluginEnableTimings(if (agentAttached) input.agentData?.enableTimings else null)
+            .libraryTimings(if (agentAttached) input.agentData?.libraryTimings else null)
+            .mainThreadHotspots(if (agentAttached) input.agentData?.hotspots else null)
+            .timelineEvents(if (agentAttached) input.agentData?.timelineEvents else null)
+            .threadStacks(if (agentAttached) input.agentData?.threadStacks else null)
+            .configTimings(if (agentAttached) input.agentData?.configTimings else null)
+            .eventTimings(if (agentAttached) input.agentData?.eventTimings else null)
+            .commandTimings(if (agentAttached) input.agentData?.commandTimings else null)
+            .sampleIntervalMs(if (agentAttached) input.agentData?.sampleIntervalMs else null)
+            .httpCalls(if (agentAttached) input.agentData?.httpCalls else null)
+            .incisionEnabled(input.incisionData.enabled)
+            .incisionActive(input.incisionData.active)
+            .incisionPluginEnableTimings(if (input.incisionData.active) input.incisionData.pluginEnableTimings else null)
             .build()
     }
 
     private companion object {
 
-        /** 落盘/画像格式版本号,M5 起为 3(A3 = 2,M1 = 1)。 */
-        private const val SCHEMA_VERSION = 3
+        /** 落盘/画像格式版本号,FR7 起为 4(M5 = 3,A3 = 2,M1 = 1)。 */
+        private const val SCHEMA_VERSION = 4
     }
 }

@@ -368,8 +368,10 @@ object ProbeCommand {
         sender.sendLang("command-startup-total", ProbeFormat.seconds(profile.totalMs))
 
         val topN = ProbeConfig.startupTopN()
-        // 慢插件榜择优:agent 挂载且有精确 onEnable 实测时优先用之(精度高于日志"启用间隔近似"),否则回退日志解析
-        val slowSource = if (profile.agentAttached && !profile.agentPluginEnableTimings.isNullOrEmpty()) {
+        // 慢插件榜择优:Incision 已生效时优先其精确 onEnable 实测,其次 agent,最后回退日志解析。
+        val slowSource = if (profile.incisionActive && !profile.incisionPluginEnableTimings.isNullOrEmpty()) {
+            profile.incisionPluginEnableTimings!!
+        } else if (profile.agentAttached && !profile.agentPluginEnableTimings.isNullOrEmpty()) {
             profile.agentPluginEnableTimings!!
         } else {
             profile.pluginTimings

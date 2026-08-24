@@ -37,6 +37,9 @@ taboolib {
         install(BukkitUtil)
         install(CommandHelper)
         install(I18n)
+        install(Incision)
+        // Incision 运行期模块使用与 VanillaModify 一致的可用镜像。
+        repoTabooLib = "https://maven.wcpe.top/repository/maven-public/"
         // 代理端平台,生成 bungee.yml 描述符,实现单 jar 多端
         install(BungeeCord)
     }
