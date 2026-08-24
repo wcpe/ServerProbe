@@ -1,12 +1,14 @@
-# 持续集成:每次 push / PR 跑构建 + 单元测试 + detekt 静态检查。
-# 说明:本仓库当前尚无公开 remote,工作流在建立 GitHub 仓库后自动生效;
-# 届时应在分支保护里把本 job 设为合并前门禁(见 .claude/rules/static-analysis.md)。
+# 持续集成：分支与 PR 验证构建；推送 v* 标签时额外创建 GitHub Release。
 name: CI
 
 on:
   push:
     branches: [ master, main ]
+    tags: [ 'v*' ]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -30,3 +32,36 @@ jobs:
 
       - name: 构建 + 单元测试 + detekt 静态检查
         run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+
+      - name: 上传发行 jar
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: serverprobe-jar
+          path: plugin/build/libs/ServerProbe-*.jar
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载发行 jar
+        uses: actions/download-artifact@v4
+        with:
+          name: serverprobe-jar
+          path: release
+
+      - name: 创建或更新 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG_NAME" release/ServerProbe-*.jar --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG_NAME" release/ServerProbe-*.jar --title "ServerProbe $TAG_NAME" --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
