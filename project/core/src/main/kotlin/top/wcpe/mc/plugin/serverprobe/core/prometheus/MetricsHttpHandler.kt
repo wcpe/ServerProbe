@@ -3,6 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
+import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.net.InetSocketAddress
 
@@ -28,7 +29,8 @@ class MetricsHttpHandler(
     private val readApi: ProbeReadApi,
     private val token: String,
     private val allowedIps: List<String>,
-    private val cpuSampler: top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler? = null
+    private val cpuSampler: top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler? = null,
+    private val traffic: PacketTrafficService? = null,
 ) : HttpHandler {
 
     /**
@@ -47,7 +49,8 @@ class MetricsHttpHandler(
             }
             val body = PrometheusTextFormatter.format(
                 readApi.latestSnapshot(),
-                cpuSampler?.snapshot(CPU_SNAPSHOT_LIMIT)
+                cpuSampler?.snapshot(CPU_SNAPSHOT_LIMIT),
+                traffic?.currentReport(),
             )
             respondMetrics(exchange, body)
         } catch (e: Exception) {

@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 
 /**
  * Prometheus 文本格式化器(FR4.2,exposition format 0.0.4)。
@@ -47,7 +48,11 @@ object PrometheusTextFormatter {
      * @param cpuMetrics 运行期 CPU 归因(FR2.6);为 null/空(未启用或无样本)时不导出对应序列。
      * @return Prometheus 文本;snapshot 为 null 时为空串。
      */
-    fun format(snapshot: MetricSnapshot?, cpuMetrics: List<PluginCpuMetric>? = null): String {
+    fun format(
+        snapshot: MetricSnapshot?,
+        cpuMetrics: List<PluginCpuMetric>? = null,
+        traffic: PacketTrafficReport? = null,
+    ): String {
         if (snapshot == null) {
             return ""
         }
@@ -62,7 +67,23 @@ object PrometheusTextFormatter {
         snapshot.server?.let { appendServer(writer, it) }
         snapshot.proxy?.let { appendProxy(writer, it) }
         appendCpu(writer, cpuMetrics)
+        appendTraffic(writer, traffic)
         return sb.toString()
+    }
+
+    /** 追加 FR11 聚合流量；输入已在平台采集器脱敏，Prometheus 不接触完整 IP 或载荷。 */
+    private fun appendTraffic(writer: MetricWriter, traffic: PacketTrafficReport?) {
+        if (traffic == null) return
+        writer.gauge("network_ingress_bytes_per_second", traffic.ingressBytesPerSecond.toDouble())
+        writer.gauge("network_egress_bytes_per_second", traffic.egressBytesPerSecond.toDouble())
+        writer.gauge("network_ingress_packets_per_second", traffic.ingressPacketsPerSecond.toDouble())
+        writer.gauge("network_egress_packets_per_second", traffic.egressPacketsPerSecond.toDouble())
+        traffic.packetTypeCounts.forEach { (type, count) ->
+            writer.gauge("network_packet_type_packets", count.toDouble(), listOf("packet_type" to type))
+        }
+        traffic.maskedIpPacketCounts.forEach { (prefix, count) ->
+            writer.gauge("network_masked_ip_packets", count.toDouble(), listOf("ip_prefix" to prefix))
+        }
     }
 
     /**
@@ -172,6 +193,54 @@ object PrometheusTextFormatter {
         server.pingDistribution?.forEach { bucket ->
             writer.gauge("players_ping_bucket", bucket.count.toDouble(), listOf("range" to bucket.label))
         }
+
+        appendObservedRegions(writer, server)
+    }
+
+    /** 追加 Folia 已观测 region 及世界汇总，绝不回填全局 TPS/MSPT。 */
+    private fun appendObservedRegions(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics) {
+        server.observedRegions?.forEach { region ->
+            val labels = listOf(
+                "world" to region.worldName,
+                "folia_region_id" to region.foliaRegionId.toString(),
+                "region" to region.regionSequence.toString(),
+                "observed" to region.isObserved.toString(),
+                "chunk_x" to region.centerChunkX.toString(),
+                "chunk_z" to region.centerChunkZ.toString()
+            )
+            writer.gauge("folia_observed_region_players", region.playerCount.toDouble(), labels)
+            writer.gauge("folia_observed_region_samples", region.sampleCount.toDouble(), labels)
+            appendObservedTick(writer, "folia_observed_region", labels,
+                region.tpsAvg, region.tpsP95, region.tpsP99, region.msptAvg, region.msptP95, region.msptP99)
+        }
+        server.observedRegionWorlds?.forEach { world ->
+            val labels = listOf("world" to world.worldName)
+            writer.gauge("folia_observed_world_regions", world.activeRegions.toDouble(), labels)
+            writer.gauge("folia_observed_world_players", world.playerCount.toDouble(), labels)
+            writer.gauge("folia_observed_world_samples", world.sampleCount.toDouble(), labels)
+            appendObservedTick(writer, "folia_observed_world", labels,
+                world.tpsAvg, world.tpsP95, world.tpsP99, world.msptAvg, world.msptP95, world.msptP99)
+        }
+    }
+
+    /** 追加一组已观测 region 的 TPS 与 MSPT 分位。 */
+    private fun appendObservedTick(
+        writer: MetricWriter,
+        prefix: String,
+        labels: List<Pair<String, String>>,
+        tpsAvg: Double?,
+        tpsP95: Double?,
+        tpsP99: Double?,
+        msptAvg: Double?,
+        msptP95: Double?,
+        msptP99: Double?
+    ) {
+        writer.gaugeIfPresent("${prefix}_tps", tpsAvg, labels + ("quantile" to "avg"))
+        writer.gaugeIfPresent("${prefix}_tps", tpsP95, labels + ("quantile" to "p95"))
+        writer.gaugeIfPresent("${prefix}_tps", tpsP99, labels + ("quantile" to "p99"))
+        writer.gaugeIfPresent("${prefix}_mspt_seconds", msptAvg?.div(MILLIS_PER_SECOND), labels + ("quantile" to "avg"))
+        writer.gaugeIfPresent("${prefix}_mspt_seconds", msptP95?.div(MILLIS_PER_SECOND), labels + ("quantile" to "p95"))
+        writer.gaugeIfPresent("${prefix}_mspt_seconds", msptP99?.div(MILLIS_PER_SECOND), labels + ("quantile" to "p99"))
     }
 
     /**

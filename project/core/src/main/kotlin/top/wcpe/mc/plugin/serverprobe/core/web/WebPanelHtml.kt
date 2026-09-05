@@ -1,8 +1,13 @@
 package top.wcpe.mc.plugin.serverprobe.core.web
 
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 
 /**
  * Web 面板 HTML 渲染器(FR4.3,M3,P2)。
@@ -49,9 +54,59 @@ object WebPanelHtml {
                 appendRow("进程 CPU", jvm.processCpuLoad.takeIf { it >= 0 }?.let { "%.1f%%".format(it * 100) } ?: "N/A")
                 appendRow("运行时长", fmtDuration(jvm.uptimeMs))
                 append("</table>")
+                appendObservedRegions(server)
             }
         }
         return page("总览", body)
+    }
+
+    /** 追加 Folia 已观测 region 的汇总与明细；没有该字段时代表当前平台不支持或尚未采集。 */
+    private fun StringBuilder.appendObservedRegions(server: ServerMetrics?) {
+        val worlds = server?.observedRegionWorlds
+        val regions = server?.observedRegions
+        if (worlds == null && regions == null) {
+            return
+        }
+        append("<h2>Folia 已观测 region</h2>")
+        append("<p class=\"muted\">Folia 全局 TPS/MSPT：N/A</p>")
+        if (worlds.isNullOrEmpty() && regions.isNullOrEmpty()) {
+            append("<p class=\"muted\">暂无已观测 region。</p>")
+            return
+        }
+        appendObservedWorlds(worlds.orEmpty())
+        appendObservedRegionDetails(regions.orEmpty())
+    }
+
+    /** 追加世界级样本加权汇总。 */
+    private fun StringBuilder.appendObservedWorlds(worlds: List<ObservedRegionWorldMetrics>) {
+        append("<h3>已观测 region 世界汇总</h3>")
+        append("<table><tr><th>世界</th><th>region</th><th>玩家</th><th>样本</th><th>TPS(avg/p95/p99)</th><th>MSPT(avg/p95/p99)</th></tr>")
+        worlds.forEach { world ->
+            append("<tr><td>").append(esc(world.worldName)).append("</td><td>")
+                .append(world.activeRegions).append("</td><td>").append(world.playerCount).append("</td><td>")
+                .append(world.sampleCount).append("</td><td>").append(tickStats(world.tpsAvg, world.tpsP95, world.tpsP99))
+                .append("</td><td>").append(tickStats(world.msptAvg, world.msptP95, world.msptP99, "ms")).append("</td></tr>")
+        }
+        append("</table>")
+    }
+
+    /** 追加每个真实 region 的滚动窗口明细。 */
+    private fun StringBuilder.appendObservedRegionDetails(regions: List<ObservedRegionMetrics>) {
+        append("<h3>已观测 region 明细</h3>")
+        append(
+            "<table><tr><th>世界</th><th>真实 region id</th><th>序号</th><th>中心区块</th><th>玩家</th><th>样本</th>" +
+                "<th>TPS(avg/p95/p99)</th><th>MSPT(avg/p95/p99)</th><th>最后观测</th></tr>",
+        )
+        regions.forEach { region ->
+            append("<tr><td>").append(esc(region.worldName)).append("</td><td>").append(region.foliaRegionId)
+                .append("</td><td>").append(region.regionSequence)
+                .append("</td><td>").append(region.centerChunkX).append(", ").append(region.centerChunkZ)
+                .append("</td><td>").append(region.playerCount).append("</td><td>").append(region.sampleCount)
+                .append("</td><td>").append(tickStats(region.tpsAvg, region.tpsP95, region.tpsP99))
+                .append("</td><td>").append(tickStats(region.msptAvg, region.msptP95, region.msptP99, "ms"))
+                .append("</td><td>").append(esc(fmtTime(region.lastSeenMs))).append("</td></tr>")
+        }
+        append("</table>")
     }
 
     /**
@@ -118,6 +173,82 @@ object WebPanelHtml {
         return page("历史趋势", body)
     }
 
+    /** 渲染已鉴权网络取证查询结果，完整 IP 与白名单载荷仅在此页面出现。 */
+    fun renderNetworkForensics(
+        packetPage: NetworkPacketPage,
+        status: NetworkForensicsStatus,
+        query: NetworkForensicsWebQuery,
+    ): String = page("网络包取证", buildString {
+        append("<h2>网络包取证</h2>")
+        appendForensicsStatus(status)
+        appendNetworkQueryForm(query)
+        appendNetworkPacketRows(packetPage)
+        appendNextPage(packetPage, query)
+    })
+
+    /** 首次打开只展示查询表单，不读取数据库，避免在未给时间范围时产生全表查询。 */
+    fun renderNetworkForensicsGuide(): String = page("网络包取证", buildString {
+        append("<h2>网络包取证</h2><p class=\"muted\">请先填写开始和结束时间，再查询完整取证记录。</p>")
+        appendNetworkQueryForm(null)
+    })
+
+    /** 显示 SQLite 可用性与有界队列丢弃数，不暴露运行期敏感配置。 */
+    private fun StringBuilder.appendForensicsStatus(status: NetworkForensicsStatus) {
+        if (status.available) {
+            append("<p>取证存储：<b>可用</b> · 队列丢弃：<b>").append(status.droppedRecords).append("</b></p>")
+        } else {
+            append("<p class=\"muted\">取证存储不可用：").append(esc(status.unavailableReason ?: "未知原因")).append("</p>")
+        }
+    }
+
+    /** 提供所有允许过滤器；开始和结束时间由 required 约束强制填写。 */
+    private fun StringBuilder.appendNetworkQueryForm(query: NetworkForensicsWebQuery?) {
+        append("<form method=\"get\" action=\"/network-forensics\">")
+        appendInput("sinceMs", query?.sinceMs?.toString().orEmpty(), "开始时间", true)
+        appendInput("untilMs", query?.untilMs?.toString().orEmpty(), "结束时间", true)
+        appendInput("direction", query?.direction?.name.orEmpty(), "方向")
+        appendInput("packetType", query?.packetType.orEmpty(), "包类型")
+        appendInput("playerUuid", query?.playerUuid.orEmpty(), "玩家 UUID")
+        appendInput("playerName", query?.playerName.orEmpty(), "玩家名称")
+        appendInput("ip", query?.ip.orEmpty(), "完整 IP")
+        appendInput("limit", query?.limit?.toString() ?: "100", "每页条数", true)
+        append("<button type=\"submit\">查询</button></form>")
+    }
+
+    /** 输出单个安全转义的查询输入框。 */
+    private fun StringBuilder.appendInput(name: String, value: String, label: String, required: Boolean = false) {
+        append("<label>").append(esc(label)).append(" <input name=\"").append(name).append("\" value=\"")
+            .append(esc(value)).append("\"")
+        if (required) append(" required")
+        append("></label> ")
+    }
+
+    /** 输出完整取证记录，载荷字段只展示 SQLite 已保存的白名单内容。 */
+    private fun StringBuilder.appendNetworkPacketRows(packetPage: NetworkPacketPage) {
+        append(
+            "<table><tr><th>时间</th><th>方向</th><th>玩家</th><th>完整 IP</th><th>包类型</th><th>通道</th><th>长度</th>" +
+                "<th>SHA-256</th><th>白名单载荷(Base64)</th></tr>",
+        )
+        if (packetPage.records.isEmpty()) append("<tr><td colspan=\"9\" class=\"muted\">该时间范围内没有记录。</td></tr>")
+        packetPage.records.forEach { record ->
+            append("<tr><td>").append(esc(fmtTime(record.capturedAtMs))).append("</td><td>")
+                .append(esc(record.direction.name)).append("</td><td>").append(esc(record.playerName ?: record.playerUuid ?: "-"))
+                .append("</td><td>").append(esc(record.ip ?: "-")).append("</td><td>").append(esc(record.packetType))
+                .append("</td><td>").append(esc(record.channel ?: "-")).append("</td><td>").append(record.originalLength)
+                .append("</td><td class=\"payload\">").append(esc(record.payloadSha256)).append("</td><td class=\"payload\">")
+                .append(esc(record.payloadBase64 ?: "未捕获")).append("</td></tr>")
+        }
+        append("</table>")
+    }
+
+    /** 存在下一页时保留过滤器并只替换完整游标。 */
+    private fun StringBuilder.appendNextPage(packetPage: NetworkPacketPage, query: NetworkForensicsWebQuery) {
+        if (!packetPage.hasNextPage) return
+        val time = packetPage.nextCursorCapturedAtMs ?: return
+        val id = packetPage.nextCursorId ?: return
+        append("<p><a href=\"/network-forensics?").append(esc(query.nextPageQuery(time, id))).append("\">下一页</a></p>")
+    }
+
     /** 组装完整页面(统一导航 + 内联样式)。 */
     private fun page(title: String, body: String): String = """
         <!DOCTYPE html>
@@ -137,6 +268,8 @@ object WebPanelHtml {
         th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #eef0f3}
         th{background:#f0f2f5;font-weight:600}
         .muted{color:#888}
+        form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0} label{font-size:.9em} input{max-width:160px}
+        .payload{max-width:300px;word-break:break-all;font-family:ui-monospace,monospace}
         </style>
         </head>
         <body>
@@ -145,6 +278,7 @@ object WebPanelHtml {
           <a href="/">总览</a>
           <a href="/startup">启动画像</a>
           <a href="/history">历史趋势</a>
+          <a href="/network-forensics">网络包取证</a>
         </header>
         <main>$body</main>
         </body>
@@ -163,6 +297,10 @@ object WebPanelHtml {
     /** MSPT 文本。 */
     private fun msptText(tick: TickSample): String = listOf(tick.msptAvg, tick.msptP95, tick.msptP99)
         .joinToString(" / ") { it?.let { v -> "%.1fms".format(v) } ?: "N/A" }
+
+    /** 三个统计分位格式化。 */
+    private fun tickStats(avg: Double?, p95: Double?, p99: Double?, suffix: String = ""): String =
+        listOf(avg, p95, p99).joinToString(" / ") { value -> value?.let { "%.1f%s".format(it, suffix) } ?: "N/A" }
 
     /** 字节文本。 */
     private fun bytesText(used: Long, max: Long): String =

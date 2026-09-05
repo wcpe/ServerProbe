@@ -69,9 +69,10 @@ class WebPanelServer {
             httpServer.createContext(ROOT_PATH, handler)
             httpServer.createContext(STARTUP_PATH, handler)
             httpServer.createContext(HISTORY_PATH, handler)
+            httpServer.createContext(NETWORK_FORENSICS_PATH, handler)
             httpServer.start()
             server = httpServer
-            ProbeLogger.info("Web 面板已启动,监听 $host:$port(/、/startup、/history)")
+            ProbeLogger.info("Web 面板已启动,监听 $host:$port(/、/startup、/history、/network-forensics)")
         } catch (e: Exception) {
             // 起服失败静默降级:探针绝不成为事故源
             ProbeLogger.warn("Web 面板启动失败($host:$port),已降级跳过:${e.message}(若端口被占用请改 web.port 后重试)")
@@ -106,6 +107,9 @@ class WebPanelServer {
 
         /** 历史趋势页路径。 */
         private const val HISTORY_PATH = "/history"
+
+        /** 网络包取证查询页路径。 */
+        private const val NETWORK_FORENSICS_PATH = "/network-forensics"
     }
 }
 
@@ -142,15 +146,31 @@ private class PanelHandler(
             val html = when (exchange.requestURI.path) {
                 "/startup" -> WebPanelHtml.renderStartup(readApi.lastStartupProfile())
                 "/history" -> WebPanelHtml.renderHistory(readApi.recentSnapshots(HISTORY_LIMIT))
+                "/network-forensics" -> renderNetworkForensics(exchange)
                 else -> WebPanelHtml.renderHome(readApi.latestSnapshot())
             }
             respond(exchange, 200, html, "text/html; charset=utf-8")
+        } catch (_: IllegalArgumentException) {
+            respond(exchange, 400, "Bad Request")
         } catch (e: Exception) {
             ProbeLogger.warn("处理 Web 面板请求时发生异常:${e.message}")
             runCatching { respond(exchange, 500, "Internal Server Error") }
         } finally {
             exchange.close()
         }
+    }
+
+    /** 解析受限查询并经既有只读 API 读取完整取证记录；鉴权已在外层完成。 */
+    private fun renderNetworkForensics(exchange: HttpExchange): String {
+        if (exchange.requestURI.rawQuery.isNullOrBlank()) {
+            return WebPanelHtml.renderNetworkForensicsGuide()
+        }
+        val query = NetworkForensicsWebQuery.parse(exchange.requestURI.rawQuery)
+        return WebPanelHtml.renderNetworkForensics(
+            readApi.queryNetworkPackets(query.toApiQuery()),
+            readApi.networkForensicsStatus(),
+            query,
+        )
     }
 
     /** 鉴权校验:token(若启用)+ IP 白名单。返回拒绝状态码或 null(通过)。 */

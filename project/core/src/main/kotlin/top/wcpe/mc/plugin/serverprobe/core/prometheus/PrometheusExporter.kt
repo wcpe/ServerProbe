@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
+import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostEnable
@@ -45,6 +46,10 @@ class PrometheusExporter {
     @Inject
     lateinit var cpuSampler: CpuAttributionSampler
 
+    /** FR11 的只读聚合流量出口，Prometheus 只读取脱敏后的计数。 */
+    @Inject
+    lateinit var traffic: PacketTrafficService
+
     /** 运行中的 HTTP 服务句柄;未开启或起服失败时为 null。 */
     @Volatile
     private var server: HttpServer? = null
@@ -78,7 +83,8 @@ class PrometheusExporter {
                     readApi,
                     ProbeConfig.metricsToken(),
                     ProbeConfig.metricsAllowedIps(),
-                    cpuSampler
+                    cpuSampler,
+                    traffic,
                 )
             )
             httpServer.start()

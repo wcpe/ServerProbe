@@ -11,10 +11,13 @@ import top.wcpe.mc.plugin.serverprobe.api.model.GcCollectorMetric
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MemoryPoolMetric
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 
 /**
  * [PrometheusTextFormatter] 单元测试。
@@ -119,6 +122,65 @@ class PrometheusTextFormatterTest {
         assertFalse(text.contains("serverprobe_world_tile_entities"), "世界 tile_entities=-1 不应导出")
     }
 
+    /** Folia 全局值保持 N/A，但已观测 region 明细与世界汇总必须独立导出。 */
+    @Test
+    fun `Folia 已观测 region 指标独立导出且不伪造全局值`() {
+        val text = PrometheusTextFormatter.format(unavailableFieldsSnapshot().toBuilder()
+            .server(unavailableFieldsSnapshot().server.toBuilder()
+                .observedRegions(listOf(
+                    ObservedRegionMetrics.builder()
+                        .worldName("world")
+                        .foliaRegionId(42)
+                        .regionSequence(7)
+                        .observed(true)
+                        .centerChunkX(8)
+                        .centerChunkZ(-4)
+                        .playerCount(2)
+                        .sampleCount(4)
+                        .tpsAvg(19.5)
+                        .tpsP95(20.0)
+                        .tpsP99(20.0)
+                        .msptAvg(20.0)
+                        .msptP95(30.0)
+                        .msptP99(35.0)
+                        .lastSeenMs(1_700_000_000_000)
+                        .build()
+                ))
+                .observedRegionWorlds(listOf(
+                    ObservedRegionWorldMetrics.builder()
+                        .worldName("world")
+                        .activeRegions(1)
+                        .playerCount(2)
+                        .sampleCount(4)
+                        .tpsAvg(19.5)
+                        .tpsP95(20.0)
+                        .tpsP99(20.0)
+                        .msptAvg(20.0)
+                        .msptP95(30.0)
+                        .msptP99(35.0)
+                        .build()
+                ))
+                .build())
+            .build())
+
+        assertFalse(text.contains("serverprobe_tps{"), "Folia 全局 TPS 不应被伪造")
+        assertFalse(text.contains("serverprobe_mspt_seconds{"), "Folia 全局 MSPT 不应被伪造")
+        assertContainsLine(
+            text,
+            """serverprobe_folia_observed_region_tps{serverId="srv-2",platform="BUKKIT",world="world",folia_region_id="42",region="7",observed="true",chunk_x="8",chunk_z="-4",quantile="avg"}""" +
+                " 19.5"
+        )
+        assertContainsLine(
+            text,
+            """serverprobe_folia_observed_region_mspt_seconds{serverId="srv-2",platform="BUKKIT",world="world",folia_region_id="42",region="7",observed="true",chunk_x="8",chunk_z="-4",quantile="p99"}""" +
+                " 0.035"
+        )
+        assertContainsLine(
+            text,
+            """serverprobe_folia_observed_world_regions{serverId="srv-2",platform="BUKKIT",world="world"} 1"""
+        )
+    }
+
     /** ③ 代理端快照(server=null,proxy 非空):仅含 jvm + proxy,无 tps/mspt/world。 */
     @Test
     fun `代理端快照仅含 JVM 与代理指标`() {
@@ -161,6 +223,29 @@ class PrometheusTextFormatterTest {
             text.contains("""pool="weird\"pool\\\nname""""),
             "label 值应转义双引号/反斜杠/换行,实际输出:\n$text"
         )
+    }
+
+    /** FR11 只导出脱敏流量聚合，不能把完整 IP 或包载荷带入 Prometheus。 */
+    @Test
+    fun `网络取证聚合仅导出速率包类型和脱敏 IP`() {
+        val traffic = PacketTrafficReport(
+            ingressBytesPerSecond = 128,
+            egressBytesPerSecond = 64,
+            ingressPacketsPerSecond = 4,
+            egressPacketsPerSecond = 2,
+            packetTypeCounts = mapOf("PluginMessagePacket" to 3),
+            maskedIpPacketCounts = mapOf("203.0.113.0/24" to 3, "other" to 1),
+        )
+
+        val text = PrometheusTextFormatter.format(fullServerSnapshot(), traffic = traffic)
+
+        assertContainsLine(text, """serverprobe_network_ingress_bytes_per_second{serverId="srv-1",platform="BUKKIT"} 128""")
+        assertContainsLine(text, """serverprobe_network_packet_type_packets{serverId="srv-1",platform="BUKKIT",""" +
+            """packet_type="PluginMessagePacket"} 3""")
+        assertContainsLine(text, """serverprobe_network_masked_ip_packets{serverId="srv-1",platform="BUKKIT",""" +
+            """ip_prefix="203.0.113.0/24"} 3""")
+        assertFalse(text.contains("203.0.113.77"), "Prometheus 不得输出完整 IP")
+        assertFalse(text.contains("payload"), "Prometheus 不得输出包载荷")
     }
 
     // —— 测试夹具 ——
