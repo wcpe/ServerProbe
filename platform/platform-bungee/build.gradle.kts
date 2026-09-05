@@ -1,5 +1,9 @@
 import io.izzel.taboolib.gradle.*
 
+plugins {
+    id("serverprobe.base")
+}
+
 // BungeeCord 代理端采集器模块(Java 8,无 Bukkit/NMS,保持纯净)。
 taboolib {
     env {
