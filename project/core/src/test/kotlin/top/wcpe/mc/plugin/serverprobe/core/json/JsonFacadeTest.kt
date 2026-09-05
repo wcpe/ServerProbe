@@ -47,6 +47,8 @@ class JsonFacadeTest {
 
     /** 假只读树:把 type 固定回 "command",其余键回默认值,验证取字段路径透传。 */
     private class FakeJsonObject(private val raw: String) : JsonObject {
+        override fun getRaw(key: String): Any? = if (key == "type") "command" else null
+
         override fun getString(key: String, default: String): String =
             if (key == "type" && raw.contains("command")) "command" else default
 

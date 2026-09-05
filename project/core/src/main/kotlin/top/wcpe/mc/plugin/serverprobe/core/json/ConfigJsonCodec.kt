@@ -41,6 +41,8 @@ object ConfigJsonCodec : JsonCodec {
  */
 internal class ConfigJsonObject(private val section: ConfigurationSection) : JsonObject {
 
+    override fun getRaw(key: String): Any? = section.get(key)
+
     override fun getString(key: String, default: String): String = section.getString(key) ?: default
 
     override fun getInt(key: String, default: Int): Int = section.getInt(key, default)

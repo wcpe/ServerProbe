@@ -37,6 +37,13 @@ interface JsonCodec {
  */
 interface JsonObject {
 
+    /**
+     * 取得字段的原始 JSON 值。
+     *
+     * 用于 JSON-RPC 的 `id` 回显，必须保持请求中的数值、字符串或 null 类型，不能先转为文本。
+     */
+    fun getRaw(key: String): Any? = null
+
     /** 取字符串字段；缺失或类型不符返回 [default]。 */
     fun getString(key: String, default: String = ""): String
 
