@@ -51,6 +51,19 @@ class BusinessHost {
         }
     }
 
+    /**
+     * 撤销一个已注册的业务 Provider。
+     *
+     * 仅当当前域仍指向传入实例时才删除，避免外部插件重载后旧实例的卸载回调误删新实例。
+     *
+     * @param provider 待撤销的 Provider。
+     */
+    fun unregister(provider: BusinessProvider) {
+        if (providers.remove(provider.domain, provider)) {
+            ProbeLogger.info("业务 Provider 已撤销:domain=${provider.domain}")
+        }
+    }
+
     /** 当前已注册的业务域集合(只读快照)。 */
     fun domains(): Set<String> = providers.keys.toSet()
 

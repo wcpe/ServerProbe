@@ -96,6 +96,22 @@ class BusinessHostTest {
         assertTrue(domains.contains("economy") && domains.contains("inventory"), "应含 economy 与 inventory:$domains")
     }
 
+    /** 指定实例卸载后不应误删同域后来注册的 Provider。 */
+    @Test
+    fun `unregister 仅撤销指定实例`() {
+        val host = BusinessHost()
+        val first = StubProvider("economy") { _, _ -> BridgeCommandResult.ok("first") }
+        val second = StubProvider("economy") { _, _ -> BridgeCommandResult.ok("second") }
+        host.register(first)
+        host.register(second)
+
+        host.unregister(first)
+
+        assertEquals("second", host.dispatch("economy", "balance", "").output)
+        host.unregister(second)
+        assertFalse(host.dispatch("economy", "balance", "").success, "已卸载 Provider 不应继续接受业务命令")
+    }
+
     private companion object {
         /** 测试用小超时(毫秒),避免命中生产 5s 超时拖慢测试。 */
         private const val TEST_TIMEOUT_MS = 100L
