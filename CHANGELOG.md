@@ -9,7 +9,7 @@
 
 ---
 
-## [未发布] (Unreleased)
+## [0.3.0] - 2026-09-05
 
 ### 新增
 - **FR-08 存储扩展注册**：新增 `ServerProbeStorageApi.install` 与 `MetricStoreRegistration`。运行期最多启用一个第三方 `MetricStore`，关闭注册后原子回退内置本地文件实现；重复安装和陈旧句柄均有明确保护。

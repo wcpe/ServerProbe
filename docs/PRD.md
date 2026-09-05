@@ -51,14 +51,14 @@
 | FR-07 | 方法级精确归因：Incision 采集 `enablePlugin` 逐插件精确耗时（可选、默认关闭） | P3 | 已交付@v0.2.0 |
 | FR-08 | 开放接口：只读数据访问 API + 存储 SPI + 导出端点 | P2 | 已交付@v0.2.0 |
 | FR-09 | 业务对接 agent（JBIS）：经反向 WS 桥承接业务命令路由到业务插件 Provider 执行并回执、业务事件上报，事故域隔离 | P2 | 已交付@v0.2.0 |
-| FR-10 | 内置业务集成模块化：MultiCurrencyEconomy / AllinInventorySync 独立 Gradle 模块，发布时合入单 jar | P2 | 开发中¹ |
-| FR-11 | 全平台网络流量与数据包取证：双向 bytes/s、packets/s、包类型计数，本地 SQLite 白名单取证 | P2 | 开发中¹ |
-| FR-12 | Folia 已观测 region TPS/MSPT 明细与世界汇总 | P2 | 开发中¹ |
-| FR-13 | Velocity 3.1.1–4.x 平台支持（单 jar、双编译门、Java 8 入口） | P2 | 开发中¹ |
-| FR-14 | 外部 MCP 深度诊断控制：内嵌 Arthas Core（默认关闭、明确授权控制面） | P2 | 开发中¹ |
+| FR-10 | 内置业务集成模块化：MultiCurrencyEconomy / AllinInventorySync 独立 Gradle 模块，发布时合入单 jar | P2 | 已交付@v0.3.0 |
+| FR-11 | 全平台网络流量与数据包取证：双向 bytes/s、packets/s、包类型计数，本地 SQLite 白名单取证 | P2 | 已交付@v0.3.0 |
+| FR-12 | Folia 已观测 region TPS/MSPT 明细与世界汇总 | P2 | 已交付@v0.3.0 |
+| FR-13 | Velocity 3.1.1–4.x 平台支持（单 jar、双编译门、Java 8 入口） | P2 | 已交付@v0.3.0 |
+| FR-14 | 外部 MCP 深度诊断控制：内嵌 Arthas Core（默认关闭、明确授权控制面） | P2 | 已交付@v0.3.0 |
 
 > 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
-> ¹ FR-10~FR-14 已完成真机验收、证据齐备（见各 spec），待下次正式版本经 `sdd-release-version` 统一登记为 `已交付@vX.Y.Z`——开发 / 修复过程中不得自行预标。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
+> FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
 > 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [built-in-integrations](specs/built-in-integrations.md)、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 5. 非功能需求（NFR）
