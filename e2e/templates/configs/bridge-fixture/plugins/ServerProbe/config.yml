@@ -1,0 +1,7 @@
+# FR9 桥 fixture 场景：ServerProbe 配置（一次性回环桥配置，token/端口由构建期随机生成）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"

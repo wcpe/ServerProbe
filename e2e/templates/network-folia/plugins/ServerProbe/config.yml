@@ -1,0 +1,23 @@
+collect-period-ticks: 20
+network-forensics:
+  enabled: true
+  payload-packet-types:
+    - "bukkit.ServerboundCustomPayloadPacket"
+  payload-channels:
+    - "serverprobe:test"
+  # E2E 使用小于协议单包上限的 16KiB 阈值，验证前缀截断；生产默认值仍为 64KiB。
+  max-payload-bytes: 16384
+  retention-days: 60
+  max-total-gib: 4
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9950
+  token: "network-forensics-e2e"
+  allowed-ips: ["127.0.0.1"]
+web:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9951
+  token: "network-forensics-e2e"
+  allowed-ips: ["127.0.0.1"]

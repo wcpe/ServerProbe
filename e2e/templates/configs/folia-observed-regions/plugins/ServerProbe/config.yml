@@ -1,0 +1,6 @@
+# FR12 Folia 已观测 region 场景：快速采样 + 短 region 过期（加速验收）
+collect-period-ticks: 20
+world:
+  sample-period-ticks: 20
+folia:
+  observed-region-expire-seconds: 2

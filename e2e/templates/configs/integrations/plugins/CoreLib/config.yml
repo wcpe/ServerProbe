@@ -1,0 +1,23 @@
+# FR10 集成场景：CoreLib 配置（嵌入式 H2，测试专用，可公开）
+server:
+  id: "serverprobe-e2e"
+  zone-id: "0"
+  name: "serverprobe-e2e"
+  display-name: "ServerProbe E2E"
+datasource:
+  edition: embedded
+  sources:
+    default:
+      enabled: true
+      mode: h2-embedded
+      dialect: h2
+      filePath: "plugins/CoreLib/data/h2/corelib"
+      username: "sa"
+      password: ""
+      driver-class-name: "org.h2.Driver"
+      params:
+        MODE: "MySQL"
+        DB_CLOSE_DELAY: "-1"
+redis:
+  default:
+    enabled: false

@@ -1,0 +1,5 @@
+name: ServerProbeMcpJava8Harness
+version: 1.0.0-SNAPSHOT
+main: top.wcpe.mc.plugin.serverprobe.e2e.mcp.Java8McpDiagnosticsHarness
+api-version: '1.16'
+depend: [ServerProbe]

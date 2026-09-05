@@ -1,0 +1,6 @@
+name: ServerProbeNetworkBukkitHarness
+version: 1.0.0-SNAPSHOT
+main: top.wcpe.mc.plugin.serverprobe.e2e.network.BukkitNetworkForensicsHarness
+api-version: '1.13'
+folia-supported: true
+depend: [ServerProbe]

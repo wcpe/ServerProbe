@@ -1,0 +1,7 @@
+# FR10 集成场景：ServerProbe 配置（collect-period 加速采样）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"

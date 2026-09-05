@@ -1,0 +1,10 @@
+# ServerProbe 的独立 Paper/Folia E2E harness。
+name: ServerProbeE2eHarness
+main: top.wcpe.mc.plugin.serverprobe.e2e.ServerProbeE2eHarnessPlugin
+version: 1.0.0-SNAPSHOT
+api-version: '1.13'
+# 桩同时以 Folia 全局区域调度器执行，显式声明支持才能被 Folia 加载。
+folia-supported: true
+# FR9 fixture 必须早于 ServerProbe 绑定已由准备任务写入的回环地址。
+loadbefore:
+  - ServerProbe

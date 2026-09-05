@@ -1,0 +1,10 @@
+# FR10 集成场景：AllinInventorySync 配置（测试专用）
+server-id: "serverprobe-e2e"
+storage:
+  type: json
+owner-lease:
+  enabled: false
+tracked-items:
+  integrations-diamond:
+    material: "DIAMOND"
+    description: "FR10 真实事件验收物品"

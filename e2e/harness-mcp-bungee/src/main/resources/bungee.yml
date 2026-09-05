@@ -1,0 +1,4 @@
+name: ServerProbeMcpBungeeHarness
+version: 1.0.0-SNAPSHOT
+main: top.wcpe.mc.plugin.serverprobe.e2e.mcp.BungeeMcpDiagnosticsHarness
+depends: [ServerProbe]

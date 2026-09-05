@@ -1,0 +1,6 @@
+mcp:
+  enabled: true
+  host: "127.0.0.1"
+  port: 19881
+  secret: ""
+  task-timeout-minutes: 1

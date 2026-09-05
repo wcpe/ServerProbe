@@ -1,0 +1,15 @@
+{
+  "name": "serverprobe-e2e-bot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "ServerProbe mc-testkit 真实协议验收机器人",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "connect-and-wait": "node src/connectAndWait.js"
+  },
+  "dependencies": {
+    "mineflayer": "^4.23.0"
+  }
+}

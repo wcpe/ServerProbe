@@ -1,0 +1,6 @@
+name: ServerProbeMcpBukkitHarness
+version: 1.0.0-SNAPSHOT
+main: top.wcpe.mc.plugin.serverprobe.e2e.mcp.BukkitMcpDiagnosticsHarness
+api-version: '1.20'
+depend: [ServerProbe]
+folia-supported: true
