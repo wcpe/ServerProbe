@@ -21,6 +21,7 @@ pluginManagement {
 // 若其排在前面会导致 Gradle 中止不回退(detekt 工具依赖 kotlin-compiler-embeddable 曾因此解析失败)。
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    val velocityApi4RepositoryFallback = providers.gradleProperty("velocityApi4RepositoryFallback").isPresent
     repositories {
         mavenLocal()
         // Mojang 原始库完整托管 DataFixerUpper，聚合仓库缺少目标 jar 时优先从此处解析。
@@ -35,6 +36,9 @@ dependencyResolutionManagement {
                 includeGroup("ink.ptms.core")
             }
         }
+        if (velocityApi4RepositoryFallback) {
+            maven("https://maven.wcpe.top/repository/maven-public/")
+        }
         mavenCentral()
         maven("https://maven.aliyun.com/repository/central")
         maven("https://maven.wcpe.top/repository/maven-public/")
@@ -48,8 +52,27 @@ dependencyResolutionManagement {
 
 rootProject.name = "ServerProbe"
 
+// convention 插件（included build）：serverprobe.base / serverprobe.e2e-harness /
+// serverprobe.bundle / serverprobe.e2e-verification 的实现所在
+includeBuild("build-logic")
+
 include("api")
 include("project:core")
 include("platform:platform-bukkit")
 include("platform:platform-bungee")
+include("platform:platform-velocity")
+include("integration:integration-multicurrencyeconomy")
+include("integration:integration-allininventorysync")
+include("diagnostics:diagnostics-arthas")
 include("plugin")
+
+// E2E 验收桩（原独立 Gradle 工程收编为子项目，产物仍为 mc-testkit-*-harness jar）
+include("e2e:harness")
+include("e2e:harness-network-bukkit")
+include("e2e:harness-network-bungee")
+include("e2e:harness-network-velocity")
+include("e2e:harness-velocity-matrix")
+include("e2e:harness-mcp-bukkit")
+include("e2e:harness-mcp-bungee")
+include("e2e:harness-mcp-velocity")
+include("e2e:harness-mcp-java8")

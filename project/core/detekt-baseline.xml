@@ -3,16 +3,26 @@
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
     <ID>ComplexCondition:PrometheusTextFormatter.kt$PrometheusTextFormatter.MetricWriter$value.isFinite() &amp;&amp; value == Math.floor(value) &amp;&amp; !value.isInfinite() &amp;&amp; value &gt;= Long.MIN_VALUE.toDouble() &amp;&amp; value &lt;= Long.MAX_VALUE.toDouble()</ID>
+    <ID>CyclomaticComplexMethod:NativeMcpToolProvider.kt$NativeMcpToolProvider$override fun call(name: String, arguments: top.wcpe.mc.plugin.serverprobe.core.json.JsonObject?): Map&lt;String, Any?&gt;</ID>
     <ID>ImplicitDefaultLocale:LogAlertChannel.kt$LogAlertChannel$String.format("%.2f", value)</ID>
     <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%.1fs", ms / MILLIS_PER_SECOND)</ID>
     <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%s%.1f%%", sign, abs(percent))</ID>
     <ID>ImplicitDefaultLocale:StartupComparator.kt$StartupComparator$String.format("%s%.1fs", sign, abs(deltaMs) / MILLIS_PER_SECOND)</ID>
     <ID>LongParameterList:MetricAggregatorTest.kt$MetricAggregatorTest$( timestampMs: Long, tps1m: Double?, msptP95: Double? = 1.0, msptP99: Double? = 1.0, gcYoungCount: Long = 0, gcOldCount: Long = 0, gcYoungTimeMs: Long = 0, gcOldTimeMs: Long = 0 )</ID>
-    <ID>LongParameterList:StartupProfileBuilder.kt$StartupProfileBuilder$( mcVersion: String, platform: ProbePlatform, serverId: String, totalMs: Long, pluginTimings: List&lt;PluginTiming&gt;, worldTimings: List&lt;WorldTiming&gt;, agentData: AgentStartupData? = null )</ID>
+    <ID>LongParameterList:PrometheusTextFormatter.kt$PrometheusTextFormatter$( writer: MetricWriter, prefix: String, labels: List&lt;Pair&lt;String, String&gt;&gt;, tpsAvg: Double?, tpsP95: Double?, tpsP99: Double?, msptAvg: Double?, msptP95: Double?, msptP99: Double? )</ID>
+    <ID>LongParameterList:ReflectiveNettyForensics.kt$ReflectiveNettyForensicsRegistry$( private val platformId: String, private val channelGetterPath: List&lt;String&gt;, private val decoderHandlerName: String, private val encoderHandlerName: String, private val recorder: NettyPacketForensicsRecorder, private val maxPayloadBytes: Int, private val debug: NettyForensicsDebugLogger? = null, )</ID>
+    <ID>LongParameterList:SqlitePacketForensicsStore.kt$SqlitePacketForensicsStore$( private val databasePath: Path, private val queueCapacity: Int = DEFAULT_QUEUE_CAPACITY, private val batchSize: Int = DEFAULT_BATCH_SIZE, private val retentionDays: Int = DEFAULT_RETENTION_DAYS, private val maxDatabaseBytes: Long = DEFAULT_MAX_DATABASE_BYTES, private val nowMs: () -&gt; Long = System::currentTimeMillis, private val driverLoader: () -&gt; Unit = { Class.forName(SQLITE_DRIVER) }, private val onWarning: (String) -&gt; Unit = ProbeLogger::warn, )</ID>
     <ID>LoopWithTooManyJumpStatements:LocalFileMetricStore.kt$LocalFileMetricStore$while</ID>
     <ID>LoopWithTooManyJumpStatements:MetricHistoryFile.kt$MetricHistoryFile$for</ID>
+    <ID>MaxLineLength:PrometheusTextFormatterTest.kt$PrometheusTextFormatterTest$"""serverprobe_folia_observed_region_mspt_seconds{serverId="srv-2",platform="BUKKIT",world="world",folia_region_id="42",region="7",observed="true",chunk_x="8",chunk_z="-4",quantile="p99"}"""</ID>
+    <ID>MaxLineLength:PrometheusTextFormatterTest.kt$PrometheusTextFormatterTest$"""serverprobe_folia_observed_region_tps{serverId="srv-2",platform="BUKKIT",world="world",folia_region_id="42",region="7",observed="true",chunk_x="8",chunk_z="-4",quantile="avg"}"""</ID>
+    <ID>MaxLineLength:PrometheusTextFormatterTest.kt$PrometheusTextFormatterTest$assertContainsLine(text, """serverprobe_network_masked_ip_packets{serverId="srv-1",platform="BUKKIT",ip_prefix="203.0.113.0/24"}""" + " 3""")</ID>
+    <ID>MaxLineLength:PrometheusTextFormatterTest.kt$PrometheusTextFormatterTest$assertContainsLine(text, """serverprobe_network_packet_type_packets{serverId="srv-1",platform="BUKKIT",packet_type="PluginMessagePacket"}""" + " 3""")</ID>
     <ID>TooGenericExceptionCaught:MetricsHttpHandler.kt$MetricsHttpHandler$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PrometheusExporter.kt$PrometheusExporter$e: Exception</ID>
+    <ID>TooManyFunctions:NativeMcpToolProvider.kt$NativeMcpToolProvider : McpToolProvider</ID>
     <ID>TooManyFunctions:ProbeConfig.kt$ProbeConfig</ID>
+    <ID>TooManyFunctions:SqlitePacketForensicsStore.kt$SqlitePacketForensicsStore : PacketForensicsStore</ID>
+    <ID>TooManyFunctions:WebPanelHtml.kt$WebPanelHtml</ID>
   </CurrentIssues>
 </SmellBaseline>
