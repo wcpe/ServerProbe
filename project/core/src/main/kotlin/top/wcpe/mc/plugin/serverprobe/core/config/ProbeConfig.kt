@@ -97,6 +97,14 @@ object ProbeConfig {
     fun historyFileRetentionDays(): Int =
         conf.getInt(KEY_HISTORY_FILE_RETENTION_DAYS, DEFAULT_HISTORY_FILE_RETENTION_DAYS)
 
+    /** 过期指标 jsonl 的 gzip 归档保留天数(0=过期即删不归档)。 */
+    fun historyFileArchiveDays(): Int =
+        conf.getInt(KEY_HISTORY_FILE_ARCHIVE_DAYS, DEFAULT_HISTORY_FILE_ARCHIVE_DAYS)
+
+    /** 启动画像栈样本保留条数(均匀抽稀;0=不限,默认 10)。 */
+    fun agentStackMaxSamples(): Int =
+        conf.getInt(KEY_AGENT_STACK_MAX_SAMPLES, DEFAULT_AGENT_STACK_MAX_SAMPLES)
+
     /**
      * 单实例历史指标文件总体积上限(MB,FR3.2),默认 200;超出后从最旧文件起清理至达标(绝不删当天)。
      *
@@ -123,6 +131,41 @@ object ProbeConfig {
      * @return 是否开启按类型实体统计。
      */
     fun worldEntityTypes(): Boolean = conf.getBoolean(KEY_WORLD_ENTITY_TYPES, DEFAULT_WORLD_ENTITY_TYPES)
+
+    /**
+     * Folia 已观测 region 无新样本后的过期秒数，默认 60，至少为 1。
+     *
+     * @return region 指标过期秒数。
+     */
+    fun foliaObservedRegionExpireSeconds(): Long =
+        conf.getLong(KEY_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS, DEFAULT_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS)
+            .coerceAtLeast(MIN_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS)
+
+    /** 是否开启 SQLite 网络包取证，默认开启。 */
+    fun networkForensicsEnabled(): Boolean =
+        conf.getBoolean(KEY_NETWORK_FORENSICS_ENABLED, DEFAULT_NETWORK_FORENSICS_ENABLED)
+
+    /** 允许保存载荷的包类型白名单。 */
+    fun networkForensicsPayloadPacketTypes(): Set<String> =
+        conf.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_PACKET_TYPES).map(String::trim).filter(String::isNotEmpty).toSet()
+
+    /** Plugin Message 允许保存载荷的频道白名单。 */
+    fun networkForensicsPayloadChannels(): Set<String> =
+        conf.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_CHANNELS).map(String::trim).filter(String::isNotEmpty).toSet()
+
+    /** 单包保留载荷的最大字节数，最小为 1。 */
+    fun networkForensicsMaxPayloadBytes(): Int =
+        conf.getInt(KEY_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES, DEFAULT_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES)
+            .coerceAtLeast(MIN_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES)
+
+    /** SQLite 取证保留天数，最小为 0。 */
+    fun networkForensicsRetentionDays(): Int =
+        conf.getInt(KEY_NETWORK_FORENSICS_RETENTION_DAYS, DEFAULT_NETWORK_FORENSICS_RETENTION_DAYS).coerceAtLeast(0)
+
+    /** SQLite 与 WAL 文件合计上限，单位为字节，最小为 1 GiB。 */
+    fun networkForensicsMaxTotalBytes(): Long =
+        conf.getLong(KEY_NETWORK_FORENSICS_MAX_TOTAL_GIB, DEFAULT_NETWORK_FORENSICS_MAX_TOTAL_GIB)
+            .coerceAtLeast(MIN_NETWORK_FORENSICS_MAX_TOTAL_GIB) * BYTES_PER_GIB
 
     /**
      * 是否开启 HTTP/TCP 外呼监控(M5,需挂载 agent),默认 true。
@@ -224,6 +267,51 @@ object ProbeConfig {
             ?.filter { it.isNotEmpty() }
         return configured?.takeIf { it.isNotEmpty() } ?: DEFAULT_METRICS_ALLOWED_IPS
     }
+
+    /** 是否开启事故诊断 MCP 控制面，默认关闭。 */
+    fun mcpEnabled(): Boolean = conf.getBoolean(KEY_MCP_ENABLED, DEFAULT_MCP_ENABLED)
+
+    /** MCP 监听地址，默认仅本机回环。 */
+    fun mcpHost(): String = conf.getString(KEY_MCP_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MCP_HOST
+
+    /** MCP 监听端口，默认 9942。 */
+    fun mcpPort(): Int = conf.getInt(KEY_MCP_PORT, DEFAULT_MCP_PORT)
+
+    /** MCP Bearer 密钥；空串表示显式允许无认证。 */
+    fun mcpSecret(): String = conf.getString(KEY_MCP_SECRET)?.trim() ?: DEFAULT_MCP_SECRET
+
+    /** MCP Arthas 同时运行的任务数。 */
+    fun mcpTaskMaxConcurrent(): Int = conf.getInt(KEY_MCP_TASK_MAX_CONCURRENT, DEFAULT_MCP_TASK_MAX_CONCURRENT).coerceAtLeast(1)
+
+    /** MCP Arthas 单任务最长分钟数；零表示不限时。 */
+    fun mcpTaskTimeoutMinutes(): Long = conf.getLong(KEY_MCP_TASK_TIMEOUT_MINUTES, DEFAULT_MCP_TASK_TIMEOUT_MINUTES).coerceAtLeast(0)
+
+    /** MCP Arthas 单任务输出上限，单位 MiB。 */
+    fun mcpTaskOutputMebibytes(): Int = conf.getInt(KEY_MCP_TASK_OUTPUT_MEBIBYTES, DEFAULT_MCP_TASK_OUTPUT_MEBIBYTES).coerceAtLeast(1)
+
+    /** MCP Arthas 完成任务的保留分钟数。 */
+    fun mcpTaskRetentionMinutes(): Long = conf.getLong(KEY_MCP_TASK_RETENTION_MINUTES, DEFAULT_MCP_TASK_RETENTION_MINUTES).coerceAtLeast(1)
+
+    /** MCP 工件保留小时数。 */
+    fun mcpArtifactRetentionHours(): Long =
+    conf.getLong(KEY_MCP_ARTIFACT_RETENTION_HOURS, DEFAULT_MCP_ARTIFACT_RETENTION_HOURS).coerceAtLeast(1)
+
+    /** 外呼 .log 原始保留天数(过期 gzip 归档)。 */
+    fun httpMonitorFileRetentionDays(): Int =
+        conf.getInt(KEY_HTTP_MONITOR_FILE_RETENTION_DAYS, DEFAULT_HTTP_MONITOR_FILE_RETENTION_DAYS)
+
+    /** 外呼 gzip 归档保留天数(0=过期直接删除)。 */
+    fun httpMonitorFileArchiveDays(): Int =
+        conf.getInt(KEY_HTTP_MONITOR_FILE_ARCHIVE_DAYS, DEFAULT_HTTP_MONITOR_FILE_ARCHIVE_DAYS)
+
+    /** MCP 审计记录轮转阈值(活跃文件超过该体积 gzip 轮转),单位 MB。 */
+    fun mcpAuditMaxFileMb(): Int = conf.getInt(KEY_MCP_AUDIT_MAX_FILE_MB, DEFAULT_MCP_AUDIT_MAX_FILE_MB)
+
+    /** MCP 审计 gzip 归档保留天数(0=不过期)。 */
+    fun mcpAuditRetentionDays(): Int = conf.getInt(KEY_MCP_AUDIT_RETENTION_DAYS, DEFAULT_MCP_AUDIT_RETENTION_DAYS)
+
+    /** MCP 工件工作区总容量上限，单位 GiB。 */
+    fun mcpArtifactMaxGib(): Long = conf.getLong(KEY_MCP_ARTIFACT_MAX_GIB, DEFAULT_MCP_ARTIFACT_MAX_GIB).coerceAtLeast(1)
 
     /**
      * 是否开启插件桥反向 WS(FR-065,见 JianManager ADR-016),默认 false(关闭)。
@@ -505,12 +593,35 @@ object ProbeConfig {
 
     /** 配置键名:历史指标文件总体积上限(MB)。 */
     private const val KEY_HISTORY_FILE_MAX_TOTAL_MB = "history-file.max-total-mb"
+    private const val KEY_HISTORY_FILE_ARCHIVE_DAYS = "history-file.archive-days"
+    private const val KEY_AGENT_STACK_MAX_SAMPLES = "agent-stack-max-samples"
 
     /** 配置键名:世界采样周期(ticks)。 */
     private const val KEY_WORLD_SAMPLE_PERIOD_TICKS = "world.sample-period-ticks"
 
     /** 配置键名:世界按类型实体统计开关。 */
     private const val KEY_WORLD_ENTITY_TYPES = "world.entity-types"
+
+    /** 配置键名：Folia 已观测 region 过期秒数。 */
+    private const val KEY_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS = "folia.observed-region-expire-seconds"
+
+    /** 配置键名：网络取证总开关。 */
+    private const val KEY_NETWORK_FORENSICS_ENABLED = "network-forensics.enabled"
+
+    /** 配置键名：网络取证载荷包类型白名单。 */
+    private const val KEY_NETWORK_FORENSICS_PAYLOAD_PACKET_TYPES = "network-forensics.payload-packet-types"
+
+    /** 配置键名：网络取证插件消息频道白名单。 */
+    private const val KEY_NETWORK_FORENSICS_PAYLOAD_CHANNELS = "network-forensics.payload-channels"
+
+    /** 配置键名：网络取证单包载荷上限。 */
+    private const val KEY_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES = "network-forensics.max-payload-bytes"
+
+    /** 配置键名：网络取证保留天数。 */
+    private const val KEY_NETWORK_FORENSICS_RETENTION_DAYS = "network-forensics.retention-days"
+
+    /** 配置键名：网络取证 SQLite 体积上限。 */
+    private const val KEY_NETWORK_FORENSICS_MAX_TOTAL_GIB = "network-forensics.max-total-gib"
 
     /** 配置键名:外呼监控总开关。 */
     private const val KEY_HTTP_MONITOR_ENABLED = "http-monitor.enabled"
@@ -523,6 +634,10 @@ object ProbeConfig {
 
     /** 配置键名:外呼明细落盘开关。 */
     private const val KEY_HTTP_MONITOR_FILE_ENABLED = "http-monitor.file-enabled"
+    private const val KEY_HTTP_MONITOR_FILE_RETENTION_DAYS = "http-monitor.file-retention-days"
+    private const val DEFAULT_HTTP_MONITOR_FILE_RETENTION_DAYS = 7
+    private const val KEY_HTTP_MONITOR_FILE_ARCHIVE_DAYS = "http-monitor.file-archive-days"
+    private const val DEFAULT_HTTP_MONITOR_FILE_ARCHIVE_DAYS = 30
 
     /** 配置键名:外呼近期缓冲容量。 */
     private const val KEY_HTTP_MONITOR_RECENT_CAPACITY = "http-monitor.recent-capacity"
@@ -544,6 +659,40 @@ object ProbeConfig {
 
     /** 配置键名:Prometheus 端点 IP 白名单。 */
     private const val KEY_METRICS_ALLOWED_IPS = "metrics.allowed-ips"
+
+    /** 配置键名:MCP 控制面总开关。 */
+    private const val KEY_MCP_ENABLED = "mcp.enabled"
+
+    /** 配置键名:MCP 控制面监听地址。 */
+    private const val KEY_MCP_HOST = "mcp.host"
+
+    /** 配置键名:MCP 控制面监听端口。 */
+    private const val KEY_MCP_PORT = "mcp.port"
+
+    /** 配置键名:MCP 控制面 Bearer 密钥。 */
+    private const val KEY_MCP_SECRET = "mcp.secret"
+
+    /** 配置键名:MCP Arthas 任务并发上限。 */
+    private const val KEY_MCP_TASK_MAX_CONCURRENT = "mcp.task-max-concurrent"
+
+    /** 配置键名:MCP Arthas 单任务超时分钟数。 */
+    private const val KEY_MCP_TASK_TIMEOUT_MINUTES = "mcp.task-timeout-minutes"
+
+    /** 配置键名:MCP Arthas 单任务输出 MiB 上限。 */
+    private const val KEY_MCP_TASK_OUTPUT_MEBIBYTES = "mcp.task-output-mebibytes"
+
+    /** 配置键名:MCP Arthas 完成任务保留分钟数。 */
+    private const val KEY_MCP_TASK_RETENTION_MINUTES = "mcp.task-retention-minutes"
+
+    /** 配置键名:MCP 工件保留小时数。 */
+    private const val KEY_MCP_AUDIT_MAX_FILE_MB = "mcp.audit-max-file-mb"
+    private const val DEFAULT_MCP_AUDIT_MAX_FILE_MB = 20
+    private const val KEY_MCP_AUDIT_RETENTION_DAYS = "mcp.audit-retention-days"
+    private const val DEFAULT_MCP_AUDIT_RETENTION_DAYS = 30
+    private const val KEY_MCP_ARTIFACT_RETENTION_HOURS = "mcp.artifact-retention-hours"
+
+    /** 配置键名:MCP 工件容量上限 GiB。 */
+    private const val KEY_MCP_ARTIFACT_MAX_GIB = "mcp.artifact-max-gib"
 
     /** 配置键名:插件桥总开关。 */
     private const val KEY_BRIDGE_ENABLED = "bridge.enabled"
@@ -643,12 +792,41 @@ object ProbeConfig {
 
     /** 默认历史指标文件总体积上限(MB)。 */
     private const val DEFAULT_HISTORY_FILE_MAX_TOTAL_MB = 200
+    private const val DEFAULT_HISTORY_FILE_ARCHIVE_DAYS = 30
+    private const val DEFAULT_AGENT_STACK_MAX_SAMPLES = 10
 
     /** 默认世界采样周期(ticks),约 30 秒。 */
     private const val DEFAULT_WORLD_SAMPLE_PERIOD_TICKS = 600L
 
     /** 默认世界按类型实体统计开关。 */
     private const val DEFAULT_WORLD_ENTITY_TYPES = true
+
+    /** 默认 Folia 已观测 region 过期秒数。 */
+    private const val DEFAULT_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS = 60L
+
+    /** Folia 已观测 region 过期秒数下限。 */
+    private const val MIN_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS = 1L
+
+    /** 默认网络取证开关：开启。 */
+    private const val DEFAULT_NETWORK_FORENSICS_ENABLED = true
+
+    /** 默认网络取证单包载荷上限：64 KiB。 */
+    private const val DEFAULT_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES = 64 * 1_024
+
+    /** 网络取证单包载荷下限。 */
+    private const val MIN_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES = 1
+
+    /** 默认网络取证保留天数。 */
+    private const val DEFAULT_NETWORK_FORENSICS_RETENTION_DAYS = 60
+
+    /** 默认网络取证数据库上限，单位 GiB。 */
+    private const val DEFAULT_NETWORK_FORENSICS_MAX_TOTAL_GIB = 4L
+
+    /** 网络取证数据库上限下限，单位 GiB。 */
+    private const val MIN_NETWORK_FORENSICS_MAX_TOTAL_GIB = 1L
+
+    /** 每 GiB 的字节数。 */
+    private const val BYTES_PER_GIB = 1_024L * 1_024L * 1_024L
 
     /** 默认外呼监控开关:开启。 */
     private const val DEFAULT_HTTP_MONITOR_ENABLED = true
@@ -682,6 +860,34 @@ object ProbeConfig {
 
     /** 默认 Prometheus 端点 IP 白名单:仅本机回环(配置缺失/异常时兜底,杜绝裸奔)。 */
     private val DEFAULT_METRICS_ALLOWED_IPS = listOf("127.0.0.1")
+
+    /** 默认 MCP 控制面关闭。 */
+    private const val DEFAULT_MCP_ENABLED = false
+
+    /** 默认 MCP 控制面仅监听本机回环。 */
+    private const val DEFAULT_MCP_HOST = "127.0.0.1"
+
+    /** 默认 MCP 控制面监听端口。 */
+    private const val DEFAULT_MCP_PORT = 9942
+
+    /** 默认 MCP 控制面不预置密钥。 */
+    private const val DEFAULT_MCP_SECRET = ""
+
+    /** 默认 MCP Arthas 同时运行四个任务。 */
+    private const val DEFAULT_MCP_TASK_MAX_CONCURRENT = 4
+
+    /** 默认 MCP Arthas 单任务最多运行三十分钟。 */
+    private const val DEFAULT_MCP_TASK_TIMEOUT_MINUTES = 30L
+
+    /** 默认 MCP Arthas 单任务最多保留六十四 MiB 输出。 */
+    private const val DEFAULT_MCP_TASK_OUTPUT_MEBIBYTES = 64
+
+    /** 默认 MCP Arthas 完成任务保留六十分钟。 */
+    private const val DEFAULT_MCP_TASK_RETENTION_MINUTES = 60L
+
+    private const val DEFAULT_MCP_ARTIFACT_RETENTION_HOURS = 24L
+
+    private const val DEFAULT_MCP_ARTIFACT_MAX_GIB = 10L
 
     /** 默认插件桥总开关:关闭(独立使用探针时不连任何 Worker;由 JianManager 下发开启)。 */
     private const val DEFAULT_BRIDGE_ENABLED = false

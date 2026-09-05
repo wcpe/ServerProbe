@@ -7,7 +7,6 @@ import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
-import top.wcpe.taboolib.ioc.annotation.Service
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -39,7 +38,6 @@ import java.nio.file.StandardOpenOption
  * 本模块单测仅覆盖不依赖运行期 JSON 后端的纯逻辑([AtomicJsonWriter]、[InstanceId]、
  * [top.wcpe.mc.plugin.serverprobe.core.startup.StartupComparator])。
  */
-@Service
 class LocalFileMetricStore : MetricStore {
 
     /**
@@ -200,7 +198,14 @@ class LocalFileMetricStore : MetricStore {
             return
         }
         runCatching {
-            Files.newBufferedReader(file, StandardCharsets.UTF_8).use { reader ->
+            // gzip 归档档(过期文件)以 GZIP 流读取,历史查询跨归档窗口仍完整。
+            val input: java.io.InputStream =
+                if (file.fileName.toString().endsWith(".gz")) {
+                    java.util.zip.GZIPInputStream(Files.newInputStream(file), 8192)
+                } else {
+                    Files.newInputStream(file)
+                }
+            input.bufferedReader(StandardCharsets.UTF_8).use { reader ->
                 var taken = 0
                 while (taken < remaining) {
                     val line = reader.readLine() ?: break
@@ -273,8 +278,11 @@ class LocalFileMetricStore : MetricStore {
         MetricHistoryFile.prune(
             dataRoot = root,
             serverId = serverId,
-            retentionDays = ProbeConfig.historyFileRetentionDays(),
-            maxTotalMb = ProbeConfig.historyFileMaxTotalMb(),
+            policy = HistoryPrunePolicy(
+                retentionDays = ProbeConfig.historyFileRetentionDays(),
+                maxTotalMb = ProbeConfig.historyFileMaxTotalMb(),
+                archiveDays = ProbeConfig.historyFileArchiveDays(),
+            ),
             onError = { ProbeLogger.warn("清理历史指标文件失败:${it.message}") }
         )
         lastPruneDay = today

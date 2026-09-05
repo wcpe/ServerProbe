@@ -70,7 +70,8 @@ class MetricHistoryFileTest {
         val todayFile = writeHistoryFile(root, serverId, today, sizeBytes = 10)
         val oldFile = writeHistoryFile(root, serverId, today.minusDays(10), sizeBytes = 10)
 
-        MetricHistoryFile.prune(root, serverId, retentionDays = 7, maxTotalMb = 1024)
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 0))
 
         assertTrue(Files.exists(todayFile), "当天文件必须保留")
         assertFalse(Files.exists(oldFile), "超出保留天数的旧文件应被删除")
@@ -86,7 +87,8 @@ class MetricHistoryFileTest {
         val sixDaysAgo = writeHistoryFile(root, serverId, today.minusDays(6), sizeBytes = 10)
         val sevenDaysAgo = writeHistoryFile(root, serverId, today.minusDays(7), sizeBytes = 10)
 
-        MetricHistoryFile.prune(root, serverId, retentionDays = 7, maxTotalMb = 1024)
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 0))
 
         assertTrue(Files.exists(sixDaysAgo), "6 天前应在 7 天保留窗口内")
         assertFalse(Files.exists(sevenDaysAgo), "7 天前应越界被删")
@@ -103,7 +105,8 @@ class MetricHistoryFileTest {
         val middle = writeHistoryFile(root, serverId, today.minusDays(1), sizeBytes = ONE_MB)
         val todayFile = writeHistoryFile(root, serverId, today, sizeBytes = ONE_MB)
 
-        MetricHistoryFile.prune(root, serverId, retentionDays = 30, maxTotalMb = 2)
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 30, maxTotalMb = 2, archiveDays = 0))
 
         assertFalse(Files.exists(oldest), "超体积上限时应先删最旧文件")
         assertTrue(Files.exists(middle), "删到达标即止,次旧应保留")
@@ -119,7 +122,8 @@ class MetricHistoryFileTest {
         // 仅一个当天文件,体积 2MB,上限 1MB → 仍不得删当天
         val todayFile = writeHistoryFile(root, serverId, today, sizeBytes = 2 * ONE_MB)
 
-        MetricHistoryFile.prune(root, serverId, retentionDays = 7, maxTotalMb = 1)
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1, archiveDays = 0))
 
         assertTrue(Files.exists(todayFile), "即使超体积,当天文件也绝不删除")
     }
@@ -135,7 +139,8 @@ class MetricHistoryFileTest {
         val middle = writeHistoryFile(root, serverId, today.minusDays(1), sizeBytes = ONE_MB)
         val todayFile = writeHistoryFile(root, serverId, today, sizeBytes = ONE_MB)
 
-        MetricHistoryFile.prune(root, serverId, retentionDays = 30, maxTotalMb = 0)
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 30, maxTotalMb = 0, archiveDays = 0))
 
         assertTrue(Files.exists(oldest), "maxTotalMb=0 表示不限制体积,最旧文件不应被删")
         assertTrue(Files.exists(middle), "maxTotalMb=0 表示不限制体积,次旧文件不应被删")
@@ -267,11 +272,11 @@ class MetricHistoryFileTest {
         val root = Files.createTempDirectory("probe-history-prune-empty")
 
         // 实例目录尚不存在
-        assertDoesNotThrow { MetricHistoryFile.prune(root, "absent", retentionDays = 7, maxTotalMb = 200) }
+        assertDoesNotThrow { MetricHistoryFile.prune(root, "absent", policy = HistoryPrunePolicy(retentionDays = 7, maxTotalMb = 200)) }
 
         // 实例目录存在但为空
         Files.createDirectories(root.resolve("metrics").resolve("empty"))
-        assertDoesNotThrow { MetricHistoryFile.prune(root, "empty", retentionDays = 7, maxTotalMb = 200) }
+        assertDoesNotThrow { MetricHistoryFile.prune(root, "empty", policy = HistoryPrunePolicy(retentionDays = 7, maxTotalMb = 200)) }
     }
 
     /**
@@ -283,6 +288,67 @@ class MetricHistoryFileTest {
      * @param sizeBytes 文件字节数(用空格填充)。
      * @return 写出的文件路径。
      */
+    @Test
+    fun `prune 过期文件 gzip 归档且解压可还原内容`() {
+        val root = Files.createTempDirectory("probe-history-archive")
+        val serverId = "srv"
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val payload = "A".repeat(4096)
+        val oldFile = writeHistoryFileWithContent(root, serverId, today.minusDays(10), payload)
+
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 30))
+
+        val gz = oldFile.resolveSibling(oldFile.fileName.toString() + ".gz")
+        assertTrue(Files.exists(gz), "过期文件应 gzip 归档")
+        assertFalse(Files.exists(oldFile), "原始文件应删除")
+        val restored = java.util.zip.GZIPInputStream(Files.newInputStream(gz)).use {
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+        assertEquals(payload, restored, "归档解压内容必须与原始一致")
+    }
+
+    @Test
+    fun `archiveDays 为 0 时过期文件直接删除不归档`() {
+        val root = Files.createTempDirectory("probe-history-noarchive")
+        val serverId = "srv"
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val oldFile = writeHistoryFile(root, serverId, today.minusDays(10), sizeBytes = 10)
+
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 0))
+
+        assertFalse(Files.exists(oldFile))
+        assertFalse(Files.exists(oldFile.resolveSibling(oldFile.fileName.toString() + ".gz")))
+    }
+
+    @Test
+    fun `归档超过归档保留期后删除`() {
+        val root = Files.createTempDirectory("probe-history-archive-expiry")
+        val serverId = "srv"
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val oldFile = writeHistoryFile(root, serverId, today.minusDays(10), sizeBytes = 10)
+
+        // 先归档(archiveDays=30),再以 archiveDays=5 清理:10 天前的归档应越界删除
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 30))
+        val gz = oldFile.resolveSibling(oldFile.fileName.toString() + ".gz")
+        assertTrue(Files.exists(gz))
+        MetricHistoryFile.prune(root, serverId, policy = HistoryPrunePolicy(
+            retentionDays = 7, maxTotalMb = 1024, archiveDays = 5))
+
+        assertFalse(Files.exists(gz), "超过归档保留期的 gzip 应删除")
+    }
+
+    private fun writeHistoryFileWithContent(root: Path, serverId: String, day: LocalDate, content: String): Path {
+        val dir = root.resolve("metrics").resolve(serverId)
+        Files.createDirectories(dir)
+        val name = "metrics-${day.format(DateTimeFormatter.ofPattern("yyyyMMdd"))}.jsonl"
+        val file = dir.resolve(name)
+        Files.write(file, content.toByteArray(Charsets.UTF_8))
+        return file
+    }
+
     private fun writeHistoryFile(root: Path, serverId: String, day: LocalDate, sizeBytes: Int): Path {
         val dir = root.resolve("metrics").resolve(serverId)
         Files.createDirectories(dir)

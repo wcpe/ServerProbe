@@ -4,11 +4,15 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.aggregator.MetricAggregator
 import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer
 import top.wcpe.mc.plugin.serverprobe.core.orchestrator.MetricOrchestrator
 import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder
+import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketForensicsService
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
 
@@ -57,6 +61,10 @@ class ProbeReadApiImpl : ProbeReadApi {
     @Inject
     lateinit var store: MetricStore
 
+    /** 网络包取证服务，写入由平台适配器触发，FR8 只从此处受限读取。 */
+    @Inject
+    lateinit var packetForensics: PacketForensicsService
+
     override fun latestSnapshot(): MetricSnapshot? = orchestrator.latestSnapshot()
 
     override fun recentSnapshots(limit: Int): List<MetricSnapshot> = snapshotBuffer.recent(limit)
@@ -70,4 +78,8 @@ class ProbeReadApiImpl : ProbeReadApi {
     override fun historyStartupProfiles(limit: Int): List<StartupProfile> = store.readStartupProfiles(limit)
 
     override fun lastStartupComparisonSummary(): String? = startupProfileHolder.comparisonSummary
+
+    override fun queryNetworkPackets(query: NetworkPacketQuery): NetworkPacketPage = packetForensics.query(query)
+
+    override fun networkForensicsStatus(): NetworkForensicsStatus = packetForensics.status()
 }

@@ -88,6 +88,17 @@ class ProbeRegistry {
     }
 
     /**
+     * 注销一个代理端指标采集器。
+     *
+     * 平台模块卸载后必须移除自身，避免编排层继续调用已经关闭的平台代理对象。
+     *
+     * @param collector 待注销的采集器。
+     */
+    fun unregister(collector: ProxyMetricsCollector) {
+        proxyCollectorList.remove(collector)
+    }
+
+    /**
      * 注册一个世界指标采集器;重复实例会被忽略。
      *
      * @param collector 待注册的采集器。
