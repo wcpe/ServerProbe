@@ -3,6 +3,9 @@ package top.wcpe.mc.plugin.serverprobe.api;
 import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics;
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot;
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile;
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus;
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage;
+import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery;
 
 /**
  * 只读开放接口(FR8.1)。
@@ -81,4 +84,28 @@ public interface ProbeReadApi {
      * @return 最近一次启动相对上一次的对比摘要;首次启动或无上一份画像时为 null。
      */
     String lastStartupComparisonSummary();
+
+    /**
+     * 查询网络包取证记录(FR11)。
+     *
+     * 查询必须提供有限时间范围且每页最多 100 条；实现可读 SQLite，调用方应在异步上下文调用。
+     * 默认返回空页，以保持既有第三方实现本接口时的二进制与源码兼容。
+     *
+     * @param query 时间范围、过滤条件与游标。
+     * @return 一页取证记录；取证不可用或无记录时为空页。
+     */
+    default NetworkPacketPage queryNetworkPackets(NetworkPacketQuery query) {
+        return NetworkPacketPage.empty();
+    }
+
+    /**
+     * 获取网络包取证服务状态(FR11)。
+     *
+     * 默认明确报告未启用，保持既有第三方实现本接口时的向后兼容。
+     *
+     * @return 当前可用性、队列丢弃数和不可用原因。
+     */
+    default NetworkForensicsStatus networkForensicsStatus() {
+        return NetworkForensicsStatus.unavailable("数据包取证未启用");
+    }
 }

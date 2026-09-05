@@ -26,4 +26,13 @@ public final class ServerMetrics {
      * 在线玩家 ping 分布(FR2.4);默认 null 以保持向后兼容,尚未采集时亦为 null。
      */
     java.util.List<PingBucket> pingDistribution;
+    /**
+     * Folia 已观测 region 明细；非 Folia、尚未采集或没有在线玩家时为 null。
+     * 全局 tick 仍保持 N/A，不能以此字段反推出全局 TPS/MSPT。
+     */
+    java.util.List<ObservedRegionMetrics> observedRegions;
+    /**
+     * Folia 已观测 region 的每世界汇总；非 Folia、尚未采集或没有在线玩家时为 null。
+     */
+    java.util.List<ObservedRegionWorldMetrics> observedRegionWorlds;
 }
