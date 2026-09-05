@@ -46,6 +46,6 @@ class BungeeNettyForensicsIocContractTest {
         val source = File("../../e2e/harness/src/main/kotlin/top/wcpe/mc/plugin/serverprobe/e2e/ServerProbeE2eHarnessPlugin.kt")
             .readText()
 
-        assertTrue(source.contains("FR11_NETWORK_FORENSICS_BUNGEE(\"fr11-network-forensics-bungee\")"))
+        assertTrue(source.contains("NETWORK_FORENSICS_BUNGEE(\"network-forensics-bungee\")"))
     }
 }

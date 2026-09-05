@@ -70,7 +70,7 @@ class E2eMatrixSmokeContractTest {
 
     @Test
     fun `矩阵后端与场景在构建脚本中逐版本声明`() {
-        val build = File("../../build.gradle.kts").readText()
+        val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText()
         val versions = listOf(
             "1.8.8", "1.12.2", "1.16.5", "1.17.1", "1.18.2", "1.19.4", "1.20.4", "1.21.1",
         )

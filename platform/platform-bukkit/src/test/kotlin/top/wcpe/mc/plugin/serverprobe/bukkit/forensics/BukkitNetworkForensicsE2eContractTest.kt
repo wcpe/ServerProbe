@@ -8,13 +8,14 @@ class BukkitNetworkForensicsE2eContractTest {
 
     @Test
     fun `FR11 分别声明 Spigot Paper 与 Folia 真实场景`() {
-        val build = File("../../build.gradle.kts").readText()
+        // 文件可能为 CRLF 行尾（Windows），统一归一化为 \n 再断言
+        val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 
-        assertTrue(build.contains("backend(\"spigot-fr11\") {\n        platform = spigot"))
-        assertTrue(build.contains("backend(\"paper-fr11\") {\n        platform = paper"))
-        assertTrue(build.contains("backend(\"folia-fr11\") {\n        platform = folia"))
-        assertTrue(build.contains("scenario(\"fr11-network-forensics-paper\") {\n        backend = \"paper-fr11\""))
-        assertTrue(build.contains("scenario(\"fr11-network-forensics-folia\") {\n        backend = \"folia-fr11\""))
+        assertTrue(build.contains("backend(\"spigot-network\") {\n        platform = spigot"))
+        assertTrue(build.contains("backend(\"paper-network\") {\n        platform = paper"))
+        assertTrue(build.contains("backend(\"folia-network\") {\n        platform = folia"))
+        assertTrue(build.contains("scenario(\"network-forensics-paper\") {\n        backend = \"paper-network\""))
+        assertTrue(build.contains("scenario(\"network-forensics-folia\") {\n        backend = \"folia-network\""))
     }
 
     @Test
@@ -24,8 +25,8 @@ class BukkitNetworkForensicsE2eContractTest {
         ).readText()
 
         assertTrue(harness.contains("getGlobalRegionScheduler"))
-        assertTrue(harness.contains("fr11-network-forensics-paper"))
-        assertTrue(harness.contains("fr11-network-forensics-folia"))
+        assertTrue(harness.contains("network-forensics-paper"))
+        assertTrue(harness.contains("network-forensics-folia"))
     }
 
     @Test
@@ -50,12 +51,12 @@ class BukkitNetworkForensicsE2eContractTest {
 
     @Test
     fun `Folia 后端使用 Mojang 映射类名的专用白名单模板`() {
-        val build = File("../../build.gradle.kts").readText()
+        val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 
-        assertTrue(build.contains("backend(\"folia-fr11\") {\n        platform = folia"))
-        assertTrue(build.contains("e2e/templates/fr11-folia"))
+        assertTrue(build.contains("backend(\"folia-network\") {\n        platform = folia"))
+        assertTrue(build.contains("e2e/templates/network-folia"))
 
-        val template = File("../../e2e/templates/fr11-folia/plugins/ServerProbe/config.yml").readText()
+        val template = File("../../e2e/templates/network-folia/plugins/ServerProbe/config.yml").readText()
 
         assertTrue(template.contains("\"bukkit.ServerboundCustomPayloadPacket\""))
         assertTrue(template.contains("\"serverprobe:test\""))

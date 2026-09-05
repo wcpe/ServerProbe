@@ -20,11 +20,11 @@ class VelocityNettyForensicsIocContractTest {
     /** Velocity modern forwarding 必须使用独立 Paper 后端，不能复用仅支持 Bungee 转发的 Spigot 场景。 */
     @Test
     fun `Velocity FR11 拓扑使用独立 Paper modern forwarding 后端`() {
-        val build = File("../../build.gradle.kts").readText()
+        val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 
-        assertTrue(build.contains("backend(\"paper-fr11-velocity\") {\n        platform = paper"))
-        assertTrue(build.contains("routesTo(\"paper-fr11-velocity\")"))
-        assertTrue(build.contains("scenario(\"fr11-network-forensics-velocity\") {\n        backend = \"paper-fr11-velocity\""))
+        assertTrue(build.contains("backend(\"paper-network-velocity\") {\n        platform = paper"))
+        assertTrue(build.contains("routesTo(\"paper-network-velocity\")"))
+        assertTrue(build.contains("scenario(\"network-forensics-velocity\") {\n        backend = \"paper-network-velocity\""))
     }
 
     @Test
