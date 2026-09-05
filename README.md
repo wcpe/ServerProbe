@@ -2,12 +2,12 @@
 
 面向 Minecraft 服务器的轻量级运维探针。使用同一个 jar 为 Bukkit、Spigot、Paper、Folia、BungeeCord 与 Velocity 3.1.1–4.x 提供启动分析、运行指标、网络取证、代理健康与 Prometheus 输出。
 
-[![版本](https://img.shields.io/github/v/tag/wcpe/ServerProbe?label=version&sort=semver)](https://github.com/wcpe/ServerProbe/tags)
+[![版本](https://img.shields.io/github/v/release/wcpe/ServerProbe?label=version&sort=semver)](https://github.com/wcpe/ServerProbe/releases)
 [![构建](https://img.shields.io/github/actions/workflow/status/wcpe/ServerProbe/ci.yml?branch=master&label=build)](https://github.com/wcpe/ServerProbe/actions)
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-8%2B-red)](#兼容性与验收)
 
-当前正式版本：[v0.2.0](https://github.com/wcpe/ServerProbe/releases/tag/v0.2.0)。项目坚持只读采集与默认安全：可选增强默认关闭，失败时降级，不应影响服务器或其他插件启动。
+当前正式版本：[v0.3.0](https://github.com/wcpe/ServerProbe/releases/tag/v0.3.0)。项目坚持只读采集与默认安全：可选增强默认关闭，失败时降级，不应影响服务器或其他插件启动。
 
 ## 能做什么
 
@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载 `ServerProbe-0.2.0.jar`。
+1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载最新的 `ServerProbe-<版本>.jar`（当前 v0.3.0）。
 2. 将 jar 放入服务端的 `plugins/` 目录（Velocity/BungeeCord 同样放入其插件目录）。
 3. 重启服务器。首次启动会生成 `plugins/ServerProbe/config.yml`。
 4. 在游戏内执行 `/probe health`，或按需启用 Prometheus 后访问 `/metrics`。
@@ -93,9 +93,13 @@ incision:
 开发时可额外运行 [E2E 验收](e2e/README.md)：
 
 ```powershell
-.\gradlew.bat e2eFr8ReadApi
-.\gradlew.bat e2eFr8StorageSpi
-.\gradlew.bat e2eFr9BridgeFixture
+.\gradlew.bat e2eReadApi
+.\gradlew.bat e2eStorageSpi
+.\gradlew.bat e2eBridgeFixture
+.\gradlew.bat e2eIntegrationsBoth        # 需设置 SERVERPROBE_E2E_CORELIB_JAR/MCE_JAR/AIS_JAR 真实插件路径
+.\gradlew.bat e2eNetworkForensicsPaperWithBot
+.\gradlew.bat e2eFoliaObservedRegionsWithBot
+.\gradlew.bat e2eMcpDiagnosticsPaper
 ```
 
 ## 文档
