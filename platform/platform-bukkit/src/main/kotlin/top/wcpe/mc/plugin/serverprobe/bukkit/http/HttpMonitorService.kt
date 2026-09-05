@@ -49,6 +49,15 @@ object HttpMonitorService {
     /** 是否落盘外呼明细。 */
     private var fileEnabled = true
 
+    /** 外呼 .log 原始保留天数(过期 gzip 归档)。 */
+    private var fileRetentionDays = 7
+
+    /** 外呼 gzip 归档保留天数(0=过期直接删除)。 */
+    private var fileArchiveDays = 30
+
+    /** 外呼日志清理的当日豁免游标。 */
+    private var lastPruneDay: java.time.LocalDate? = null
+
     /** 插件包前缀缓存(归因兜底用):插件数变化时重建。 */
     @Volatile
     private var cachedPrefixes: List<Pair<String, String>> = emptyList()
@@ -83,6 +92,8 @@ object HttpMonitorService {
         logToConsole = ProbeConfig.httpMonitorLogToConsole()
         logHeaders = ProbeConfig.httpMonitorLogHeaders()
         fileEnabled = ProbeConfig.httpMonitorFileEnabled()
+        fileRetentionDays = ProbeConfig.httpMonitorFileRetentionDays()
+        fileArchiveDays = ProbeConfig.httpMonitorFileArchiveDays()
         store.configure(ProbeConfig.httpMonitorRecentCapacity())
         val period = ProbeConfig.httpMonitorDrainPeriodTicks()
         // 异步重复任务:读盘/网络无关的轻量拉取 + 日志/落盘,均不在主线程
@@ -166,12 +177,23 @@ object HttpMonitorService {
         runCatching {
             val dir = File(getDataFolder(), "http")
             dir.mkdirs()
+            pruneIfDayChanged(dir)
             val now = Date()
             val file = File(dir, "http-${DATE_FMT.format(now)}.log")
             val line = "${TS_FMT.format(now)}\t[${c.plugin}]\t${c.method}\t${c.host}\t${c.responseCode}\t" +
                 "${c.durationMs}ms\t${c.url}\t${c.callerFrames.joinToString(" <- ")}\n"
             file.appendText(line)
         }
+    }
+
+    /** 外呼日志清理每天至多一次(按日分桶文件,过期 gzip 归档,归档超期删除)。 */
+    private fun pruneIfDayChanged(dir: File) {
+        val today = java.time.LocalDate.now()
+        if (lastPruneDay == today) {
+            return
+        }
+        lastPruneDay = today
+        HttpLogFilePruner.prune(dir, today, fileRetentionDays, fileArchiveDays)
     }
 
     /** 是否"应用层"帧(排除 JDK/JVM 帧),用于挑选日志里的触发处。 */
