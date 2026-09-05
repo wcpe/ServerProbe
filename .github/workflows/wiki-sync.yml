@@ -1,0 +1,47 @@
+# 同步 docs/wiki/ 到 GitHub Wiki 仓库（ServerProbe.wiki.git）
+# 触发：push 到 master 且 docs/wiki/ 有改动；手动也可触发（workflow_dispatch）。
+name: Wiki Sync
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/wiki/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: 同步 Wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出主仓库
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: 检出 Wiki 仓库
+        uses: actions/checkout@v4
+        with:
+          repository: wcpe/ServerProbe.wiki
+          path: wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 同步 docs/wiki 到 Wiki
+        run: |
+          # 清空 Wiki 旧内容（保留 .git），复制最新 docs/wiki
+          find wiki -mindepth 1 ! -name '.git' ! -path 'wiki/.git/*' -exec rm -rf {} +
+          cp -r repo/docs/wiki/* wiki/
+          # 首页：Wiki 根目录的 Home.md 即首页
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "无变更，跳过提交"
+          else
+            git commit -m "docs: 同步 docs/wiki 到 GitHub Wiki"
+            git push origin HEAD
+          fi

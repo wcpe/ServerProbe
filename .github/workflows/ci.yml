@@ -1,11 +1,32 @@
 # 持续集成：分支与 PR 验证构建；推送 v* 标签时额外创建 GitHub Release。
+# 纯文档改动（README/docs/wiki/.github/CHANGELOG 等）不触发构建；标签推送不受过滤、始终发版。
 name: CI
 
 on:
   push:
     branches: [ master, main ]
     tags: [ 'v*' ]
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/**'
+      - '.claude/**'
+      - '.editorconfig'
+      - '.gitignore'
   pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/**'
+      - '.claude/**'
+      - '.editorconfig'
+      - '.gitignore'
 
 permissions:
   contents: read
