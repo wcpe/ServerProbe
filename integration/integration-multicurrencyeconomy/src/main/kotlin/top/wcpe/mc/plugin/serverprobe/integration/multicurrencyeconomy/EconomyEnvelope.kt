@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.multicurrencyeconomy
 
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
@@ -117,6 +117,11 @@ object EconomyEnvelope {
 
     /** 编码 balance 写结果(deposit/withdraw/adjust/set);nonAtomic 标记 set 的非原子取舍。 */
     fun encodeBalance(r: Any, nonAtomic: Boolean = false): String = Json.encode(
+        balanceFields(r, nonAtomic)
+    )
+
+    /** 余额写回执字段；独立于 JSON 运行时，供兼容映射验证。 */
+    internal fun balanceFields(r: Any, nonAtomic: Boolean = false): Map<String, Any?> =
         linkedMapOf<String, Any?>(
             "success" to read(r, "success"),
             "status" to statusName(r),
@@ -126,12 +131,11 @@ object EconomyEnvelope {
             "beforeBalance" to amountText(read(r, "beforeBalance")),
             "afterBalance" to amountText(read(r, "afterBalance")),
             "ledgerId" to (read(r, "ledgerId")?.toString() ?: ""),
-            "idempotentHit" to (statusName(r) == STATUS_DUPLICATE_REQUEST),
+            "idempotentHit" to (read(r, "idempotentHit") == true || statusName(r) == STATUS_DUPLICATE_REQUEST),
             "message" to read(r, "message"),
             "errorCode" to (read(r, "errorCode") ?: ""),
             "nonAtomic" to nonAtomic,
         )
-    )
 
     /** set 时目标值已等于当前余额,无需调整。 */
     fun encodeNoChange(player: String, currency: String, current: BigDecimal): String = Json.encode(

@@ -1,8 +1,9 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.allininventorysync
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
+import java.util.UUID
 
 /**
  * [InventoryEventEnvelope] 纯逻辑单元测试(JBIS FR-125)。
@@ -52,5 +53,48 @@ class InventoryEventEnvelopeTest {
     fun `DOMAIN 与背包域一致`() {
         assertEquals(InventoryEnvelope.DOMAIN, InventoryEventEnvelope.DOMAIN)
         assertEquals("inventory", InventoryEventEnvelope.DOMAIN)
+    }
+
+    /** 可选 API 事件按公开 getter 读取，动态注册器无需在类签名中引用 AIS 事件类型。 */
+    @Test
+    fun `公开追踪事件可转为上报字段`() {
+        val data = InventoryTrackedEventReader.read(
+            FakeTrackedEvent(
+                player = FakePlayer(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), "SpInventory"),
+                action = FakeAction.PICKUP,
+                rule = FakeRule("fr10-diamond", "FR10 真实事件验收物品"),
+                item = FakeItem(FakeMaterial.DIAMOND, 1, FakeItemMeta("闪耀钻石")),
+            )
+        )
+
+        assertEquals("SpInventory", data.playerName)
+        assertEquals("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", data.playerUuid)
+        assertEquals("PICKUP", data.action)
+        assertEquals("fr10-diamond", data.ruleId)
+        assertEquals("FR10 真实事件验收物品", data.ruleDescription)
+        assertEquals("DIAMOND", data.material)
+        assertEquals(1, data.amount)
+        assertEquals("闪耀钻石", data.displayName)
+    }
+
+    private data class FakeTrackedEvent(
+        val player: FakePlayer,
+        val action: FakeAction,
+        val rule: FakeRule,
+        val item: FakeItem,
+    )
+
+    private data class FakePlayer(val uniqueId: UUID, val name: String)
+
+    private enum class FakeAction { PICKUP }
+
+    private data class FakeRule(val id: String, val description: String)
+
+    private data class FakeItem(val type: FakeMaterial, val amount: Int, val itemMeta: FakeItemMeta)
+
+    private enum class FakeMaterial { DIAMOND }
+
+    private data class FakeItemMeta(val displayName: String) {
+        fun hasDisplayName(): Boolean = displayName.isNotEmpty()
     }
 }

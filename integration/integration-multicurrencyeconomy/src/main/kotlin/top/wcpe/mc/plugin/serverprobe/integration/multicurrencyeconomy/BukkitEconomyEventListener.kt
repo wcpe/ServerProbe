@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.multicurrencyeconomy
 
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
@@ -22,7 +22,7 @@ import top.wcpe.taboolib.ioc.annotation.Inject
  *
  * ## 与 [EconomyProvider] 的分工
  * [EconomyProvider] 是**下行**命令执行(CP 主动查 / 写余额);本监听器是**上行**事件汇聚(mce 自发的余额变更
- * 反向冒泡)。二者同住 platform-bukkit 业务对接层(唯一认识 mce 具体事件的地方),共用经济域名与信封口径。
+ * 反向冒泡)。二者同住经济集成模块(唯一认识 mce 具体事件的地方),共用经济域名与信封口径。
  *
  * ## 可选插件事件:按名绑定([SubscribeEvent.bind])
  * mce 是**软依赖**(探针可独立运行、无 mce 时本监听器零副作用)。`@SubscribeEvent` 默认在探针 enable 时按方法

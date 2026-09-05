@@ -1,5 +1,6 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.multicurrencyeconomy
 
+import org.bukkit.Bukkit
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
@@ -11,6 +12,7 @@ import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
+import top.wcpe.taboolib.ioc.annotation.PreDestroy
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.math.BigDecimal
 
@@ -23,7 +25,7 @@ import java.math.BigDecimal
  */
 @Service
 @PlatformSide(Platform.BUKKIT)
-class EconomyProvider : BusinessProvider {
+class EconomyProvider : BusinessProvider, EconomyProviderLifecycle {
 
     /** 业务对接装配中心(core),初始化完成后自注册本 Provider。 */
     @Inject
@@ -31,13 +33,32 @@ class EconomyProvider : BusinessProvider {
 
     override val domain: String = EconomyEnvelope.DOMAIN
 
-    /** 依赖注入完成后做平台门 + 桥开关门并自注册。 */
+    /** 依赖注入完成后尝试发现服务并注册。 */
     @PostConstruct
     fun register() {
+        refresh()
+    }
+
+    /**
+     * 按当前服务注册状态刷新业务域。
+     *
+     * MultiCurrencyEconomy 的公开契约要求消费者经 Bukkit ServicesManager 获取主服务；这里延迟解析服务类型，
+     * 从而保证未安装外部插件的服务器不会在 IOC 扫描时加载可选 API。
+     */
+    override fun refresh() {
         if (Platform.CURRENT != Platform.BUKKIT) return
-        if (!ProbeConfig.bridgeEnabled()) return
+        if (!ProbeConfig.bridgeEnabled() || readyService() == null) {
+            businessHost.unregister(this)
+            return
+        }
         businessHost.register(this)
         ProbeLogger.info("经济业务 Provider 已注册(domain=${EconomyEnvelope.DOMAIN},对接 MultiCurrencyEconomy,只读+写)")
+    }
+
+    /** IOC 卸载时撤销自身，避免外部插件重载后遗留失效 Provider。 */
+    @PreDestroy
+    override fun unregister() {
+        businessHost.unregister(this)
     }
 
     /** 经济域能力清单:只读 `balance` + 七个写动作。 */
@@ -58,12 +79,15 @@ class EconomyProvider : BusinessProvider {
 
     /** 查询某玩家某币种余额(只读)。mce 未就绪 / 参数缺失 / 查询异常一律降级失败。 */
     private fun balance(payload: String): BridgeCommandResult {
-        val api = readyApiClass() ?: return EconomyEnvelope.notReady()
+        val mce = readyService() ?: return EconomyEnvelope.notReady()
         val req = Json.parse(payload)
         val player = req.getString("player")
         val currency = req.getString("currency")
         if (player.isEmpty() || currency.isEmpty()) return BridgeCommandResult.fail("balance 缺少 player 或 currency")
-        val amount = runCatching { callStatic(api, "getBalance", player, currency) as BigDecimal }
+        val amount = runCatching {
+            val query = read(mce, "accountQueryService") ?: error("缺少账户查询服务")
+            call(query, "getBalance", player, currency) as BigDecimal
+        }
             .getOrElse { return BridgeCommandResult.fail("查询余额失败:${it.message}") }
         return BridgeCommandResult.ok(EconomyEnvelope.encodeBalanceQuery(player, currency, amount))
     }
@@ -260,17 +284,14 @@ class EconomyProvider : BusinessProvider {
     private fun contextOf(req: JsonObject, action: String): Any =
         EconomyEnvelope.operationContext(req.getString("operator"), req.getString("nodeId"), action)
 
-    /** mce 就绪则返回主服务,否则 null(未安装 / 就绪窗口异常均降级为 null)。 */
+    /** 通过公开 ServicesManager 查询 mce 主服务，未安装、禁用或重载窗口均返回 null。 */
     private fun readyService(): Any? {
-        val api = readyApiClass() ?: return null
-        return runCatching { callStatic(api, "getService") }.getOrNull()
-    }
-
-    /** mce API 类存在且 isReady=true 则返回类对象。 */
-    private fun readyApiClass(): Class<*>? {
-        val api = runCatching { Class.forName(MCE_API) }.getOrNull() ?: return null
-        val ready = runCatching { callStatic(api, "isReady") as? Boolean }.getOrNull() ?: false
-        return if (ready) api else null
+        return runCatching {
+            val serviceType = Class.forName(MCE_SERVICE)
+            @Suppress("UNCHECKED_CAST")
+            val registration = Bukkit.getServicesManager().getRegistration(serviceType as Class<Any>)
+            registration?.provider
+        }.getOrNull()
     }
 
     private fun newRequest(className: String, vararg args: Any?): Any {
@@ -286,12 +307,6 @@ class EconomyProvider : BusinessProvider {
         return method.invoke(target, *args)
     }
 
-    private fun callStatic(type: Class<*>, methodName: String, vararg args: Any?): Any {
-        val method = type.methods.firstOrNull { it.name == methodName && it.parameterCount == args.size }
-            ?: error("未找到 MCE 静态方法:$methodName/${args.size}")
-        return method.invoke(null, *args)
-    }
-
     private fun read(target: Any, property: String): Any? {
         val suffix = property.substring(0, 1).uppercase() + property.substring(1)
         for (methodName in listOf("get$suffix", "is$suffix")) {
@@ -303,7 +318,7 @@ class EconomyProvider : BusinessProvider {
     }
 
     private companion object {
-        const val MCE_API = "top.wcpe.mc.plugin.multicurrencyeconomy.api.MultiCurrencyEconomyApi"
+        const val MCE_SERVICE = "top.wcpe.mc.plugin.multicurrencyeconomy.api.service.MultiCurrencyEconomyService"
         const val DEPOSIT_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.DepositRequest"
         const val WITHDRAW_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.WithdrawRequest"
         const val ADJUST_REQUEST = "top.wcpe.mc.plugin.multicurrencyeconomy.api.request.AdjustRequest"

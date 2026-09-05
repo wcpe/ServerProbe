@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.multicurrencyeconomy
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -107,4 +107,24 @@ class EconomyEnvelopeTest {
         assertEquals("economy.deposit", ctx.sourceAction, "来源动作应带域前缀")
         assertEquals("node-1", ctx.metadata["nodeId"], "节点应入 metadata 供追溯")
     }
+
+    /** 公开结果直接携带幂等标记时，不能只依赖旧版 status 枚举推断。 */
+    @Test
+    fun `encodeBalance 读取公开幂等命中字段`() {
+        val fields = EconomyEnvelope.balanceFields(
+            ReplayBalanceResult(
+                success = true,
+                status = "SUCCESS",
+                idempotentHit = true,
+            )
+        )
+
+        assertEquals(true, fields["idempotentHit"], "应透传公开幂等命中字段")
+    }
+
+    private data class ReplayBalanceResult(
+        val success: Boolean,
+        val status: String,
+        val idempotentHit: Boolean,
+    )
 }

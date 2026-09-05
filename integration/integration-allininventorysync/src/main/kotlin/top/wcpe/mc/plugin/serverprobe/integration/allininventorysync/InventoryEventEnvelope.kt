@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.allininventorysync
 
 /**
  * 背包追踪事件信封编码与去重键(JBIS FR-125,见 ServerProbe ADR-0016 / JianManager FR-126 汇聚)。

@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.allininventorysync
 
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
@@ -10,6 +10,7 @@ import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
+import top.wcpe.taboolib.ioc.annotation.PreDestroy
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
@@ -24,7 +25,7 @@ import java.util.concurrent.TimeoutException
  */
 @Service
 @PlatformSide(Platform.BUKKIT)
-class InventoryProvider : BusinessProvider {
+class InventoryProvider : BusinessProvider, InventoryProviderLifecycle {
 
     /** 业务对接装配中心(core),初始化完成后自注册本 Provider。 */
     @Inject
@@ -32,13 +33,27 @@ class InventoryProvider : BusinessProvider {
 
     override val domain: String = InventoryEnvelope.DOMAIN
 
-    /** 依赖注入完成后做平台门 + 桥开关门并自注册(仅 Bukkit 端、插件桥开启时)。 */
+    /** 依赖注入完成后尝试发现公开 API 并注册。 */
     @PostConstruct
     fun register() {
+        refresh()
+    }
+
+    /** 按公开 API 当前可用性刷新业务域，未就绪时撤销旧 Provider。 */
+    override fun refresh() {
         if (Platform.CURRENT != Platform.BUKKIT) return
-        if (!ProbeConfig.bridgeEnabled()) return
+        if (!ProbeConfig.bridgeEnabled() || readyApi() == null) {
+            businessHost.unregister(this)
+            return
+        }
         businessHost.register(this)
         ProbeLogger.info("背包业务 Provider 已注册(domain=${InventoryEnvelope.DOMAIN},对接 AllinInventorySync,读 + 属性写)")
+    }
+
+    /** IOC 卸载时撤销自身，避免 AllinInventorySync 重载后路由到旧 API。 */
+    @PreDestroy
+    override fun unregister() {
+        businessHost.unregister(this)
     }
 
     /** 背包域能力清单:只读 `view` + 基础属性写 `writeBasicAttrs`。 */

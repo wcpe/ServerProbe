@@ -1,4 +1,4 @@
-package top.wcpe.mc.plugin.serverprobe.bukkit.business
+package top.wcpe.mc.plugin.serverprobe.integration.multicurrencyeconomy
 
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.event.EconomyChange
 import top.wcpe.mc.plugin.multicurrencyeconomy.api.event.PlayerEconomyChangeEvent
