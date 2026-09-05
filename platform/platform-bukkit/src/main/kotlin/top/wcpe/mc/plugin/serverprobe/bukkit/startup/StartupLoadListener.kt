@@ -2,6 +2,8 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.startup
 
 import org.bukkit.Bukkit
 import org.bukkit.event.server.ServerLoadEvent
+import taboolib.common.LifeCycle
+import taboolib.common.platform.Awake
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.event.SubscribeEvent
@@ -24,8 +26,10 @@ import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder
 import top.wcpe.mc.plugin.serverprobe.core.store.InstanceId
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
+import top.wcpe.taboolib.ioc.bean.BeanContainer
 import java.io.File
 import java.lang.management.ManagementFactory
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Bukkit 启动就绪监听器(FR1,启动画像装配触发点)。
@@ -69,6 +73,14 @@ object StartupLoadListener {
     @Inject
     lateinit var incisionStartupDataStore: IncisionStartupDataStore
 
+    /** 装配触发防重标记：1.12+ 走 ServerLoadEvent,1.11- 走 ACTIVE 兜底,两条路径仅一条生效。 */
+    private val assemblyTriggered = AtomicBoolean(false)
+
+    /** ServerLoadEvent 是否存在;1.12 才引入该事件,旧版本经 ACTIVE 首帧兜底装配。 */
+    private val serverLoadEventPresent: Boolean by lazy {
+        runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isSuccess
+    }
+
     /**
      * 服务器就绪回调:主线程即时测量,延迟异步装配启动画像。
      *
@@ -82,9 +94,14 @@ object StartupLoadListener {
      *
      * @param event 服务器加载事件。
      */
-    @SubscribeEvent
-    fun onServerLoad(event: ServerLoadEvent) {
-        if (event.type != ServerLoadEvent.LoadType.STARTUP) {
+    /**
+     * [ServerLoadEvent] 桥回调:事件签名隔离在 [StartupServerLoadBridge],保持本类扫描在 1.8-1.11 上可完成。
+     */
+    fun onServerLoadEvent(startup: Boolean) {
+        if (!startup) {
+            return
+        }
+        if (!assemblyTriggered.compareAndSet(false, true)) {
             return
         }
         // 总时长须在就绪时刻立即测得(延迟任务稍后才执行,届时 currentTimeMillis 已漂移)。
@@ -96,6 +113,28 @@ object StartupLoadListener {
         val mcVersion = resolveMcVersion()
 
         // 延迟 2 tick 且异步:确保 ACTIVE 已打点(首 tick),且读日志不阻塞主线程
+        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
+            runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
+                .onFailure { ProbeLogger.error("装配启动画像失败", it) }
+        }
+    }
+
+    /**
+     * 旧版本(1.8-1.11)无 [ServerLoadEvent],TabooLib 会跳过事件注册并打印 WARN;
+     * 此处以 [LifeCycle.ACTIVE](首 tick,即"服务器对外就绪")兜底触发同一装配路径。
+     * 1.12+ 服务器上事件路径先行生效,本兜底直接返回,双路径不会重复装配。
+     */
+    @Awake(LifeCycle.ACTIVE)
+    fun onActiveFallback() {
+        if (serverLoadEventPresent) {
+            return
+        }
+        if (!assemblyTriggered.compareAndSet(false, true)) {
+            return
+        }
+        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
+        val worldNames = Bukkit.getWorlds().map { it.name }
+        val mcVersion = resolveMcVersion()
         submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
             runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
                 .onFailure { ProbeLogger.error("装配启动画像失败", it) }
@@ -122,15 +161,22 @@ object StartupLoadListener {
      * @param mcVersion Minecraft 版本。
      */
     private fun buildAndStore(totalMs: Long, worldNames: List<String>, mcVersion: String) {
+        // 旧版本类加载器(1.8.8 真机已证)上 @Inject 字段注入可能未生效;
+        // 装配路径经 BeanContainer 容错取 bean(ServerProbeApi 同款模式),确保画像仍能产出。
+        val builder = bean(StartupProfileBuilder::class.java) ?: return
+        val holder = bean(StartupProfileHolder::class.java) ?: return
+        val metricStore = bean(MetricStore::class.java) ?: return
         val pluginTimings = parsePluginTimings()
+        // 字段注入未生效时(旧版本类加载器),Incision 数据以空降级快照兜底(等价默认关闭形态)。
+        val incisionData = bean(IncisionStartupDataStore::class.java)?.snapshot() ?: IncisionStartupDataStore().snapshot()
         // 启动 agent 早期数据:先读出(热点取配置 Top-N),再停采样定格;未挂载/失败时降级为 notAttached
-        val agentData = AgentDataReader.read(ProbeConfig.startupTopN())
+        val agentData = AgentDataReader.read(ProbeConfig.startupTopN(), ProbeConfig.agentStackMaxSamples())
         if (agentData.attached) {
             AgentDataReader.stopStackSampler()
         }
         // 世界耗时:agent 挂载且测得 createWorld 耗时时择优用实测值,否则回退占位 0
         val worldTimings = resolveWorldTimings(worldNames, agentData)
-        val profile = profileBuilder.build(StartupProfileInput(
+        val profile = builder.build(StartupProfileInput(
             mcVersion = mcVersion,
             platform = ProbePlatform.BUKKIT,
             serverId = InstanceId.resolve(ProbeConfig.configuredServerName()),
@@ -138,17 +184,21 @@ object StartupLoadListener {
             pluginTimings = pluginTimings,
             worldTimings = worldTimings,
             agentData = agentData,
-            incisionData = incisionStartupDataStore.snapshot()
+            incisionData = incisionData
         ))
         // 先读上次画像再落盘:读取须先于保存,否则会读到刚被覆盖的本次画像
-        val previous = store.lastStartupProfile()
+        val previous = metricStore.lastStartupProfile()
         // 对比摘要在此算一次,既用于日志输出,又写入持有者供 /probe startup 读取(零重复计算)
         val comparisonSummary = StartupComparator.summary(profile, previous)
         logSummary(profile, pluginTimings, comparisonSummary)
-        profileHolder.set(profile)
-        profileHolder.comparisonSummary = comparisonSummary
-        store.saveStartupProfile(profile)
+        holder.set(profile)
+        holder.comparisonSummary = comparisonSummary
+        metricStore.saveStartupProfile(profile)
     }
+
+    /** 容错取 IOC bean:字段注入未生效时按类型从容器解析(ServerProbeApi 同款模式),异常收敛为 null。 */
+    private fun <T : Any> bean(type: Class<T>): T? =
+        runCatching { BeanContainer.getBean(type) }.getOrNull()
 
     /**
      * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld` 耗时时择优用实测值,否则回退占位 0。
@@ -312,4 +362,17 @@ object StartupLoadListener {
 
     /** 一秒的毫秒数(用于摘要格式化)。 */
     private const val MILLIS_PER_SECOND = 1000.0
+}
+
+/**
+ * [ServerLoadEvent] 订阅桥:单独持有事件签名,使 [StartupLoadListener] 的扫描在 1.8-1.11(无该事件)上
+ * 不再抛 NoClassDefFoundError,其 @Inject 字段得以正常注入并经 [LifeCycle.ACTIVE] 兜底装配。
+ * 桥自身在旧版本上扫描失败会被 IoC 逐候选容错跳过,该事件本就不存在,无注册损失。
+ */
+object StartupServerLoadBridge {
+
+    @SubscribeEvent
+    fun onServerLoad(event: ServerLoadEvent) {
+        StartupLoadListener.onServerLoadEvent(event.type == ServerLoadEvent.LoadType.STARTUP)
+    }
 }

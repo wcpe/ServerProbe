@@ -3,8 +3,10 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.collector
 import org.bukkit.Bukkit
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
+import taboolib.platform.Folia
 import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
+import top.wcpe.mc.plugin.serverprobe.bukkit.folia.FoliaObservedRegionService
 import top.wcpe.mc.plugin.serverprobe.bukkit.sampler.TickClock
 import top.wcpe.mc.plugin.serverprobe.bukkit.sampler.TickSamplerFactory
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
@@ -34,6 +36,10 @@ class BukkitServerCollector : ServerMetricsCollectorApi {
     /** 组件注册中心,用于在初始化完成后自注册。 */
     @Inject
     lateinit var registry: ProbeRegistry
+
+    /** Folia 已观测 region 服务；非 Folia 时返回空快照。 */
+    @Inject
+    lateinit var foliaObservedRegionService: FoliaObservedRegionService
 
     /** 选中的 tick 采样器,[PostConstruct] 后非空。 */
     private lateinit var tickSampler: ServerTickSampler
@@ -84,12 +90,17 @@ class BukkitServerCollector : ServerMetricsCollectorApi {
             runCatching { p.ping }.getOrNull()?.takeIf { it >= 0 }
         }
         val pingDistribution = if (pings.isNotEmpty()) PingBuckets.bucket(pings) else null
-        return ServerMetrics.builder()
+        val metrics = ServerMetrics.builder()
             .tick(tickSampler.sample())
             .onlinePlayers(players.size)
             .maxPlayers(Bukkit.getMaxPlayers())
             .uptimeMs(ManagementFactory.getRuntimeMXBean().uptime)
             .pingDistribution(pingDistribution)
-            .build()
+        if (Folia.isFolia) {
+            val observed = foliaObservedRegionService.snapshot()
+            metrics.observedRegions(observed.regions)
+            metrics.observedRegionWorlds(observed.worlds)
+        }
+        return metrics.build()
     }
 }

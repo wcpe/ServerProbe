@@ -16,7 +16,9 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  * 优雅降级:任一项反射不可用或瞬时取不到值时,对应字段为 null(N/A),其余字段照常给出;
  * 当 `getTickTimes()` 不可用(理论上 Paper 都有,留作兜底)时,p95/p99 退化为 null。
  */
-class PaperTickSampler : ServerTickSampler {
+class PaperTickSampler(
+    private val histogram: MsptHistogram?,
+) : ServerTickSampler {
 
     override fun getSource(): TickSampleSource = TickSampleSource.PAPER_API
 
@@ -44,23 +46,40 @@ class PaperTickSampler : ServerTickSampler {
             p95Ms = null
             p99Ms = null
         }
+        // 1.16 之前的 Paper 缺 getAverageTickTime/getTickTimes(真机 1.12.2 已证):
+        // MSPT 三项以共享自建直方图兜底,TPS 仍走官方 API。
+        val (msptAvg, msptP95, msptP99) = resolveMspt(avgMs, p95Ms, p99Ms, histogram)
         return TickSample.builder()
             .tps1m(tps?.getOrNull(TpsArrayIndex.M1))
             .tps5m(tps?.getOrNull(TpsArrayIndex.M5))
             .tps15m(tps?.getOrNull(TpsArrayIndex.M15))
-            .msptAvg(avgMs)
-            .msptP95(p95Ms)
-            .msptP99(p99Ms)
+            .msptAvg(msptAvg)
+            .msptP95(msptP95)
+            .msptP99(msptP99)
             .source(source)
             .build()
     }
 
-    private companion object {
+    internal companion object {
 
         /** p95 分位。 */
         private const val P95 = 0.95
 
         /** p99 分位。 */
         private const val P99 = 0.99
+
+        /** Paper 原生 MSPT 缺失时回退直方图估算;原生可用时原样返回。纯函数,便于单测。 */
+        internal fun resolveMspt(
+            avgMs: Double?,
+            p95Ms: Double?,
+            p99Ms: Double?,
+            histogram: MsptHistogram?,
+        ): Triple<Double?, Double?, Double?> {
+            if (avgMs != null) {
+                return Triple(avgMs, p95Ms, p99Ms)
+            }
+            val histogramAvg = histogram?.avgMs() ?: return Triple(null, p95Ms, p99Ms)
+            return Triple(histogramAvg, histogram.p95Ms() ?: p95Ms, histogram.p99Ms() ?: p99Ms)
+        }
     }
 }

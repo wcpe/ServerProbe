@@ -12,8 +12,9 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  * 3. **Legacy**:NMS `recentTps` 反射链路可用([TickReflection.isRecentTpsAvailable])→ [LegacyTickSampler];
  * 4. **Self**:以上皆不可用 → [SelfTickSampler](最终兜底)。
  *
- * 其中 Legacy/Self 依赖自建 [TickClock] 喂样本,故工厂在选中它们时一并创建并共享同一 [MsptHistogram]
- * /[TickClock],经 [TickSamplerSelection.clock] 交回调用方驱动启停;Paper/Folia 路径 [clock] 为 null。
+ * 其中 Legacy/Self 依赖自建 [TickClock] 喂样本;Paper 路径 1.16 之前缺原生 MSPT API,亦以共享
+ * [TickClock]/[MsptHistogram] 兜底估算(现代 Paper 上样本不被消费)。时钟统一经
+ * [TickSamplerSelection.clock] 交回调用方驱动启停;仅 Folia 路径 [clock] 为 null。
  */
 object TickSamplerFactory {
 
@@ -27,7 +28,11 @@ object TickSamplerFactory {
             return TickSamplerSelection(UnavailableTickSampler(), null)
         }
         if (TickReflection.paperTps() != null) {
-            return TickSamplerSelection(PaperTickSampler(), null)
+            // Paper 路径 TPS 走官方 API;1.16 之前的 Paper 缺 MSPT API,以自建直方图兜底
+            // (现代 Paper 上直方图样本不被消费,时钟开销为每 tick 一次纳秒读取)。
+            val histogram = MsptHistogram()
+            val clock = TickClock(histogram)
+            return TickSamplerSelection(PaperTickSampler(histogram), clock)
         }
         // Legacy / Self 共享同一直方图与时钟
         val histogram = MsptHistogram()
