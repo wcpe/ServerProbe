@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:ArthasMemoryShellRunner.kt$ArthasMemoryShellRunner$@Suppress("TooGenericExceptionCaught") private fun executeModern(loader: ClassLoader, command: String, output: ArthasTaskOutputBuffer)</ID>
+    <ID>CyclomaticComplexMethod:ArthasMemoryShellRunner.kt$ArthasMemoryShellRunner$@Suppress("TooGenericExceptionCaught") private fun renderModels(bootstrap: Any, loader: ClassLoader, output: ArthasTaskOutputBuffer, models: List&lt;*&gt;)</ID>
+    <ID>LongMethod:ArthasMemoryShellRunner.kt$ArthasMemoryShellRunner$@Suppress("TooGenericExceptionCaught") private fun executeModern(loader: ClassLoader, command: String, output: ArthasTaskOutputBuffer)</ID>
+    <ID>ThrowsCount:ArthasMemoryShellRunner.kt$ArthasMemoryShellRunner$@Suppress("TooGenericExceptionCaught") private fun executeModern(loader: ClassLoader, command: String, output: ArthasTaskOutputBuffer)</ID>
+  </CurrentIssues>
+</SmellBaseline>
