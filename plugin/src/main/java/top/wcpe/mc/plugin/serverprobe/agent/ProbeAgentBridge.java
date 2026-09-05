@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.agent;
 
+import java.lang.instrument.Instrumentation;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -41,6 +42,9 @@ public final class ProbeAgentBridge {
 
     /** premain/agentmain 执行那一刻的 {@link System#nanoTime()}，作为时间线"相对 premain 偏移"的基准。 */
     private static volatile long premainNanos = 0L;
+
+    /** JVM 交付的字节码插桩句柄，供内嵌诊断运行时优先复用。 */
+    private static volatile Instrumentation instrumentation;
 
     /** JVM 启动时刻（毫秒，来自 {@code RuntimeMXBean#getStartTime()}），用于计算"开服总耗时"基准。 */
     private static volatile long jvmStartTimeMs = 0L;
@@ -137,6 +141,24 @@ public final class ProbeAgentBridge {
 
     /** 工具容器，禁止实例化。 */
     private ProbeAgentBridge() {
+    }
+
+    /**
+     * 保存 JVM 交付的插桩句柄（premain 与 agentmain 均可覆盖写入）。
+     *
+     * @param value JVM 交付的插桩句柄；为空时表示当前不可用
+     */
+    public static void setInstrumentation(Instrumentation value) {
+        instrumentation = value;
+    }
+
+    /**
+     * 读取 JVM 交付的插桩句柄。
+     *
+     * @return 已保存的插桩句柄；未挂载时为 {@code null}
+     */
+    public static Instrumentation getInstrumentation() {
+        return instrumentation;
     }
 
     /**

@@ -12,6 +12,8 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.PingBucket
 import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
@@ -140,7 +142,8 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe tps`:TPS(1/5/15 分钟)与 MSPT(avg/p95/p99)。
+     * `/probe tps`:TPS(1/5/15 分钟)与 MSPT(avg/p95/p99)。Folia 全局值保持 N/A，并额外输出
+     * 已观测 region 的世界汇总和明细，避免将局部真实 tick 伪装成全局指标。
      *
      * 取 `latestSnapshot()?.server?.tick`:字段为 null(Folia 无全局 TPS 或不可用)时显示 N/A;
      * server 为 null(代理端语义)时提示该端无此指标。
@@ -158,7 +161,7 @@ object ProbeCommand {
                 sender.sendLang("command-server-only")
                 return@execute
             }
-            sendTps(sender, server.tick)
+            sendTps(sender, server)
             // 聚合补充行(FR3.3):对近 N 份快照做跨快照统计,窗口大小取配置
             sendTpsAggregation(sender)
         }
@@ -491,9 +494,10 @@ object ProbeCommand {
      * 渲染 tps 详情。可空字段为 null 时显示 N/A(Folia 无全局值或不可用)。
      *
      * @param sender 命令发送者。
-     * @param tick tick 采样数据。
+     * @param server 服务器指标，包含全局 tick 与 Folia 已观测 region。
      */
-    private fun sendTps(sender: ProxyCommandSender, tick: TickSample) {
+    private fun sendTps(sender: ProxyCommandSender, server: ServerMetrics) {
+        val tick = server.tick
         val na = sender.asLangText("command-na")
         sender.sendLang("command-tps-title")
         sender.sendLang(
@@ -508,6 +512,103 @@ object ProbeCommand {
             ProbeFormat.msptOrNull(tick.msptP95) ?: na,
             ProbeFormat.msptOrNull(tick.msptP99) ?: na
         )
+        sendObservedRegions(sender, server)
+    }
+
+    /** 渲染 Folia 已观测 region；没有 region 样本时不追加空区段。 */
+    private fun sendObservedRegions(sender: ProxyCommandSender, server: ServerMetrics) {
+        val worlds = server.observedRegionWorlds.orEmpty()
+        val regions = server.observedRegions.orEmpty()
+        if (worlds.isEmpty() && regions.isEmpty()) {
+            return
+        }
+        sender.sendLang("command-folia-regions-title")
+        worlds.sortedBy { it.worldName }.forEach { sendObservedWorld(sender, it) }
+        regions.sortedWith(compareBy({ it.worldName }, { it.regionSequence }))
+            .forEach { sendObservedRegion(sender, it) }
+    }
+
+    /** 渲染一个世界级已观测 region 汇总。 */
+    private fun sendObservedWorld(sender: ProxyCommandSender, world: ObservedRegionWorldMetrics) {
+        sender.sendLang(
+            "command-folia-region-world-line",
+            world.worldName,
+            world.activeRegions,
+            world.playerCount,
+            world.sampleCount
+        )
+        sendObservedTicks(
+            sender,
+            "command-folia-region-world-tick",
+            ObservedTickMetrics.from(world)
+        )
+    }
+
+    /** 渲染一个 region 明细。 */
+    private fun sendObservedRegion(sender: ProxyCommandSender, region: ObservedRegionMetrics) {
+        sender.sendLang(
+            "command-folia-region-line",
+            region.worldName,
+            region.foliaRegionId,
+            region.regionSequence,
+            region.centerChunkX,
+            region.centerChunkZ,
+            region.playerCount,
+            region.sampleCount
+        )
+        sendObservedTicks(
+            sender,
+            "command-folia-region-tick",
+            ObservedTickMetrics.from(region)
+        )
+    }
+
+    /** 统一渲染已观测 region 的 TPS/MSPT 三分位，避免世界汇总与明细格式漂移。 */
+    private fun sendObservedTicks(
+        sender: ProxyCommandSender,
+        langKey: String,
+        metrics: ObservedTickMetrics
+    ) {
+        val na = sender.asLangText("command-na")
+        sender.sendLang(
+            langKey,
+            ProbeFormat.tpsOrNull(metrics.tpsAvg) ?: na,
+            ProbeFormat.tpsOrNull(metrics.tpsP95) ?: na,
+            ProbeFormat.tpsOrNull(metrics.tpsP99) ?: na,
+            ProbeFormat.msptOrNull(metrics.msptAvg) ?: na,
+            ProbeFormat.msptOrNull(metrics.msptP95) ?: na,
+            ProbeFormat.msptOrNull(metrics.msptP99) ?: na
+        )
+    }
+
+    /** 已观测 region 的 TPS/MSPT 数值载体，避免命令渲染方法拥有过多参数。 */
+    private data class ObservedTickMetrics(
+        val tpsAvg: Double?,
+        val tpsP95: Double?,
+        val tpsP99: Double?,
+        val msptAvg: Double?,
+        val msptP95: Double?,
+        val msptP99: Double?
+    ) {
+        companion object {
+            fun from(world: ObservedRegionWorldMetrics): ObservedTickMetrics = ObservedTickMetrics(
+                world.tpsAvg,
+                world.tpsP95,
+                world.tpsP99,
+                world.msptAvg,
+                world.msptP95,
+                world.msptP99
+            )
+
+            fun from(region: ObservedRegionMetrics): ObservedTickMetrics = ObservedTickMetrics(
+                region.tpsAvg,
+                region.tpsP95,
+                region.tpsP99,
+                region.msptAvg,
+                region.msptP95,
+                region.msptP99
+            )
+        }
     }
 
     /**

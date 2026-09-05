@@ -11,7 +11,7 @@ command-server-only: "§e此为服务端指标;当前快照无服务器维度数
 command-help-header: "§6===== §eServerProbe 探针命令 §6====="
 command-help-health: "§a/probe health §7- 总体概览(TPS/MSPT/堆内存/在线/运行时长)"
 command-help-startup: "§a/probe startup §7- 最近一次启动画像(总时长/慢插件/世界耗时)"
-command-help-tps: "§a/probe tps §7- TPS(1/5/15 分钟)与 MSPT(avg/p95/p99)"
+command-help-tps: "§a/probe tps §7- TPS/MSPT；Folia 显示已观测 region 明细"
 command-help-gc: "§a/probe gc §7- GC 与堆/非堆/内存池"
 command-help-world: "§a/probe world §7- 世界指标(各世界区块/实体/方块实体数)"
 command-help-proxy: "§a/probe proxy §7- 代理端数据入口"
@@ -62,6 +62,13 @@ command-tps-agg-empty: "§8  (暂无聚合数据,采集中)"
 command-tps-agg-window: "§7样本数: §f{0}"
 command-tps-agg-tps: "§7TPS 均值: §f{0}  §7MSPT p95: §f{1}  §7p99: §f{2}"
 command-tps-agg-gc: "§7GC 速率(次/秒) §7年轻代: §f{0}  §7老年代: §f{1}"
+
+# Folia 已观测 region；全局 TPS/MSPT 保持 N/A，以下均为局部真实 tick 指标
+command-folia-regions-title: "§6===== §eFolia 已观测 region §8(非全局指标) §6====="
+command-folia-region-world-line: "§7世界 §f{0}§7: 已观测 region §f{1} §7玩家 §f{2} §7样本 §f{3}"
+command-folia-region-world-tick: "§8  汇总 TPS §f{0}§7/§f{1}§7/§f{2} §8MSPT §f{3}§7/§f{4}§7/§f{5}"
+command-folia-region-line: "§8  - §f{0} §7region ID §f{1} §7序列 §f{2} §7区块(§f{3}§7, §f{4}§7) 玩家 §f{5} §7样本 §f{6}"
+command-folia-region-tick: "§8    TPS §f{0}§7/§f{1}§7/§f{2} §8MSPT §f{3}§7/§f{4}§7/§f{5}"
 
 # gc 详情
 command-gc-title: "§6===== §eGC / 内存 §6====="

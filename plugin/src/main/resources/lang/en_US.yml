@@ -11,7 +11,7 @@ command-server-only: "§eThis is a server-side metric; current snapshot has no s
 command-help-header: "§6===== §eServerProbe Commands §6====="
 command-help-health: "§a/probe health §7- Overview (TPS/MSPT/heap/players/uptime)"
 command-help-startup: "§a/probe startup §7- Last startup profile (total/slow plugins/world timings)"
-command-help-tps: "§a/probe tps §7- TPS (1/5/15m) and MSPT (avg/p95/p99)"
+command-help-tps: "§a/probe tps §7- TPS/MSPT; Folia observed-region details"
 command-help-gc: "§a/probe gc §7- GC and heap/non-heap/memory pools"
 command-help-world: "§a/probe world §7- World metrics (per-world chunks/entities/tile-entities)"
 command-help-proxy: "§a/probe proxy §7- Proxy data entry"
@@ -62,6 +62,13 @@ command-tps-agg-empty: "§8  (no aggregation data yet, collecting)"
 command-tps-agg-window: "§7Samples: §f{0}"
 command-tps-agg-tps: "§7TPS avg: §f{0}  §7MSPT p95: §f{1}  §7p99: §f{2}"
 command-tps-agg-gc: "§7GC rate(/s) §7young: §f{0}  §7old: §f{1}"
+
+# Folia 已观测 region；全局 TPS/MSPT 保持 N/A，以下均为局部真实 tick 指标
+command-folia-regions-title: "§6===== §eFolia Observed Regions §8(not global metrics) §6====="
+command-folia-region-world-line: "§7World §f{0}§7: observed regions §f{1} §7players §f{2} §7samples §f{3}"
+command-folia-region-world-tick: "§8  Summary TPS §f{0}§7/§f{1}§7/§f{2} §8MSPT §f{3}§7/§f{4}§7/§f{5}"
+command-folia-region-line: "§8  - §f{0} §7region ID §f{1} §7sequence §f{2} §7chunk(§f{3}§7, §f{4}§7) players §f{5} §7samples §f{6}"
+command-folia-region-tick: "§8    TPS §f{0}§7/§f{1}§7/§f{2} §8MSPT §f{3}§7/§f{4}§7/§f{5}"
 
 # gc detail
 command-gc-title: "§6===== §eGC / Memory §6====="

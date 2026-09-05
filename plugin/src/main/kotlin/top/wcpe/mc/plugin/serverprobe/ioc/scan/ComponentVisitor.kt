@@ -44,7 +44,14 @@ object ComponentVisitor : ClassVisitor(1) {
         val conditionContext = invoke(container, "createConditionContext\$taboolib_ioc_core") ?: return
         val conditions = singleton(CONDITION_EVALUATOR_CLASS)
         val definitions = classes.mapNotNull { candidate ->
-            definitionOrNull(candidate, scanner, registry, conditionContext, conditions)
+            // 单个候选扫描失败(如旧 JDK 注解解析缺陷、引用缺失的 Folia 专属类型)只跳过该类,
+            // 绝不中断整条注入链——否则后续组件的 @Inject 字段会全部未注入。
+            runCatching { definitionOrNull(candidate, scanner, registry, conditionContext, conditions) }
+                .onFailure {
+                    // println 而非 debug():该路径意味着有组件未注册,必须对服主可见(LOAD 期 ProbeLogger 尚未就绪)。
+                    println("[ServerProbe][IoC] 跳过无法扫描的类:${candidate.name}:${it.javaClass.simpleName}:${it.message}")
+                }
+                .getOrNull()
         }
         definitions.forEach { definition -> invoke(registry, "register", definition) }
         debug("[IoC] 平台过滤扫描完成，注册 ${definitions.size} 个组件")
@@ -65,8 +72,24 @@ object ComponentVisitor : ClassVisitor(1) {
     }
 
     private fun matchesCurrentPlatform(candidate: Class<*>): Boolean {
-        val declaredPlatforms = candidate.getAnnotation(PlatformSide::class.java)?.value ?: return true
-        return Platform.CURRENT in declaredPlatforms
+        // JDK 8 的注解解析器解析 @PlatformSide(vararg Platform) 这类枚举数组时会抛
+        // ArrayStoreException(AnnotationTypeMismatchExceptionProxy),并沿 ClassVisitorHandler
+        // 中断整条注入链,令异常类之后所有组件的 @Inject 字段全部未注入(1.16.5/JDK8 真机已证)。
+        // 故读取失败时按模块包名约定兜底判定平台,与注解语义严格一致。
+        val declaredPlatforms = runCatching { candidate.getAnnotation(PlatformSide::class.java)?.value }
+            .getOrElse { return platformFromPackage(candidate) }
+        return declaredPlatforms?.let { Platform.CURRENT in it } ?: true
+    }
+
+    /** 模块包名到运行平台的映射:`bukkit.`/`nms.` 归 Bukkit 系,`bungee.`/`velocity.` 各归其平台。 */
+    private fun platformFromPackage(candidate: Class<*>): Boolean {
+        val name = candidate.name
+        return when {
+            name.startsWith(BUNGEE_PACKAGE_PREFIX) -> Platform.BUNGEE == Platform.CURRENT
+            name.startsWith(VELOCITY_PACKAGE_PREFIX) -> Platform.VELOCITY == Platform.CURRENT
+            name.startsWith(BUKKIT_PACKAGE_PREFIX) -> Platform.BUKKIT == Platform.CURRENT
+            else -> true
+        }
     }
 
     private fun singleton(className: String): Any = Class.forName(className).getField("INSTANCE").get(null)
@@ -83,6 +106,9 @@ object ComponentVisitor : ClassVisitor(1) {
 
     private const val CONTAINER_CLASS = "top.wcpe.mc.plugin.serverprobe.ioc.bean.BeanContainer"
     private const val CONDITION_EVALUATOR_CLASS = "top.wcpe.mc.plugin.serverprobe.ioc.condition.ConditionEvaluator"
+    private const val BUKKIT_PACKAGE_PREFIX = "top.wcpe.mc.plugin.serverprobe.bukkit."
+    private const val BUNGEE_PACKAGE_PREFIX = "top.wcpe.mc.plugin.serverprobe.bungee."
+    private const val VELOCITY_PACKAGE_PREFIX = "top.wcpe.mc.plugin.serverprobe.velocity."
 }
 
 private const val PROJECT_SCANNER_CLASS = "top.wcpe.mc.plugin.serverprobe.taboolib.common.io.ProjectScannerKt"

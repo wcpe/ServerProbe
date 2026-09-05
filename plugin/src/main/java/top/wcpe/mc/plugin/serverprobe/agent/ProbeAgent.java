@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>两个入口：
  * <ul>
  *   <li>{@link #premain(String, Instrumentation)}：JVM 命令行 {@code -javaagent} 启动期调用（首选）。</li>
- *   <li>{@link #agentmain(String, Instrumentation)}：运行期 attach 调用（保留兼容，本阶段不主动使用）。</li>
+ *   <li>{@link #agentmain(String, Instrumentation)}：运行期 attach 调用，供诊断组件在 premain 缺失时降级重试。</li>
  * </ul>
  * 二者共用 {@link #bootstrap(Instrumentation)}，并以 {@link #BOOTSTRAPPED} 做<b>幂等保护</b>——
  * 即便 premain 与 agentmain 都触发，bootstrap 也只执行一次。
@@ -51,7 +51,7 @@ public final class ProbeAgent {
     }
 
     /**
-     * 运行期 attach 入口（保留兼容，本阶段不主动使用）。
+     * 运行期 attach 入口（供诊断组件显式重试）。
      *
      * @param agentArgs agent 参数（本阶段未使用）
      * @param inst      JVM 提供的字节码插桩接口
@@ -89,6 +89,7 @@ public final class ProbeAgent {
     private static void bootstrap(Instrumentation inst) {
         // 幂等保护：仅首次进入者执行，避免重复注册 transformer 与重复打点。
         if (!BOOTSTRAPPED.compareAndSet(false, true)) {
+            ProbeAgentBridge.setInstrumentation(inst);
             return;
         }
 
@@ -98,21 +99,24 @@ public final class ProbeAgent {
             // 1. 先注入 bootstrap：必须先于下方任何 ProbeAgentBridge 引用，确保数据落点统一到 bootstrap 那一份。
             boolean bootstrapReady = BootstrapBridgeInstaller.install(inst);
 
-            // 2. 记录 premain 相对时基（nanoTime 仅用于求差，绝对值无意义）。
+            // 2. 保存 Instrumentation：诊断组件通过 bootstrap 桥反射读取，优先复用 premain，避免自挂载。
+            ProbeAgentBridge.setInstrumentation(inst);
+
+            // 3. 记录 premain 相对时基（nanoTime 仅用于求差，绝对值无意义）。
             ProbeAgentBridge.setPremainNanos(System.nanoTime());
 
-            // 3. 从 RuntimeMXBean 读取 JVM 启动时刻与启动参数，作为"开服总耗时"基准与诊断上下文。
+            // 4. 从 RuntimeMXBean 读取 JVM 启动时刻与启动参数，作为"开服总耗时"基准与诊断上下文。
             RuntimeMXBean runtimeMXBean = ManagementFactory.getRuntimeMXBean();
             ProbeAgentBridge.setJvmStartTimeMs(runtimeMXBean.getStartTime());
             ProbeAgentBridge.setJvmArgs(joinArgs(runtimeMXBean.getInputArguments()));
 
-            // 4. 仅在 bootstrap 注入成功时注册插桩转换器（enable/load/library 三个 hook，canRetransform=true）。
+            // 5. 仅在 bootstrap 注入成功时注册插桩转换器（enable/load/library 三个 hook，canRetransform=true）。
             //    注入失败则跳过插桩：否则被插桩的服务器类执行时找不到 bootstrap 上的数据桥，反而引发 NoClassDefFoundError。
             if (bootstrapReady) {
                 inst.addTransformer(new StartupProfilingTransformer(), true);
             }
 
-            // 5. 启动 "Server thread" 主线程栈采样守护线程（daemon，不阻塞 JVM 退出）。
+            // 6. 启动 "Server thread" 主线程栈采样守护线程（daemon，不阻塞 JVM 退出）。
             //    采样不依赖插桩，故无论 bootstrap 注入成功与否都启动，保证至少有主线程热点这条通道可用。
             stackSampler = new StartupStackSampler();
             stackSampler.start();

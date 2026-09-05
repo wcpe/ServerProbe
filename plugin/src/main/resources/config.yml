@@ -43,6 +43,26 @@ world:
   # 是否统计各世界按类型的实体分布。关闭后仅给出实体总数。默认 true。
   entity-types: true
 
+# Folia 已观测 region 指标(FR12)。仅记录真实 tick 中含在线玩家的 region；全局 TPS/MSPT 仍为 N/A。
+folia:
+  # region 连续多久没有新的真实 tick 样本就从结果中移除(单位:秒)。默认 60，最小 1。
+  observed-region-expire-seconds: 60
+
+# 网络流量与数据包取证(FR11)。元数据默认记录；完整载荷只在包类型与插件消息频道白名单均命中时保存。
+network-forensics:
+  # 是否开启本地 SQLite 数据包取证。默认 true；驱动加载失败时仅取证降级，流量聚合继续工作。
+  enabled: true
+  # 允许保存完整载荷的规范化包类型列表。默认空，表示只保存元数据与哈希。
+  payload-packet-types: []
+  # Plugin Message 额外允许保存完整载荷的频道列表。默认空，必须与上方包类型白名单同时命中。
+  payload-channels: []
+  # 单包最多保存多少字节载荷。超出会截断，但原始长度和完整包 SHA-256 仍会记录。默认 65536(64 KiB)。
+  max-payload-bytes: 65536
+  # 取证记录保留天数。默认 60；超期记录优先删除。
+  retention-days: 60
+  # SQLite 文件及 WAL 辅助文件总上限(单位:GiB)。默认 4，最小 1；超限时从最早记录开始删除。
+  max-total-gib: 4
+
 # HTTP/TCP 对外网络外呼监控(M5)。需以 -javaagent:plugins/ServerProbe.jar 挂载启动 agent 方生效;
 # 拦截 java.net.HttpURLConnection 与 java.net.Socket.connect,记录"哪个插件/哪段代码发起了对外请求、
 # 目标、耗时、响应码、(脱敏的)参数",实时打印日志、落盘 data/http/,并可经 /probe http 回看。
@@ -97,6 +117,30 @@ metrics:
   # 仅精确 IP 匹配,不支持 CIDR 网段;经 IPv6 回环访问需另填 IPv6 地址(如 ::1)。
   allowed-ips:
     - "127.0.0.1"
+
+# 事故诊断 MCP 控制面(FR14)。默认关闭；开启后提供服务器状态和原生线程诊断。
+# 不强制 HTTPS 或密钥。若留空密钥或改为非回环地址，插件仅打印中文 WARN，由操作者承担完整控制暴露风险。
+mcp:
+  # 是否开启 MCP Streamable HTTP 服务。默认 false。
+  enabled: false
+  # 监听地址。默认 127.0.0.1；可设 0.0.0.0。
+  host: "127.0.0.1"
+  # 监听端口。默认 9942。
+  port: 9942
+  # Bearer 密钥。留空即不鉴权；不得把真实密钥提交到版本库。
+  secret: ""
+  # 同时执行的 Arthas 长任务数。最小 1；默认 4。
+  task-max-concurrent: 4
+  # 单个 Arthas 任务最长运行分钟数。0 表示不限时；默认 30。
+  task-timeout-minutes: 30
+  # 单个 Arthas 任务内存输出上限(单位 MiB)。最小 1；默认 64。
+  task-output-mebibytes: 64
+  # 已完成 Arthas 任务的结果保留分钟数。最小 1；默认 60。
+  task-retention-minutes: 60
+  # MCP 工件保留小时数。最小 1；默认 24。
+  artifact-retention-hours: 24
+  # MCP 工件工作区总容量上限(单位 GiB)。最小 1；默认 10。
+  artifact-max-gib: 10
 
 # Web 面板(FR4.3,M3,P2):启动画像详情 / 历史趋势 / 总览,浏览器访问。
 # 基于 JDK 内置 HttpServer 零依赖;安全默认:默认【关闭】,且默认仅本机可访问。
