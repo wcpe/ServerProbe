@@ -12,10 +12,10 @@
 
 | 文档 | 管什么 | 何时更新 | 入库 |
 |---|---|---|---|
-| `docs/PRD.md` | 需求（WHAT/WHY）：目标、角色、功能需求（FR1–FR8）、验收、迭代规划 | 需求增删改时 | ✓ 活文档 |
+| `docs/PRD.md` | 需求（WHAT/WHY）：目标、角色、功能需求（FR 表，当前 FR-01~FR-14）、验收、分期 | 需求增删改时 | ✓ 活文档 |
 | `docs/specs/<feature>.md` | 非平凡功能的开发期工作规格（需求/设计/任务/验收） | 开发该功能时 | ✓ 留作记录 |
 | `docs/ARCHITECTURE.md` | 系统设计（HOW）：模块、数据模型、机制、多版本/多平台、Folia | 结构/机制/依赖变化时 | ✓ |
-| `docs/adr/*` | 重大决策的"为什么"（当前 ADR-1~12） | 做出/推翻架构决策时（见 §3） | ✓ |
+| `docs/adr/*` | 重大决策的"为什么"（当前 ADR-1~27） | 做出/推翻架构决策时（见 §3） | ✓ |
 | `docs/API.md` | 对外接口契约（只读 API / 存储 SPI / Prometheus 端点 / `/probe` 命令） | 接口变更时 | ✓ |
 | `docs/OPERATIONS.md` | 部署 / 升级 / 备份 / 回滚 / 排障 | 运维方式变化时 | ✓ |
 | `SECURITY.md` | 信任模型、敏感数据、漏洞报告 | 安全模型变化时 | ✓ |
@@ -37,7 +37,7 @@
 
 ### 3.1 ADR 实操（维护期）
 
-- **编号**：= 现有最大编号 + 1，永不复用、不补洞。现有最大看 `docs/adr/` 目录（当前到 ADR-12 → 下一个 **ADR-13**），别硬记。
+- **编号**：= 现有最大编号 + 1，永不复用、不补洞。现有最大看 `docs/adr/` 目录（当前到 ADR-27 → 下一个 **ADR-28**），别硬记。
 - **写不写**：日常加功能若落在既有决策内，不写；只有上面"何时写"的情形才写。
 - **取代怎么做**：① 新建 ADR（取下一个空号），背景写"取代 ADR-NNNN"；② 把被取代旧 ADR 状态行改为"已被该新 ADR 取代" + 链接，**正文一字不动**；③ 同步改受影响的 `.claude/rules/*`（如撤掉对应不变量红线）、`ARCHITECTURE.md` §11 索引、相关 wiki。
 
@@ -76,7 +76,7 @@
 
 ## 8. 分支模型与发布渠道（现状 + 推荐路径）
 
-**现状（单人开发）**：当前仓库**单 `master` 分支、无 remote、无 CI**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。
+**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.2.0`；FR-10~FR-14 已完成验收、待下次正式发版登记。
 
 **推荐路径（开始协作 / 公开发布时启用）**：采用 GitHub Flow——
 
@@ -84,10 +84,10 @@
 - **`feature/*`、`fix/*`、`refactor/*`、`hotfix/*`**：短生命周期分支，做完发 PR 回主干。
 - **稳定发布**：打 `vX.Y.Z` tag（`sdd-release-version` 技能）。
 - **回滚**优先 `git revert`，不重写已 push 历史（`sdd-rollback-change` 技能）。
-- **CI**：已配置 `.github/workflows/ci.yml`（push / PR 跑 `./gradlew build` = 构建 + 测试 + detekt）。当前无公开 remote、尚未实际运行；建立 GitHub 仓库后即生效，应在分支保护里设为合并前门禁。
+- **CI**：已配置 `.github/workflows/ci.yml`（push / PR 跑 `./gradlew build` = 构建 + 测试 + detekt）。发布标签经 CI 自动出 Release；应在分支保护里把 CI 设为合并前门禁。
 
 **版本号当前权威来源 = 根 `gradle.properties` 的 `version` 字段**（Gradle 构建原生读取并注入各模块产物）。SDD 约定的根 `VERSION` 单一来源文件**本项目暂未引入**（避免与 `gradle.properties` 产生双源）；是否引入并接入构建，待维护者定夺。
-> 版本口径 = **`0.1.0`**（2026-06-20 首发，本地 tag `v0.1.0`，未推送）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
+> 版本口径 = **`0.2.0`**（2026-08-24 正式发布，GitHub Release `v0.2.0`）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
 
 ### 8.1 提交历史治理（摘要）
 

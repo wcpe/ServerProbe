@@ -51,7 +51,7 @@ ServerProbe 是一个基于 **TabooLib 6.3.0** 的 Minecraft 服务器运维探�
 |---|---|---|
 | MC 版本 | **1.8 – 1.21.11**(及 26.1) | 与 TabooLib `MinecraftVersion.supportedVersion` 一致 |
 | 服务端类型 | CraftBukkit / Spigot / Paper / **Folia** / 其他 Bukkit 衍生 | Folia 是 Bukkit 运行期变体,非独立平台 |
-| 代理端 | **BungeeCord** | Velocity 已在架构预留,后续低成本接入 |
+| 代理端 | **BungeeCord + Velocity 3.1.1–4.x** | 同一发行 jar 支持；代表验收版本为 3.1.1、3.5.1 与 4.1.0 |
 | 运行 JRE | Java 8+ | 随服务端版本要求;探针核心 Java 8 字节码,所有 JRE 均可加载 |
 | 分发形态 | **单 jar 多端** | 同一 jar 在 Bukkit 系与 BungeeCord 上各读各自描述符 |
 

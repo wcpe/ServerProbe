@@ -1,292 +1,146 @@
-# ServerProbe 产品需求文档(PRD)
+# 产品需求文档（PRD）：ServerProbe
 
-| 项 | 内容 |
-|---|---|
-| 项目 | ServerProbe —— Minecraft 服务器运维探针 |
-| 版本 | 0.2.0(2026-08-24) |
-| 日期 | 2026-06-08 |
-| 适用平台 | Bukkit 系(CraftBukkit/Spigot/Paper/Folia)**1.8 – 1.21.11 全版本** + BungeeCord 代理端,**单 jar 多端** |
-| 运行 JRE | Java 8+(随服务端;1.17+ 服务端运行于 17+,1.20.5+ 运行于 21+) |
-| 技术栈 | Kotlin 2.1.0 / TabooLib 6.3.0 / taboolib-ioc 0.0.6 / **本地文件存储 + 开放接口** / **核心 Java 8 字节码** |
-| groupId | `top.wcpe.mc.plugin.serverprobe` |
-| 关联文档 | [架构文档](ARCHITECTURE.md) · [CHANGELOG](../CHANGELOG.md) · [README](../README.md) · [Wiki](wiki/) |
-
----
+> 需求的单一真源（WHAT / WHY），也是产品的**需求登记册 + 路线图**——全生命周期都在记，不是一次性文档。每个需求在 §4 加一行 FR（带优先级/期 + 状态），交付即标版本；§4 FR 表是迭代中最常动的部分（🔥 高频），分期（§7）只是其中很小、很静的一页粗线条规划。单功能的详细规格放 `docs/specs/`，PRD 只保留"一行 FR + 期 + 状态"的索引级。
 
 ## 1. 背景与目标
 
-### 1.1 背景
-- **痛点一(首要):开服慢、且说不清慢在哪。** 服务端启动是一条串行链:JVM 启动 → 服务端 bootstrap → 各插件 onLoad/onEnable → 世界加载 → `Done!`。任一环节(某插件 enable 卡顿、世界 spawn-chunk 预加载、依赖在线下载、数据升级)都会拖慢整体,但现有手段只能"感觉慢",无法量化定位元凶。
-- **痛点二:缺乏统一运维探针。** TPS/MSPT/内存/GC/线程/世界负载等指标散落各处,没有统一采集、聚合、告警与可视化,运维无法长期监控与回溯。
-- **现状:项目是空骨架。** 当前 git 仅含配置文件,三模块源码目录全空,从零开发。当前仅 `install(Bukkit)`。
+面向 Minecraft 服务器的**运维探针**，核心价值：让"开服慢"可量化定位、让运行指标可统一采集分析，并覆盖全版本、多平台。
 
-### 1.2 产品目标
-- **G1(首要):可量化定位"开服慢"。** 给出端到端启动总时长 + 逐插件 onEnable、逐世界加载、各生命周期阶段的耗时排名,并能"与上次/基线对比",回答"这次慢在哪、比上次慢多少"。
-- **G2:运维探针数据采集与分析。** 覆盖 JVM、服务器、世界、网络及代理端核心指标的采集、聚合、告警与多通道呈现。
-- **G3:全版本 + 多平台。** Bukkit 系 1.8–1.21.11 全版本(含 Folia) + BungeeCord,单 jar 多端,核心 Java 8 字节码通用,版本/平台差异以最小胶水隔离。
+- **痛点一（首要）：开服慢、且说不清慢在哪。** 服务端启动是一条串行链，任一环节（插件 enable 卡顿、世界加载、依赖在线下载、数据升级）都会拖慢整体，但现有手段只能"感觉慢"，无法量化定位元凶。
+- **痛点二：缺乏统一运维探针。** TPS/MSPT/内存/GC/线程/世界负载等指标散落各处，没有统一采集、聚合、告警与可视化，运维无法长期监控与回溯。
+- **产品目标**：
+  - **G1（首要）：可量化定位"开服慢"。** 给出端到端启动总时长 + 逐插件 onEnable、逐世界加载、各生命周期阶段的耗时排名，并能"与上次/基线对比"，回答"这次慢在哪、比上次慢多少"。
+  - **G2：运维探针数据采集与分析。** 覆盖 JVM、服务器、世界、网络及代理端核心指标的采集、聚合、告警与多通道呈现。
+  - **G3：全版本 + 多平台。** Bukkit 系 1.8–1.21.11 全版本（含 Folia）+ BungeeCord + Velocity 3.1.1–4.x，单 jar 多端，核心 Java 8 字节码通用，版本/平台差异以最小胶水隔离。
 
-### 1.3 非目标(首期明确不做,防止范围蔓延)
-- 不做服务端内核(NMS)/DataFixerUpper 等 **bootstrap 阶段的逐方法级归因**(对普通插件不可见,需重型字节码织入)——首期以"整体时长对比"覆盖该层。
-- 不自研重型 CPU 采样分析器替代 [spark];**运行期**深度 CPU 火焰图建议并用 spark(自研采样仅作 M3 轻量增强)。**例外**:**启动期(premain 窗口)**火焰图自研——spark 难介入 premain,而启动期恰是本项目首要场景(M5,`/probe flamegraph`,见 ADR-8)。
-- 不做玩家行为分析(属 Plan 领域)。
+### 非目标
+
+- 不做服务端内核（NMS）/DataFixerUpper 等 **bootstrap 阶段的逐方法级归因**（对普通插件不可见，需重型字节码织入）——以"整体时长对比"覆盖该层。
+- 不自研重型 CPU 采样分析器替代 [spark]；**运行期**深度 CPU 火焰图建议并用 spark（自研采样仅作轻量增强）。**例外**：**启动期（premain 窗口）火焰图自研**——spark 难介入 premain，而启动期恰是首要场景（见 ADR-8）。
+- 不做玩家行为分析（属 Plan 领域）。
 - 不将 Incision 扩展到服务端 bootstrap/NMS、BungeeCord 或 Folia；其仅在 Bukkit/Paper 的 `enablePlugin` 路径作为默认关闭的可选增强。
+- 不做跨服务器聚合联动（各端独立采集与展示，见 ADR-9）。
 
----
-
-## 2. 兼容性支持矩阵
-
-| 维度 | 范围 | 说明 |
-|---|---|---|
-| MC 版本 | **1.8 – 1.21.11**(及 26.1) | 与 TabooLib `MinecraftVersion.supportedVersion` 一致;被 `!` 跳过的紧急修复版(如 1.20.3/1.21/1.21.2)按 TabooLib 行为处理 |
-| 服务端类型 | CraftBukkit / Spigot / Paper / **Folia** / 其他 Bukkit 衍生 | Folia 被识别为 Bukkit 变体(`Folia.isFolia`),非独立平台 |
-| 代理端 | **BungeeCord** | Velocity 预留(架构已抽象,后续低成本接入) |
-| 运行 JRE | Java 8+ | 随服务端版本要求;探针核心 Java 8 字节码,在所有 JRE 上可加载 |
-| 编译 | 核心 **Java 8** target | 仅"直接继承高版本 NMS 类"的个别胶水模块才用高 toolchain(详见架构文档) |
-
----
-
-## 3. 术语
-
-| 术语 | 含义 |
-|---|---|
-| TPS | 每秒 tick 数(理想 20);**Folia 为 per-region,无全局值** |
-| MSPT | 单 tick 耗时(毫秒),>50ms 即掉 tick;关注 p95/p99 |
-| 启动画像(Startup Profile) | 一次启动的结构化耗时报告(总时长+分段+慢插件榜+世界耗时+JVM 参数快照) |
-| 指标快照(Metric Snapshot) | 某时刻一组运维指标的采样值 |
-| 采集器(Collector) | 采集某类指标的组件,平台无关接口 + 平台/版本实现 |
-| 胶水模块 | 仅当通用 API 不支持某版本/平台功能时才编写的最小适配实现 |
-| 代理端 | BungeeCord 等反向代理,**无世界/TPS/MSPT 概念** |
-| 环形缓冲 | 定容内存队列,保存最近 N 分钟高频指标,避免磁盘 IO 压主线程 |
-| 本地文件落盘 | 启动画像与聚合后历史以本地文件(JSON/JSONL)持久化,不依赖任何数据库 |
-| 开放接口 | 对外只读数据访问 API + 存储 SPI 扩展点,供第三方消费或自接后端 |
-
----
-
-## 4. 目标用户与场景
+## 2. 角色
 
 | 用户 | 核心场景 |
 |---|---|
-| 服主 | 开服明显变慢时,一条命令定位是哪个插件/世界拖慢了启动 |
-| 运维 | 长期监控 TPS/MSPT/内存/GC,接 Grafana 看板与报警,事故回溯 |
+| 服主 | 开服明显变慢时，一条命令定位是哪个插件/世界拖慢了启动 |
+| 运维 | 长期监控 TPS/MSPT/内存/GC，接 Grafana 看板与报警，事故回溯 |
 | 插件开发者 | 排查自己插件的 enable 耗时与运行时开销占比 |
+| 业务插件（MultiCurrencyEconomy / AllinInventorySync） | 经探针桥承接 JianManager 下发的业务命令与事件上报 |
 
----
+## 3. 用户故事
 
-## 5. 技术选型决策(核心)
+- 作为**服主**，我希望一条命令看到启动总时长和慢插件/慢世界排名，以便快速回答"这次开服为什么慢"。
+- 作为**运维**，我希望 TPS/MSPT/内存/GC 统一采集并可经 Prometheus/Web/文件多通道查看，以便长期监控与事故回溯。
+- 作为**插件开发者**，我希望看到自己插件的 enable 耗时与运行期 CPU 占比，以便优化性能。
+- 作为**运维**，我希望在不换服的情况下用同一个 jar 覆盖 Bukkit 系全版本、Folia、BungeeCord 与 Velocity，以便统一部署。
+- 作为**事故响应者**，我希望在默认关闭的控制面下能对 JVM 做线程/死锁/类重定义级深度诊断，以便定位疑难事故。
 
-### 5.1 探针实现路线
-**主体 = 纯 API + JMX(`java.lang.management`) + 平台原生 API + 采样,主体不用 Java Agent、不裸写 ASM。** 在此之上提供两类**可选增强**:
-- **启动期 premain agent(可选,手动启用)**:命令行 `-javaagent:plugins/ServerProbe.jar` 启用,补 ServerProbe 自身加载前的盲区(逐插件精确耗时、库下载、主线程栈采样)。它是**启动期命令行 premain**,**不是被本表否决的运行时 self-attach**,不受 JEP 451 限制(详见架构文档 §13 / ADR-11);默认不启用,失败静默降级。
-- **方法级精确插桩(可选)**:采用 **TabooLib Incision**(而非裸 ASM),Bukkit/Paper 的 `enablePlugin` 路径已验收;**默认关闭**,失败自动降级。
+## 4. 功能需求（FR）
 
-依据(三方案对比;此处否决的是**运行时 self-attach**,非启动期 premain):
-
-| 维度 | 裸 ASM + 运行时 self-attach Agent | TabooLib Incision | **纯 API + JMX + 采样(主体)** |
+| 编号 | 需求 | 优先级 | 状态 |
 |---|---|---|---|
-| 实现成本 | 最高 | 中 | **最低** |
-| MC 上可用性 | ❌ self-attach 在 Paper/JDK21+ 默认失效 | ⚠️ 有 JVMTI 兜底,本仓库零用例 | ✅ 稳定 |
-| 崩服风险 | 最高 | 高 | **最低(只读)** |
-| 全版本+多平台 | ⚠️ 各端各 JDK 行为不一 | ⚠️ 代理端需自适配 | ✅ **最佳** |
-| 运行开销 | 高 | 高 | **极低** |
+| FR-01 | 启动性能剖析：端到端总时长、逐插件/逐世界/生命周期分段耗时、启动画像落盘与上次对比、慢启动告警；可选 premain agent 补加载前盲区（精确耗时/栈采样/火焰图/外呼监控） | P1 | 已交付@v0.2.0 |
+| FR-02 | 运维指标采集：JVM、服务器 TPS/MSPT、世界、网络 ping 分布、代理端子服健康、插件运行期 CPU 归因 | P1 | 已交付@v0.2.0 |
+| FR-03 | 存储与聚合：内存环形缓冲、本地文件异步落盘（JSON/JSONL）、TPS 滑窗 / MSPT 分位 / GC 差分聚合 | P1 | 已交付@v0.2.0 |
+| FR-04 | 数据呈现四通道：游戏内命令 `/probe`、Prometheus `/metrics`、Web 面板、历史文件对比 | P1 | 已交付@v0.2.0 |
+| FR-05 | 告警：阈值 + 防抖 + 日志 / 游戏内 / Webhook 三通道 | P2 | 已交付@v0.2.0 |
+| FR-06 | 全版本与多平台：单 jar 运行于 Bukkit 系 1.8–1.21.11（含 Folia）+ BungeeCord + Velocity 3.1.1–4.x | P1 | 已交付@v0.2.0 |
+| FR-07 | 方法级精确归因：Incision 采集 `enablePlugin` 逐插件精确耗时（可选、默认关闭） | P3 | 已交付@v0.2.0 |
+| FR-08 | 开放接口：只读数据访问 API + 存储 SPI + 导出端点 | P2 | 已交付@v0.2.0 |
+| FR-09 | 业务对接 agent（JBIS）：经反向 WS 桥承接业务命令路由到业务插件 Provider 执行并回执、业务事件上报，事故域隔离 | P2 | 已交付@v0.2.0 |
+| FR-10 | 内置业务集成模块化：MultiCurrencyEconomy / AllinInventorySync 独立 Gradle 模块，发布时合入单 jar | P2 | 开发中¹ |
+| FR-11 | 全平台网络流量与数据包取证：双向 bytes/s、packets/s、包类型计数，本地 SQLite 白名单取证 | P2 | 开发中¹ |
+| FR-12 | Folia 已观测 region TPS/MSPT 明细与世界汇总 | P2 | 开发中¹ |
+| FR-13 | Velocity 3.1.1–4.x 平台支持（单 jar、双编译门、Java 8 入口） | P2 | 开发中¹ |
+| FR-14 | 外部 MCP 深度诊断控制：内嵌 Arthas Core（默认关闭、明确授权控制面） | P2 | 开发中¹ |
 
-> 探针 90%+ 指标用现成稳定 API 即可,**连 spark 都不用 Java Agent**。
-> 注:上表否决的"self-attach"指**运行时自挂载**;**启动期命令行 premain agent** 走标准 `premain` 入口、不受 JEP 451 约束,作为可选增强专补加载前盲区(见 §5.4 / FR1 / 架构 §13)。
+> 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
+> ¹ FR-10~FR-14 已完成真机验收、证据齐备（见各 spec），待下次正式版本经 `sdd-release-version` 统一登记为 `已交付@vX.Y.Z`——开发 / 修复过程中不得自行预标。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
+> 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [built-in-integrations](specs/built-in-integrations.md)、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
 
-### 5.2 多版本兼容机制(依赖 TabooLib)
-- **版本判断**:`MinecraftVersion`(`major`/`minor`/`isUniversal`/`isHigherOrEqual` 等),`isUniversal = major≥1.17`。
-- **NMS 多版本抽象**:`nmsProxy<T>()` —— 写一套 Mojang 映射的抽象类 + Impl,运行期 ASM 重映射到任意服务端。优先**反射访问**(`nmsClass`/`getProperty`),避免直接 `extends` 高版本类型而被迫抬 toolchain。
-- **原则:先通用,跑不通再拆胶水。** 绝大多数指标走 Bukkit API + JMX,全版本通用;仅 TPS/MSPT 低版本兜底等少数点需版本分支。
+## 5. 非功能需求（NFR）
 
-### 5.3 Folia 适配
-- **调度零胶水**:TabooLib `submit()/submitAsync()` 已原生适配 Folia(自动走 GlobalRegion/Async Scheduler)。探针定时采集**一律走 `submit`,严禁直接 `Bukkit.getScheduler()`**。
-- **需自处理两点**:① TPS/MSPT 在 Folia 无全局值(per-region)→ **per-region 明细 + 全局标 N/A**(M1 先全局 N/A,后续补 per-region);② Folia 下读实体/区块须用 `Location.callRegion{}`/`Entity.callRegion{}`(TabooLib 已提供)逐区域采集汇总。
+### 性能
 
-### 5.4 关键技术手段
+- 运行期自身开销目标 <2%；MSPT 仅取 `nanoTime`；聚合/落盘/采样全异步或限频；环形缓冲定容；文件写入异步且原子。**严禁主线程阻塞磁盘 IO / 远程调用**。
+- 数据包取证不得阻塞 Netty EventLoop；取证库双上限（60 天 / 4 GiB）按最早记录优先清理。
 
-| 能力 | 手段 |
-|---|---|
-| 启动总时长 | `ServerLoadEvent(STARTUP)` 时刻 − `RuntimeMXBean.getStartTime()` |
-| 逐插件 onEnable | 本插件:TabooLib 生命周期打点;全部插件:解析 `logs/latest.log` 时间戳;(可选/M4)Incision 插桩 |
-| 启动分段 | `@Awake(CONST/INIT/LOAD/ENABLE/ACTIVE)` 各阶段 `nanoTime` |
-| JVM 指标 | `java.lang.management` 全套 MXBean(全版本+全平台通用,最稳) |
-| **TPS** | Paper `Bukkit.getTPS()`;无该 API 的版本/纯 CraftBukkit → `nmsProxy` 读 `MinecraftServer.recentTps` 或自建 tick 采样器;Folia → per-region/标 N/A |
-| **MSPT** | 每 tick `nanoTime` 入直方图算 p95/p99;Folia 需 per-region |
-| 世界/实体/区块 | Bukkit API,限频;Folia 用 `callRegion{}` |
-| 代理端 | `ProxyServer.getServers()`+`getPlayers()`、`ServerInfo.ping()`、玩家路由 |
-| CPU 归因(M3) | `ThreadMXBean` 周期采样栈,按插件 ClassLoader 归并(spark 模式,无 agent) |
+### 稳定性
 
-### 5.5 Incision 方法级精确归因(FR7)
-Incision 仅用于 Bukkit/Paper 的 `SimplePluginManager#enablePlugin` 方法级精确归因。以 `@Surgeon`、`@Lead`、`@Trail` 接入，由 Incision 生命周期扫描与卸载；`incision.enabled=false` 为默认配置，关闭时不记录精确数据，启用后重启生效。未命中有效切点会保留普通启动画像且不阻断插件启用。Paper `1.21.11-132` + JDK `21.0.4` 已完成默认关闭、注解式采集、失败降级、卸载路径与受控负载性能验收，详情见 [`specs/incision-poc.md`](specs/incision-poc.md)。
+- 探针绝不能成为事故源：主体只读；可选插桩 / agent / MCP 控制面默认关闭、失败静默降级。
+- 跨 ClassLoader 启动 agent 通道只放最小桥接类，premain 顶层 `catch(Throwable)` 兜底，绝不崩 JVM。
 
----
+### 兼容性
 
-## 6. 总体架构(摘要,详见[架构文档](ARCHITECTURE.md))
-
-模块(全部 **Java 8**,除个别 NMS 胶水):
-
-| 模块 | 职责 | 平台 |
+| 维度 | 范围 | 说明 |
 |---|---|---|
-| `api` | 契约与数据模型:采集器接口、指标/启动画像模型、呈现接口 | 通用 |
-| `core`(现 `project:core`) | 通用核心:采集编排/调度、JMX 采集、聚合、告警、呈现核心、**本地文件存储 + 开放接口** | 通用 |
-| `platform-bukkit` | Bukkit/Paper/**Folia** 采集:在线/世界/区块/实体/TPS/MSPT;Folia 分流写在此 | Bukkit |
-| `platform-bungee` | 代理端采集:子服在线/延迟/路由/JVM | BungeeCord |
-| `nms-vXXX`(可选,按需) | 仅当某指标必须直接引用 NMS 专有类型时才建 | Bukkit |
-| `plugin` | 壳 + env install + 单 jar 打包 | 多端 |
+| MC 版本 | **1.8 – 1.21.11**（及 26.1） | 与 TabooLib `MinecraftVersion.supportedVersion` 一致 |
+| 服务端类型 | CraftBukkit / Spigot / Paper / **Folia** / 其他 Bukkit 衍生 | Folia 识别为 Bukkit 变体，非独立平台 |
+| 代理端 | **BungeeCord + Velocity 3.1.1–4.x** | 两端独立采集与展示，不做跨服务器聚合 |
+| 运行 JRE | Java 8+ | 探针核心 Java 8 字节码，在所有 JRE 上可加载 |
+| 编译 | 核心 **Java 8** target | 仅直接继承高版本 NMS 类的个别胶水模块才用高 toolchain |
 
-数据流:`采集器(submit 定时/事件) → 快照/启动画像 → 环形缓冲 + 异步落盘(本地文件) → 聚合 → 四通道(命令/Prometheus/Web/文件) → 告警`。对外另提供只读数据访问 API 与存储 SPI(见 FR8)。
+### 安全
 
----
+- Web / Prometheus 端点鉴权 + 绑定地址限制；输出不泄露路径 / token；外部输入校验。
+- FR-14 是默认关闭、经用户明确授权的完整控制面：允许无 TLS / 无密钥 / 非回环监听，此时必须醒目中文 WARN；审计不得记录密钥或控制正文；不提供 OS Shell。
 
-## 7. 功能需求
+### 可观测性
 
-> 优先级:P0=首期必做,P1=次期,P2=增强。
-> 交付状态图例:✅ 已交付 · ◑ 部分交付 · ○ 计划中。
+- 探针自身日志全中文、按 ERROR/WARN/INFO/DEBUG 分级；管理操作记审计日志。
 
-### 7.0 功能交付状态总览
+## 6. 验收标准
 
-| FR | 能力 | 优先级 | 状态 |
+> 期级整批验收清单。单 FR 的详细验收见对应 spec 与 [CHANGELOG](../CHANGELOG.md)。带「真机」维度的项需由用户在真实服务端环境确认通过——测试绿不替代真的能用。
+
+| 验收项 | 判据 | 维度 | 状态 |
 |---|---|---|---|
-| FR1 | 启动性能剖析 | P0 | ✅ 已交付¹ |
-| FR1.7 | 可选 premain 启动 agent 增强(精确耗时/栈采样/火焰图/外呼监控) | P0 | ✅ 已交付¹ |
-| FR2.1 | JVM 指标 | P0 | ✅ 已交付 |
-| FR2.2 | 服务器 TPS/MSPT | P0 | ✅ 已交付 |
-| FR2.3 | 世界指标 | P1 | ✅ 已交付(Folia 路线 1,仅区块数) |
-| FR2.4 | 网络(在线 / ping 分布 / 流量) | P1·P2 | ✅ 在线 + ping 分布已交付@v0.2.0，Paper 1.20.1 真机降级验证(流量 P2 计划) |
-| FR2.5 | 代理端(BungeeCord) | P1 | ✅ 已交付@v0.2.0；BungeeCord #2088 + 两个真实 Paper 后端 + 两名玩家已验收子服 RTT/可达性、在线数、切服路由与玩家 ping |
-| FR2.6 | 插件**运行期** CPU 归因 | P2 | ✅ 已交付@v0.2.0，Paper 1.20.1 真机验证(ThreadMXBean 采样按 ClassLoader 归并,默认关闭) |
-| FR3 | 存储与聚合(环形缓冲 / 文件落盘 / 聚合) | P0 | ✅ 已交付 |
-| FR4.1 | 游戏内命令 `/probe`(health/startup/tps/gc/world/ping/proxy,+ flamegraph/http 见 FR1.7) | P0 | ✅ 已交付 |
-| FR4.2 | Prometheus `/metrics` | P1 | ✅ 已交付 |
-| FR4.3 | Web 面板 | P2 | ✅ 已交付@v0.2.0，Paper 1.20.1 真机验证(总览 / 启动画像详情 / 历史趋势,鉴权 + 绑定地址,默认关闭) |
-| FR4.4 | 历史文件对比 | P1 | ✅ 已交付 |
-| FR5 | 告警(阈值 + 防抖 + 三通道) | P1 | ✅ 已交付 |
-| FR6 | 全版本与多平台(单 jar) | P0 | ✅ 已交付@v0.2.0；同一 jar 已在 Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 真机加载并采集对应指标 |
-| FR7 | 方法级精确归因(Incision) | P2 | ✅ 已交付@v0.2.0；Paper 1.21.11 + JDK21 已验收默认关闭、注解式采集、卸载、失败降级与 p95 -0.64% |
-| FR8 | 开放接口(只读 API + 存储 SPI + 静态门面) | P1 | ✅ 已交付 |
-| FR9 | 业务对接 agent(经桥下发业务命令 → 业务插件 Provider 执行,事故域隔离,见 ADR-0015) | P1 | ○ 按用户指示跳过，不纳入 v0.2.0 的验收与对外交付口径 |
+| 启动剖析（FR-01） | `/probe startup` 输出总时长、慢插件 Top-N、各世界耗时、与上次对比；挂 `-javaagent` 后精确耗时升级、`/probe flamegraph` 导出自包含 HTML、`/probe http` 回看外呼 | 真机 | ✅ 已确认（v0.2.0） |
+| 指标采集（FR-02） | `/probe health/tps/gc/world/ping/proxy/cpu` 输出真实数据；TPS/MSPT 在 Paper/低版本/Folia 各路径降级正确；Folia 全局 TPS 为 N/A | 真机 | ✅ 已确认（v0.2.0） |
+| 存储聚合（FR-03） | 启动画像 JSON + 指标历史 JSONL 落盘、滚动与清理正确；TPS 滑窗 / MSPT 分位 / GC 差分聚合正确 | 单测 + 真机 | ✅ 已确认（v0.2.0） |
+| 数据呈现（FR-04） | 四通道可用；Prometheus token + IP 鉴权、端口占用优雅降级；Web 面板三页鉴权 + 绑定地址 | 真机 | ✅ 已确认（v0.2.0） |
+| 告警（FR-05） | 阈值触发、防抖（持续 N 周期）、恢复状态机、三通道输出 | 单测 + 真机 | ✅ 已确认（v0.2.0） |
+| 全版本多平台（FR-06） | 同一 jar 在 Spigot 1.8.8 + Java 8、Paper 1.21.11 + JDK21、Folia 1.21.4、BungeeCord #2088 加载并采集对应指标 | 真机 | ✅ 已确认（v0.2.0） |
+| 方法级归因（FR-07） | 默认关闭无精确数据；开启记录真实插件耗时；模拟无效切点仍完成启动并标记未激活；受控负载 MSPT p95 劣化 ≤5% | 真机 | ✅ 已确认（v0.2.0） |
+| 开放接口（FR-08） | 第三方插件经只读 API 取到 TPS/MSPT/启动画像；经 `ServerProbeStorageApi.install` 安装 `MetricStore`，关闭注册后回退默认文件后端 | 真机 E2E | ✅ 已确认（v0.2.0） |
+| 业务桥（FR-09） | fixture 完成桥握手、命令路由/回执、业务事件、失败/超时后恢复；Provider 事故域隔离 | 真机 E2E | ✅ 已确认（v0.2.0） |
+| 内置集成（FR-10） | 真实 MCE 1.2.0 / AIS 2.1.0-SNAPSHOT 注入与双缺失/单缺失场景 E2E 通过 | 真机 E2E | ◐ 验收通过，待发版登记 |
+| 网络取证（FR-11） | 六平台真实协议 E2E 全 PASS（速率/包类型/白名单/脱敏/分页/清理/驱动缺失降级） | 真机 E2E | ◐ 验收通过，待发版登记 |
+| Folia region（FR-12） | 双真实 bot 验证隔离 region、受控负载 p95、世界汇总、全局 N/A、离开后过期 | 真机 E2E | ◐ 验收通过，待发版登记 |
+| Velocity（FR-13） | 3.1.1 / 3.5.1 / 4.1.0（JDK25）三组真机矩阵 PASS | 真机 E2E | ◐ 验收通过，待发版登记 |
+| MCP 诊断（FR-14） | Java 8/21/25 × 六平台七组真机场景 PASS；默认关闭不监听；动态 attach 失败降级 | 真机 E2E + 单测 | ◐ 验收通过，待发版登记 |
 
-> ✅ 表示已通过当前验收；`@v0.2.0` 表示纳入本次正式发布口径；○ 项不作为已交付能力对外承诺。
-> **2026-08-23 真机补验**(`D:\Game\MinecraftTest\s1`,Paper 1.20.1 + JDK21,含 CoreLib / AllinInventorySync 1.0.0-RC2 / MultiCurrencyEconomy 1.2.0):FR1/FR2.1-2.3/FR2.4(降级)/FR2.5(服务端侧)/FR2.6/FR4.1(八子命令经 RCON)/FR4.2/FR4.3(三页)/FR8 真机通过;FR9 经济 + 背包 Provider 真机注册成功(发现 mce/AllinInventorySync;端到端桥下发需 JianManager Worker)。修复两个真机回归:BungeeProxyCollector 签名隔离(见 CHANGELOG)、CL 注册字段反射。
-> **2026-08-24 补验**：Paper 1.21.11 + JDK21 完成 FR7 默认关闭、注解式采集、失败降级、卸载与 p95 -0.64% 性能验收；BungeeCord #2088 + 两个 Paper 1.20.1 后端 + 两名玩家完成 FR2.5 全链路；Spigot 1.8.8 + Java 8 与 Folia 1.21.4 + JDK21 完成 FR6 多端真机验收。BungeeCord 1.19-R0.1 #1700 + Java 8 的单 jar、命令与 `/metrics` 验证继续保留。
+> `◐ 验收通过，待发版登记`：证据已齐（见对应 spec），需用户在真实环境复验确认后，由下次正式版本 `sdd-release-version` 统一标 `已交付@vX.Y.Z`。
 
-### FR1 启动性能剖析(P0,首要)
-- **FR1.1** 端到端启动总时长(`ServerLoadEvent` − JVM 启动时刻)。
-- **FR1.2** 逐插件 onEnable 耗时榜(Top-N):生命周期(本插件)+ 日志解析(全部)。
-- **FR1.3** 逐世界加载耗时 + spawn-chunk 预加载耗时。
-- **FR1.4** 启动分段耗时(CONST/INIT/LOAD/ENABLE/ACTIVE)。
-- **FR1.5** 启动画像**落盘为本地文件**,与上次/基线对比,标注每项 Δ。
-- **FR1.6** 慢启动告警(总时长 > 基线 ×1.5)。
-- **FR1.7(可选增强,需手动启用)** **premain Java Agent 补加载前盲区**:命令行加 `-javaagent:plugins/ServerProbe.jar` 后,额外提供 ① 逐插件 load/enable **精确耗时**(纳秒级,优于日志解析,且覆盖本插件之前加载的插件)② **库下载耗时**(`LibraryLoader`,1.17+)③ **世界创建 / 配置加载 / 事件注册 / 命令注册耗时**(插桩 `CraftServer.createWorld` / `YamlConfiguration.loadConfiguration` / `registerEvents` / `register`,逐项纳秒级)④ **多线程折叠栈采样**(`Server thread` / `Netty` / `ServerMain`,保留调用层级)⑤ **启动火焰图 + 嵌套时间线导出**(`/probe flamegraph` 把最近启动画像导出为**自包含 HTML**——CSS/JS 全内联、无 CDN——到 `data/flamegraph/`,含真正多层多线程火焰图(折叠栈逐层并树)+ 按区间包含关系分泳道的嵌套时间线;专注启动期、与运行期并用 spark 互补,见 ADR-8)⑥ **HTTP/TCP 对外网络外呼监控(运行期常驻)**(插桩 `HttpURLConnection.getInputStream` + `Socket.connect`,记录哪个插件/哪段代码发起对外请求、目标、耗时、响应码、脱敏后的请求头与查询串;实时日志 + 落盘 `data/http/` + `/probe http` 回看 + 启动期外呼并入报告。敏感项 agent 侧打码、请求体不捕获、有界缓冲防泄漏、可配开关,见 ADR-12)。属**启动期 premain**、非被否决的运行时 self-attach(见 §5.1 / 架构 §13);采集严格收敛在启动窗口(插件就绪即关闭,杜绝运行期泄漏);默认不启用,不加参数则纯插件模式照常工作,启用失败静默降级。M5 先 Bukkit 端,Folia 栈采样降级 N/A。**当前仅 1.21.4 Paper 单端真机验证。**
-- **验收**:`/probe startup` 输出含总时长、慢插件 Top-N、各世界耗时、与上次对比;启用 `-javaagent` 后,逐插件耗时由日志秒级口径升级为精确纳秒级,世界/配置/事件/命令耗时与库下载/主线程热点一并呈现,`/probe flamegraph` 可导出火焰图+时间线 HTML,`/probe http` 可回看对外外呼并定位触发插件。
+## 7. 分期（路线）
 
-### FR2 运维指标采集(P0/P1)
-- **FR2.1 JVM(P0)**:堆/非堆内存、各内存池、GC 次数与耗时(young/old)、线程数/死锁、类加载、进程&系统 CPU、uptime、启动参数。**全版本+全平台通用**。
-- **FR2.2 服务器(P0,Bukkit)**:TPS(1/5/15min)、MSPT(均值+p95/p99)、在线人数、运行时长。**TPS/MSPT 需按 §5.4 做版本兼容 + Folia 语义处理**。
-- **FR2.3 世界(P1,Bukkit)**:按世界的区块数、实体数(按类型)、方块实体数(限频);**Folia 用 `callRegion{}`**。
-- **FR2.4 网络(P1)**:在线人数、ping 分布(按固定区间桶统计在线玩家 RTT,1.16.1+ 经 `Player#getPing()`,低版本降级 N/A)。(流量/数据包速率需 Netty 注入,P2)
-- **FR2.5 代理端(P1,BungeeCord)**:总在线、各后端子服在线数、子服 ping/可达性(后台周期 ping,回调计时 RTT)、玩家路由、每玩家 ping、JVM 全套。
-- **FR2.6 插件运行时归因(P2)**:`ThreadMXBean` 周期采样全部线程栈,栈帧经插件 ClassLoader 归并(类名 → 插件解析缓存),窗口聚合各插件样本计数与占比;默认关闭(`cpu.enabled`)。**各插件 CPU 火焰图不自研,建议并用 [spark](https://spark.lucko.me)**。注:**启动期**主线程栈采样已由可选 premain agent 特化提供(见 FR1.7,抓启动期"无日志卡顿"热点);此处指**运行期**的常态 CPU 归因。
-- **约束**:采集周期可配;主线程只做轻量取值(MSPT 仅 `nanoTime`);聚合/遍历异步或限频;调度走 `submit`。
+各期只描述**主题 / 目标**；**具体哪个 FR 属于哪期，以 §4 FR 表的优先级 / 状态列为唯一来源**——本节不重复列编号、不随 FR 增长而改。
 
-### FR3 存储与聚合(P0)
-- **FR3.1** 内存环形缓冲:最近 N 分钟高频指标(定容)。
-- **FR3.2** **本地文件异步落盘**:启动画像(每次一份 JSON)+ 指标历史(**聚合后**写 JSONL,按日期/会话滚动,可配保留策略与体积上限)。**不依赖任何数据库**。
-- **FR3.3** 聚合:TPS 滑窗、MSPT 分位直方图、GC 差分。
+- **第一期（MVP）**：把核心立起来——启动性能剖析 + 基础运维指标采集 + 存储聚合 + 游戏内命令呈现，覆盖全版本多平台骨架。
+- **第二期**：增强——开放接口、业务对接 agent、告警、Prometheus / Web 出口、代理端健康与运行期归因。
+- **第三期**：规模化与深度诊断——全平台网络取证、Folia region 明细、Velocity 平台、外部 MCP 深度诊断控制面。
 
-### FR4 数据呈现(四通道)
-- **FR4.1 游戏内命令(P0)**:`/probe health|startup|tps|gc|world|ping|proxy|cpu`,权限受控。
-- **FR4.2 Prometheus `/metrics`(P1)**:Bukkit 与 BC 各一套,端口可配,对接 Grafana。
-- **FR4.3 Web 面板(P2)**:启动画像详情、历史趋势、总览;需鉴权+绑定地址。基于 JDK 内置 `HttpServer` 零依赖。
-- **FR4.4 历史文件对比(P1)**:见 FR1.5/FR3.2。
+> **分期不会堆到上百**：期是粗粒度路线图横轴，数量很少（走到成熟通常 3~6 个），一期含很多 FR、跨很多版本。**产品成熟（1.0 后稳态迭代）就不再加"第 N 期"**，改按版本（CHANGELOG / tag）+ 功能（FR 表 / specs）组织。期数往二十、上百涨，是把"期"误当版本 / 功能单位的滥用信号。
+> 某期是否完成，看 §4 表里该期 FR 的"状态"是否都 `已交付`——进度不在本节维护。
+> 仍开放：第三期已验收待登记，具体发版日期待定。
 
-### FR5 告警(P1)
-阈值(可配):TPS<18 警/<15 重;MSPT p95>50ms;堆>90% 持续;Old GC 频繁/单次>200ms;死锁立即;启动超基线 ×1.5。输出控制台/命令/(可选)webhook。
+## 8. 术语表
 
-### FR6 全版本与多平台(P0)
-- 单 jar 运行于 Bukkit 系 1.8–1.21.11(含 Folia)+ BungeeCord。
-- **代理端定位 = 网络与子服健康监控**;不采世界/区块/实体/TPS/MSPT。
-- **验收**:同一 jar 在 1.8 Spigot、1.21.x Paper、Folia、BungeeCord 上均能正常加载并采集对应指标。
-  - **0.2.0 真机口径**：Spigot 1.8.8 + Java 8、Paper 1.21.11 + JDK21、Folia 1.21.4 + JDK21、BungeeCord #2088 + 两个 Paper 1.20.1 后端均已加载并采集对应指标；另保留 BungeeCord 1.19-R0.1 #1700 + Java 8 验证记录。
-
-### FR7 方法级精确归因(P2,可选,Incision,默认关闭)
-- Bukkit/Paper 以 Incision `@Surgeon`、`@Lead`、`@Trail` 采集 `SimplePluginManager#enablePlugin`，并将逐插件精确启用耗时写入启动画像。
-- 默认 `false`；关闭时不记录精确耗时。未命中有效切点须保留普通启动画像且不得阻断服务端或其他插件启用；卸载时由 Incision 撤销 advice。
-- 验收：默认关闭无精确数据；开启后记录真实插件耗时；模拟无效切点仍可完成启动并标记未激活；受控负载下 MSPT p95 劣化不超过 5%；详见 [`specs/incision-poc.md`](specs/incision-poc.md)。
-
-### FR8 开放接口(P1)
-探针只落本地文件、不内置数据库;通过开放接口让数据可被外部消费或扩展后端。
-- **FR8.1 读取 API**:`api` 模块暴露只读数据访问接口(最新指标快照、指标历史、启动画像),第三方插件经 TabooLib 服务获取;不暴露写入/控制能力。
-- **FR8.2 存储 SPI**:定义存储后端接口,**默认且唯一内置 = 本地文件实现**;预留扩展点,第三方可自行实现 DB/远程后端(本插件不内置、不依赖)。
-- **FR8.3 导出端点**:Prometheus `/metrics` + 可选 Web/HTTP 只读 API(见 FR4),作为对外数据出口。
-- **验收**:第三方插件可经读取 API 取到当前 TPS/MSPT/启动画像;可经实现存储 SPI 替换默认文件后端。
-
-### FR9 业务对接 agent(P1,JBIS)
-ServerProbe 演进为 JianManager 业务对接 agent:经既有反向 WS 桥承接 JM 下发的**业务命令**(`domain.action` + 结构化 payload),路由到对应业务插件 **Provider** 执行并回执;复用 `command`/`event` 帧按 `domain` 与监控/治理分流。**监控主体只读纯净不变**(见 ADR-0015)。对应 JM「JBIS 业务对接平台」(JM FR-115~127 / ADR-025~029)。
-- **FR9.1 业务对接基础设施(core)**:`BusinessProvider` 接口(域 / 动作 / manifest / dispatch)+ `BusinessHost`(域键路由 + **事故域隔离**:独立线程池 + 有界超时 + 异常边界 + 合并 manifest)+ `BridgeCommand` 加 `domain`/`payload`、`BridgeClient` 按 domain 分流业务/治理。core 平台无关(无 Bukkit 符号)。
-- **FR9.2 经济 Provider(platform-bukkit)**:`compileOnly` MultiCurrencyEconomy api,经 `MultiCurrencyEconomyApi` 发现 + 降级。只读 `economy.balance` + 写 `deposit`/`withdraw`/`adjust`(有符号差额)/`set`(无原生设值,read-then-adjust 非原子)/`transfer`/`consume`/`refund`;守 mce 写契约:幂等键 pluginName=`JianManager` + `BusinessOrder(taskId)`(缺则拒绝、重试复用同键防 MCE-LEDGER-0001),金额 BigDecimal 字符串承载,mce 业务失败错误码透传。纯解析/校验/编码逻辑抽 `EconomyEnvelope`。
-- **FR9.3 背包 Provider(platform-bukkit,对接 JM FR-125)**:`compileOnly` AllinInventorySync 自包含 api(2.0.0 起纯 Java + Lombok;经 `AllinInventorySyncProvider.isAvailable/get` 发现 + 降级),`inventory` 域。只读 `view`(`getPlayerInventory(uuid)` 回源含离线 → 结构化视图:背包 / 末影箱物品数组 + 基础属性 + online + dataVersion,玩家无数据回 `exists=false`,与空背包区分)+ 基础属性写 `writeBasicAttrs`(经写门面 `getInventoryWriteApi()`,落盘回执 `WriteResult` 透传 `NO_SNAPSHOT`/`OWNED_ELSEWHERE`/`INVALID_UUID`/`INTERNAL_ERROR`)。守 AllinInventorySync 写契约:幂等键 `taskId`(CP 注入)→ 写门面 `requestId` 持久去重(缺则拒绝、重试复用同键),`base + edited` 净改动 delta 透传,operator 透传(空回退 `JianManager`)。**物品写 `writeInventory`/`writeEnderChest` 暂不提供**:AllinInventorySync 2.0.0 物品写门面入参退回不透明分区字节(`byte[]`),外部无法从结构化物品构造,收到即明确降级、不进 manifest(ADR-0017 取代 ADR-0016 决策 1/2;待其导出可外部消费的结构化物品写门面再恢复)。写门面 future 有界阻塞取回执(短于派发超时)。纯解析/校验/编码逻辑抽 `InventoryEnvelope`。
-- **FR9.4 经济变更事件上报(platform-bukkit,对接 JM FR-122)**:订阅 mce `PlayerEconomyChangeEvent`(持久化投递流,覆盖 web 后台/跨服一切余额变更)+ `PlayerEconomyCatchupEvent`(上线补发离线缺口),折算为 `economy` 业务**事件**(`event` 帧,顶层 `domain`/`dedupKey`=ledgerId,信封 data 携 currencyId→identifier 折算、zoneId、signedAmount/balanceAfter 字符串、entryType、seq、occurredAt)经既有反向 WS 桥上报 JM。`BridgeClient.emitBusinessEvent` 加业务事件上报出口;currencyId(Int 主键)经 `getActiveCurrencies()` 映射为全局稳定 identifier(跨服/跨区聚合不串味),映射缺失回退 Int 不丢事件;纯折算/映射逻辑抽 `EconomyEventEnvelope`。监听器 `object` + `@SubscribeEvent`(事故域隔离、绝不抛、mce 异步事件不阻塞主线程)。
-- **FR9.5 背包追踪事件上报(platform-bukkit,对接 JM FR-126)**:订阅 AllinInventorySync `TrackedItemActionEvent`(重点物品流转:登录携带/丢出/拾取/移入容器),折算为 `inventory` 业务**事件**(`event` 帧,顶层 `domain`/`dedupKey`=`playerUuid:action:occurredAtMs:seq`,信封 data 携 playerName/playerUuid/action/ruleId/ruleDescription/material/amount/displayName/occurredAt)经反向 WS 桥上报 JM。物品只编 Bukkit-API 便利字段(无 `nbtBase64`——其 codec 在 AllinInventorySync core 非 api,见 ADR-0016);瞬时观测无插件侧持久 ID,去重键带探针会话单调 seq 去歧义。监听器 `object` + `@SubscribeEvent(bind=FQCN)`(软依赖按名绑定避免漏注册,同经济 FR9.4 教训)+ `OptionalEvent.get`;纯折算逻辑抽 `InventoryEventEnvelope`。
-- **验收**:业务命令经桥下发到 Provider 执行、结果回 JM;**业务 Provider 抛异常/卡死时监控采集与桥心跳不受影响**(事故域隔离,真机);经济 balance 在真 MultiCurrencyEconomy 服查到真实余额;web 后台/其他服的余额变更经事件流汇聚到 JM、跨区不混(FR9.4,真机);**背包 `view`/写经桥下发到真 AllinInventorySync 服读写真实背包 / 末影箱 / 属性、回执正确**(FR9.3,真机);**重点物品流转经事件流汇聚到 JM**(FR9.5,真机)。
-- **范围纪律**:本线为经用户确认的身份级扩张(ADR-0015),按域增量交付(经济先行),不提前实现未确认业务域、不为未来域预留空壳。
-
----
-
-## 8. 非功能需求
-
-| 类别 | 要求 |
+| 术语 | 含义 |
 |---|---|
-| 性能 | 运行期自身开销目标 <2%;MSPT 仅取 `nanoTime`;聚合/落盘/采样全异步;周期任务限频;环形缓冲定容;文件写入异步且原子。**严禁主线程阻塞磁盘 IO / 远程调用**。 |
-| 稳定性 | 探针绝不能成为事故源;主体只读;可选插桩默认关闭、失败静默降级。 |
-| 兼容性 | **1.8–1.21.11 全版本 + Folia + BungeeCord**;TPS/MSPT 按版本/平台降级;`com.sun.management` 在不同 JDK 的差异容错;严守"先通用再胶水"。 |
-| 安全 | Web/Prometheus 端点鉴权 + 绑定地址限制;输出不泄露路径/token;外部输入校验。 |
-| 可观测性 | 探针自身日志全中文、按 ERROR/WARN/INFO/DEBUG 分级;管理操作记审计日志。 |
-
----
-
-## 9. 数据模型(本地文件记录)
-
-以本地文件持久化,**不依赖数据库**。建议:启动画像每份一个 JSON;指标历史按 JSONL 行式追加、按日期/会话滚动。
-
-- **StartupProfile**(JSON):`schemaVersion, serverId(恒有值,未配置时自动生成), platform, mcVersion, jvmStartTimeMs, totalMs, phaseTimings, pluginTimings, worldTimings, jvmArgs, incisionEnabled, incisionActive, incisionPluginEnableTimings, createdAtMs`
-- **MetricHistory**(JSONL,聚合后):`schemaVersion, ts, tps1/5/15, msptAvg/P95/P99, heapUsed/Max, gcYoungCount, gcOldCount, threadCount, cpuProcess, onlinePlayers`(写入频率受控;另含各 GC 收集器原始明细 gcCollectors)
-
-> 落盘根对象均含 `schemaVersion`（`StartupProfile` 当前=4，M1=1），用于格式演进与向后兼容。
-
-> 经统一存储 SPI 写入(见 FR8),默认实现为本地文件;原子写入(临时文件 + rename),可配保留策略与体积上限。
-
----
-
-## 10. 迭代规划
-
-| 里程碑 | 范围 |
-|---|---|
-| **M1(对应首要需求)** | 多版本+多平台骨架(FR6) + 启动剖析(FR1) + JVM/服务器基础指标(FR2.1/2.2,含 TPS/MSPT 兼容) + 游戏内命令(FR4.1) |
-| **M2** | 完整指标(FR2.3-2.5) + 环形缓冲/文件落盘(FR3) + 开放接口(FR8) + Prometheus(FR4.2) + 告警(FR5) |
-| **M3** | Web 面板(FR4.3) + 插件耗时归因(FR2.6;CPU 火焰图引导用 spark) |
-| **M4(可选)** | Incision 方法级归因(FR7)，已交付@v0.2.0 |
-
----
-
-## 11. 风险与对策
-
-| 风险 | 对策 |
-|---|---|
-| TPS/MSPT 多版本+Folia 兼容 | 抽象 `ServerTickSampler` 接口:Paper 走 `getTPS()`;低版本 `nmsProxy` 兜底;Folia 明确 per-region 语义;均有 JMX 兜底 |
-| Incision 跨端兼容风险 | 默认关闭、仅 Bukkit/Paper `enablePlugin` 路径启用；失败降级并已在 Paper 1.21.11 + JDK21 验收 |
-| 代理端能力受限 | 明确定位网络/子服健康 |
-| 过早抽象一堆空胶水模块 | 严守"先通用,跑不通再拆";胶水按需新建 |
-| 直接继承高版本 NMS 致 toolchain 传染 | 优先反射访问;确需直接引用才独立 nms-vXXX 模块抬 toolchain |
-| 文件体积膨胀 | 聚合后落盘 + 滚动 + 保留策略 + 体积上限 |
-
----
-
-## 12. 关键决策(原开放问题,已敲定 2026-06-08)
-
-1. **依赖策略**:允许按需引入轻量依赖,但每个新依赖需逐个确认(JSON 优先用 TabooLib 自带 gson;Prometheus 可手写文本或按需引 simpleclient;Web 面板按需引轻量库)。
-2. **CPU 火焰图**:不自研,建议并用 [spark](https://spark.lucko.me);ServerProbe 专注指标监控 + 启动剖析。
-3. **代理端联动**:暂不与后端联动汇总,各端独立采集与展示(不引入 Porticus);联动作为后续可选增强。
-4. **多实例标识**:自动生成实例 ID + 配置可覆盖为自定义 `server-name`;本地文件按实例分目录存放;跨服聚合由外部系统经开放接口完成。
-5. **Folia TPS/MSPT**:**per-region 明细 + 全局标 N/A**;分阶段——M1 先全局 N/A,M2/M3 补 per-region 明细。
-
-> 仍开放:各里程碑的具体发布日期待定。
+| TPS | 每秒 tick 数（理想 20）；**Folia 为 per-region，无全局值** |
+| MSPT | 单 tick 耗时（毫秒），>50ms 即掉 tick；关注 p95/p99 |
+| 启动画像（Startup Profile） | 一次启动的结构化耗时报告（总时长 + 分段 + 慢插件榜 + 世界耗时 + JVM 参数快照） |
+| 指标快照（Metric Snapshot） | 某时刻一组运维指标的采样值 |
+| 采集器（Collector） | 采集某类指标的组件，平台无关接口 + 平台/版本实现 |
+| 胶水模块 | 仅当通用 API 不支持某版本/平台功能时才编写的最小适配实现 |
+| 代理端 | BungeeCord / Velocity 等反向代理，**无世界/TPS/MSPT 概念** |
+| 环形缓冲 | 定容内存队列，保存最近 N 分钟高频指标，避免磁盘 IO 压主线程 |
+| 本地文件落盘 | 启动画像与聚合后历史以本地文件（JSON/JSONL）持久化；网络数据包取证按 FR-11 例外使用本地 SQLite |
+| 开放接口 | 对外只读数据访问 API + 存储 SPI 扩展点，供第三方消费或自接后端 |
+| 已观测 region | 当前或最近含在线玩家并成功采样的真实 Folia ticking region（FR-12） |
+| MCP | Model Context Protocol；FR-14 的 Streamable HTTP（JSON-RPC 2.0）诊断控制面 |
+| JBIS | JianManager 业务对接平台协议（FR-09，对应 JM FR-115~127 / ADR-025~029） |

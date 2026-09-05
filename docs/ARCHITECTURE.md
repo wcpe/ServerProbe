@@ -4,7 +4,7 @@
 
 ## 1. 概述
 
-ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服慢剖析"与"运维指标采集分析",目标覆盖 **Bukkit 系 1.8–1.21.11 全版本(含 Folia) + BungeeCord 代理端**,单 jar 多端运行。
+ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服慢剖析"与"运维指标采集分析",目标覆盖 **Bukkit 系 1.8–1.21.11 全版本(含 Folia) + BungeeCord + Velocity 3.1.1–4.x**,单 jar 多端运行。
 
 ### 设计原则
 1. **先通用,跑不通再拆胶水**:绝大多数指标走 Bukkit API + JMX(全版本+全平台通用),只有当通用 API 不支持某版本/平台功能时,才编写最小胶水。严禁一上来就建一堆空胶水模块。
@@ -22,8 +22,8 @@ ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服
                        └──────────────┬──────────────┘
             ┌─────────────────────────┼─────────────────────────┐
    ┌────────┴────────┐      ┌─────────┴─────────┐      ┌─────────┴─────────┐
-   │ platform-bukkit │      │  platform-bungee  │      │  nms-vXXX(可选)   │
-   │ Bukkit/Folia采集│      │   代理端采集       │      │ 仅直引NMS类型时    │
+   │platform-bukkit/ │      │ platform-bungee/  │      │ integration-* /   │
+   │platform-velocity│      │    nms-vXXX        │      │diagnostics-arthas │
    └────────┬────────┘      └─────────┬─────────┘      └─────────┬─────────┘
             └─────────────────────────┼─────────────────────────┘
                               ┌────────┴────────┐
@@ -43,13 +43,17 @@ ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服
 | 模块 | 职责 | JDK/target | 平台 | env install | compileOnly 依赖 |
 |---|---|---|---|---|---|
 | **api** | 契约层(**纯 Java + Lombok 不可变模型**,ADR-13):指标模型、采集器接口 `*Collector`、只读 API/存储 SPI、公共枚举。零平台 API、**零 Kotlin metadata**,任意 Kotlin(含 1.x)/Java 版本可编译依赖。 | Java 8 | 通用 | `Basic` | `lombok`(仅编译期) |
-| **core**(现 `project:core`) | 通用核心:采集编排/调度、JMX 采集(`java.lang.management.*`)、聚合/滑窗/分位、阈值告警、呈现格式化、**本地文件存储 + 开放接口**。面向 api 接口编程。 | Java 8 | 通用 | `Basic`+`I18n` | `project(":api")` |
+| **core**(现 `project:core`) | 通用核心:采集编排/调度、JMX 采集(`java.lang.management.*`)、聚合/滑窗/分位、阈值告警、呈现格式化、**本地文件存储 + 开放接口**；FR-11 的 SQLite 取证由专用接口承载。 | Java 8 | 通用 | `Basic`+`I18n` | `project(":api")` |
 | **platform-bukkit** | Bukkit/Paper/**Folia** 采集:在线人数、世界/区块/实体计数、TPS/MSPT、插件列表；可选 Incision `@Surgeon` `enablePlugin` 采集入口。Folia 分流(`Folia.isFolia` + `callRegion{}`)写在此。 | Java 8 | Bukkit(含 Folia) | `Basic`+`Bukkit`+`BukkitUtil`+`I18n`+`Incision` | `project(":api")` + `ink.ptms.core:*:universal` + `io.paper:folia-api` |
 | **platform-bungee** | 代理端采集:子服在线/总人数、子服 ping/路由、`ProxyServer` 指标。标 `@PlatformSide(Platform.BUNGEE)`。 | Java 8 | BungeeCord | `Basic`+`BungeeCord` | `project(":api")` + `net.md-5:bungeecord-chat` |
+| **platform-velocity** | Velocity 3.x/4.x 代理采集:总人数、子服 ping/路由、JVM 与 FR-11 管线；共同 API 源码分别经 3.1.1 / 4.1.0 编译门验证。 | Java 8 入口；4.x 兼容编译用 Java 25 | Velocity | `Basic`+`Velocity` | `project(":api")` + Velocity API(compileOnly) |
+| **integration-multicurrencyeconomy** | MultiCurrencyEconomy 可选 Provider 与事件适配；独立发现、注册、卸载与事故边界。 | Java 8 | Bukkit | `Basic`+`Bukkit` | `project(":core")` + MCE API(compileOnly) |
+| **integration-allininventorysync** | AllinInventorySync 可选 Provider 与事件适配；独立发现、注册、卸载与事故边界。 | Java 8 | Bukkit | `Basic`+`Bukkit` | `project(":core")` + AIS API(compileOnly) |
+| **diagnostics-arthas** | MCP 控制面、原生诊断、Arthas 生命周期、任务、产物与审计。 | Java 8 | 通用 | `Basic` | `project(":core")` |
 | **nms-vXXX**(可选,**按需才建**) | 仅当某指标必须**直接继承/引用** NMS 专有类型(无法反射绕过)时才建,如低版本读 `MinecraftServer.recentTps`。沿用 `nmsProxy {name}Impl$versionId` 多 Impl 范式。 | Java 8(全反射)/ 高 toolchain(直接 extends 高版本类) | Bukkit | — | `project(":api")`+`project(":platform-bukkit")` + 对应版本服务端 |
 | **plugin** | 壳 + 打包:TabooLib 描述、IOC 自动接管、合并各模块产物进单 jar。 | Java 8 | 多端 | 全量 | `taboo(project(...))` |
 
-> 演进:现有 `api`/`project:core`/`plugin` 保留;`platform-bukkit`、`platform-bungee` 为新增 `include`(需改 `settings.gradle.kts`,属关键文件,实施时确认)。
+> 演进:新增平台、集成和诊断模块均由 `plugin` 合入同一发行 jar；外部 API 与 SQLite 驱动不进入 jar。
 
 ---
 
@@ -77,11 +81,11 @@ ServerProbe 是一个 **Minecraft 服务器运维探针**,核心能力为"开服
 
 ---
 
-## 5. 多平台架构(Bukkit + BungeeCord)
+## 5. 多平台架构(Bukkit + BungeeCord + Velocity)
 
-- **接口在 common,实现按 `@PlatformSide` 隔离**:`api` 定义采集器接口;`platform-bukkit`/`platform-bungee` 各自实现并标注 `@PlatformSide(Platform.BUKKIT|BUNGEE)`,运行时只激活当前平台对应实现。
+- **接口在 common,实现按平台隔离**:`api` 定义采集器接口;Bukkit/BungeeCord/Velocity 各自实现，运行时只激活当前平台对应实现；`core` 不直接引用任一平台 API。
 - **生命周期**:`@Awake(LifeCycle.X)` —— CONST→INIT→LOAD→ENABLE→**ACTIVE(服务器完全启动)**→DISABLE。Bukkit/Bungee 一致。
-- **单 jar 多端**:同一 jar 内写入 `plugin.yml`+`bungee.yml`,各端读各自描述符。
+- **单 jar 多端**:同一 jar 内写入 Bukkit、BungeeCord、Velocity 所需描述与入口，各端只触碰当前平台类。
 - **代理端能力边界**:`ProxyPlayer` 多数字段在代理端 `Unsupported`(无世界/坐标);代理端只采网络拓扑类数据(总在线、各子服在线+ping、玩家路由、JVM)。
 
 ---
@@ -122,9 +126,17 @@ TabooLib **完全不封装** TPS/MSPT。ServerProbe 抽象 `ServerTickSampler` �
 |---|---|---|
 | Paper(支持 `getTPS()`) | `Bukkit.getTPS()` | `Bukkit.getAverageTickTime()` + 每 tick `nanoTime` 直方图算分位 |
 | 老版本/纯 CraftBukkit(无 `getTPS()`) | `nmsProxy` 读 `MinecraftServer.recentTps[]`,或自建 tick 任务采样 | 自建 tick 采样 |
-| **Folia** | 无全局 TPS(per-region)→ **per-region 明细 + 全局标 N/A**(M1 先全局 N/A,M2/M3 补 per-region 明细) | 同上,per-region |
+| **Folia** | 无全局 TPS(per-region)→ **已观测 region 明细 + 全局标 N/A** | `ServerTickEndEvent` 的真实 tick duration；按相邻 `ServerTickStartEvent` 间隔计算 TPS |
 
-### 7.4 实体/区块采集
+### 7.4 已观测 region 指标(FR-12)
+
+`FoliaObservedRegionService` 仅在 `Folia.isFolia` 时动态注册 `ServerTickStartEvent` 与 `ServerTickEndEvent`。每个事件都在当前真实 region tick 线程经唯一的 `FoliaInternalRegionIdentityAdapter` 读取 `TickRegionScheduler#getCurrentRegion()`、运行期 region id、世界、中心区块和 `RegionStats#getPlayerCount()`；不再经玩家 Location 提交 `RegionScheduler` 任务。
+
+玩家数大于零的 region 才写入 `ObservedRegionTracker` 的有界滚动窗口。窗口以 region id、世界和中心区块区分；合并、拆分或坐标变化会创建新的单调 `regionSequence`，旧窗口在 `folia.observed-region-expire-seconds`（默认 60 秒）后自然过期。每条 `ObservedRegionMetrics` 提供原始 Folia region id、序号、坐标、玩家数、样本数及 TPS/MSPT avg/p95/p99；`ObservedRegionWorldMetrics` 按全部真实 tick 样本合并，不把多个 region 伪装为全局值。
+
+同一快照由 `/probe tps`、Prometheus、Web 总览和 FR-08 `ServerProbeApi.read()` 读取；四个出口的全局 TPS/MSPT 均保持 N/A。实现与真实验收证据见 [FR-12 规格](specs/folia-observed-regions.md) 和 [ADR-23](adr/0023-folia-current-region-identity.md)。
+
+### 7.5 实体/区块采集
 - 非 Folia:`submit{}`(同步)遍历 `world.getEntities()`/`getLoadedChunks()`。
 - Folia:数据归属各 region 线程,跨线程读会抛异常 → 用 TabooLib 现成的 `Location.callRegion{}` / `Entity.callRegion{}` 逐区域采集后汇总。
 
@@ -146,10 +158,10 @@ TabooLib **完全不封装** TPS/MSPT。ServerProbe 抽象 `ServerTickSampler` �
 
 - **采集器(api 接口,platform 实现)**:`MetricCollector#collect(): MetricSnapshot`,按平台/版本提供实现。
 - **采集编排(core)**:用 `submit(period)` 定时驱动各采集器;主线程只取轻量值,聚合/遍历异步或限频。
-- **存储**:高频指标进定容环形缓冲;启动画像与聚合后指标**异步落本地文件**(JSON/JSONL,原子写入,可配滚动与保留),**不依赖数据库**;经统一存储 SPI 写入,默认实现为本地文件。
+- **存储**:高频指标进定容环形缓冲;启动画像与聚合后指标**异步落本地文件**(JSON/JSONL,原子写入,可配滚动与保留)。FR-11 是唯一例外：数据包取证经单写线程落本地 SQLite，驱动加载失败只降级取证；其余数据仍经 `MetricStore` SPI。`SwitchingMetricStore` 是唯一注入实现，默认委派本地文件，运行期最多安装一个第三方 `MetricStore`，关闭注册后原子回退本地文件。
 - **聚合**:TPS 滑窗、MSPT 分位直方图(p50/p95/p99)、GC 累计值差分。
 - **呈现**:命令/Prometheus/Web 三出口共享同一聚合结果;告警引擎按阈值判定。
-- **开放接口**:① 读取 API(`api` 暴露只读数据访问,第三方经 TabooLib 服务获取)② 存储 SPI(默认且唯一内置=本地文件,预留第三方扩展)③ 导出端点(Prometheus/Web)。详见 PRD FR8。
+- **开放接口**:① 读取 API(`api` 暴露只读数据访问,第三方经 `ServerProbeApi` 获取)② 存储 SPI(默认本地文件；`ServerProbeStorageApi` 返回可关闭的替换注册句柄)③ 导出端点(Prometheus/Web)。详见 PRD FR-08。
 
 ---
 
@@ -207,6 +219,16 @@ TabooLib **完全不封装** TPS/MSPT。ServerProbe 抽象 `ServerTickSampler` �
 | ADR-15 | 监控探针演进为 JianManager 业务对接 agent(对外单 agent、对内监控/业务分层、事故域隔离) | 已接受 | [0015](adr/0015-business-integration-agent.md) |
 | ADR-16 | 背包业务对接的物品传输契约(结构化物品过桥、读富写以 nbtBase64 为准、JSON 门面承载) | 决策 1/2 被 ADR-17 取代 | [0016](adr/0016-inventory-business-item-transport.md) |
 | ADR-17 | 背包对接随 AllinInventorySync 2.0.0 写门面分区字节化调整(物品写暂不提供并明确降级、读 / 属性写 / 事件保留、DTO 位置参构造) | 已接受 | [0017](adr/0017-inventory-write-degraded-byte-facade.md) |
+| ADR-18 | 内置业务集成使用独立 Gradle 模块 | 已接受 | [0018](adr/0018-built-in-business-integration-modules.md) |
+| ADR-19 | 数据包取证使用受限 SQLite 例外 | 已接受；驱动分发被 ADR-27 细化 | [0019](adr/0019-network-forensics-sqlite-exception.md) |
+| ADR-20 | Folia 指标以已观测 region tick 事件采样 | 已被 ADR-23 取代 | [0020](adr/0020-folia-observed-region-tick-events.md) |
+| ADR-21 | Velocity 采用双 API 兼容源集与 Java 8 入口 | 已被 ADR-26 取代 | [0021](adr/0021-velocity-dual-api-compatibility.md) |
+| ADR-22 | ServerProbe MCP 控制面内嵌最小 Arthas 运行闭包 | 已被 ADR-24 取代 | [0022](adr/0022-mcp-embedded-arthas-control-plane.md) |
+| ADR-23 | Folia 已观测 region 从真实 tick 线程直接识别 | 已接受 | [0023](adr/0023-folia-current-region-identity.md) |
+| ADR-24 | 内嵌 Arthas 运行闭包改用官方 3.1.1 | 已被 ADR-25 取代 | [0024](adr/0024-arthas-311-runtime-closure.md) |
+| ADR-25 | Arthas 按 JVM 选择双运行时闭包 | 已接受 | [0025](adr/0025-arthas-dual-runtime-compatibility.md) |
+| ADR-26 | Velocity 采用共享源码与双实际兼容编译门 | 已接受 | [0026](adr/0026-velocity-shared-source-dual-compile-gates.md) |
+| ADR-27 | SQLite JDBC 驱动改为发行 jar 内嵌闭包 | 已接受 | [0027](adr/0027-sqlite-jdbc-embedded-runtime-closure.md) |
 
 > ADR-11 的详细**技术论证**见下文 §13(架构叙述视角);其**决策记录**见 [ADR-11](adr/0011-optional-premain-startup-agent.md)。
 

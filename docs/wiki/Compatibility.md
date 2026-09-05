@@ -53,7 +53,7 @@ TabooLib **完全不封装** TPS/MSPT。探针抽象 `ServerTickSampler` 接口,
 | 老版本 / 纯 CraftBukkit(无 `getTPS()`) | `nmsProxy` 读 `MinecraftServer.recentTps[]`,或自建 tick 采样器 | 自建 tick 采样 |
 | **Folia** | **无全局 TPS(per-region)** → **per-region 明细 + 全局标 N/A**(M1 先全局 N/A,M2/M3 补 per-region 明细) | 同上,per-region |
 
-**Folia 没有"全局 TPS/MSPT"这一概念**:每个 region 跑在自己的线程上,各有各的 tick 节奏。因此一个统一的全服 TPS 数值在 Folia 上语义不成立。最终呈现方式已敲定:**全局值标 N/A + 给出 per-region 明细**;分阶段实施 —— **M1 先全局标 N/A,M2/M3 补 per-region 明细**。详见 [常见问题FAQ](FAQ.md)。
+**Folia 没有"全局 TPS/MSPT"这一概念**:每个 region 跑在自己的线程上,各有各的 tick 节奏。因此一个统一的全服 TPS 数值在 Folia 上语义不成立。最终呈现方式已敲定:**全局值标 N/A + 给出 per-region 明细**;per-region 明细(FR12)已按"已观测 region"口径交付并真机验收,详见 [FR12 规格](../specs/folia-observed-regions.md)。详见 [常见问题FAQ](FAQ.md)。
 
 ### 3. 实体 / 区块采集
 - **非 Folia**:`submit{}`(同步)遍历 `world.getEntities()` / `getLoadedChunks()`。
@@ -81,21 +81,23 @@ TabooLib **完全不封装** TPS/MSPT。探针抽象 `ServerTickSampler` 接口,
 | 世界 / 区块 / 实体 | ❌ **无该概念** | ✅ |
 | 启动剖析 | 仅 JVM 启动 + 自身生命周期 | ✅ 完整(插件/世界耗时) |
 
-> 实现上以 `@PlatformSide(Platform.BUNGEE)` 隔离:代理端只激活代理实现,后端只激活 Bukkit 实现。Velocity 已在架构层抽象预留,后续可低成本接入。
+> 实现上以平台侧隔离代理与后端实现；Velocity 以独立平台模块支持 3.1.1–4.x，同一运行时只激活对应实现。
 
 ---
 
 ## 四、各平台指标差异速查
 
-| 指标类别 | Bukkit/Paper | Folia | BungeeCord |
-|---|---|---|---|
-| JVM(内存/GC/线程/CPU) | ✅ 通用 | ✅ 通用 | ✅ 通用 |
-| 在线人数 | ✅ | ✅ | ✅(总在线) |
-| TPS | ✅(API/兜底) | ⚠️ per-region 明细 + 全局 N/A | ❌ |
-| MSPT(p95/p99) | ✅ | ⚠️ per-region 明细 + 全局 N/A | ❌ |
-| 世界 / 区块 / 实体 | ✅(`submit`) | ✅(`callRegion`) | ❌ |
-| 子服 ping / 路由 | — | — | ✅ |
-| 启动剖析 | ✅ 完整 | ✅ 完整 | ⚠️ 仅 JVM + 自身 |
+| 指标类别 | Bukkit/Paper | Folia | BungeeCord | Velocity |
+|---|---|---|---|---|
+| JVM(内存/GC/线程/CPU) | ✅ 通用 | ✅ 通用 | ✅ 通用 | ✅ 通用 |
+| 在线人数 | ✅ | ✅ | ✅(总在线) | ✅(总在线) |
+| TPS | ✅(API/兜底) | ⚠️ per-region 明细 + 全局 N/A | ❌ | ❌ |
+| MSPT(p95/p99) | ✅ | ⚠️ per-region 明细 + 全局 N/A | ❌ | ❌ |
+| 世界 / 区块 / 实体 | ✅(`submit`) | ✅(`callRegion`) | ❌ | ❌ |
+| 子服 ping / 路由 | — | — | ✅ | ✅ |
+| 网络流量 / 数据包取证 | ✅ | ✅ | ✅ | ✅ |
+| MCP 诊断控制面(默认关闭) | ✅ | ✅ | ✅ | ✅ |
+| 启动剖析 | ✅ 完整 | ✅ 完整 | ⚠️ 仅 JVM + 自身 | ⚠️ 仅 JVM + 自身 |
 
 ---
 

@@ -5,7 +5,7 @@
 
 ## 1. 分层与依赖方向（核心边界）
 
-- 模块依赖**单向向下**：`plugin → platform-* / nms-* → core → api`。**严禁反向或环形依赖。**
+- 模块依赖**单向向下**：`plugin → platform-* / integration-* / diagnostics-* / nms-* → core → api`。**严禁反向或环形依赖。**
 - `api`（契约：采集器接口 + 指标/启动画像模型）与 `core`（通用采集编排/JMX/聚合/告警/呈现/本地存储+开放接口）**不依赖任何平台 API**（无 Bukkit/BungeeCord 符号）。
 - 平台实现（`platform-bukkit` / `platform-bungee`）实现 `api` 的接口，并标 `@PlatformSide(Platform.BUKKIT|BUNGEE)`；`core` 经运行时装配拿到实现，**编译期不依赖具体实现**。
 - 跨 toolchain 方向：高版本 NMS 胶水模块可 `compileOnly` Java 8 模块；**Java 8 核心绝不反向依赖高版本模块产物**，只经接口 + 运行时反射装配。
@@ -13,7 +13,7 @@
 
 ## 2. 简单优先（禁用的重型件）
 
-- **不引入数据库 / EasyQuery**：启动画像与指标历史一律本地文件落盘（JSON/JSONL，原子写入），经存储 SPI，默认且唯一内置=本地文件实现（ADR-7）。
+- **不引入通用数据库 / EasyQuery**：启动画像与指标历史一律本地文件落盘（JSON/JSONL，原子写入），经存储 SPI，默认且唯一内置=本地文件实现（ADR-7）。**唯一例外**是 ADR-19 的 FR-11 本地 SQLite 数据包取证，不得扩展为通用指标数据库。
 - **探针主体不引入 Java Agent、不裸写 ASM**（ADR-1）：主体只读，90%+ 指标用现成 API + JMX。被否决的是**运行时 self-attach**。
 - **运行期 CPU 火焰图不自研**，引导并用 spark（ADR-8）；本项目专注指标采集 + 启动剖析。
 - **新增第三方依赖须逐个确认、优先轻量**（ADR-10）：JSON 优先用 TabooLib 自带 gson，Prometheus 用 JDK 内置 `HttpServer` 零依赖手写。

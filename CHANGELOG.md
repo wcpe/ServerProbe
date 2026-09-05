@@ -11,9 +11,28 @@
 
 ## [未发布] (Unreleased)
 
-## [0.2.0] - 2026-08-24
+### 新增
+- **FR-08 存储扩展注册**：新增 `ServerProbeStorageApi.install` 与 `MetricStoreRegistration`。运行期最多启用一个第三方 `MetricStore`，关闭注册后原子回退内置本地文件实现；重复安装和陈旧句柄均有明确保护。
+- **FR-08/FR-09 自动化验收**：接入 mc-testkit，在真实 Paper 1.20.1 中验收第三方读取 API、存储 SPI 替换，以及不依赖 JianManager 的本地 RFC 6455 Worker 协议夹具。FR-09 覆盖桥握手、manifest、命令成功/失败/超时回执、业务事件和超时后的恢复。
+- **内置业务集成模块化（FR-10）**：新增 `integration-multicurrencyeconomy` 与 `integration-allininventorysync` 仓库内模块并合入单 jar；未安装对应插件时不加载其类型、不影响探针。mc-testkit 注入真实 MultiCurrencyEconomy 1.2.0 与 AllinInventorySync 2.1.0-SNAPSHOT 完成读写动作、幂等命中、业务事件与失败/超时恢复验收，另验证双缺失/单缺失场景；运行期断网（HTTP/HTTPS 代理 `127.0.0.1:9`）下由 616 项离线闭包支撑。
+- **全平台网络取证（FR-11）**：Bukkit/Spigot/Paper/Folia/BungeeCord/Velocity 全平台采集双向流量、包速率与包类型计数；本地 SQLite 保存包元数据与白名单载荷（单包默认 64 KiB、前缀截断保留原始长度与完整 SHA-256），默认保留 60 天、上限 4 GiB；Prometheus 仅输出聚合速率、包类型计数与脱敏 IP Top100，完整 IP/载荷仅经鉴权 Web 面板与 FR-08 只读 API 可查；驱动失败仅关闭取证并打印中文 WARN。六平台真实协议 E2E 全部 PASS。SQLite JDBC 现为发行 jar 内嵌闭包。
+- **Folia 已观测 region 指标（FR-12）**：真实 ticking region 的 TPS/MSPT avg/p95/p99 明细与按世界汇总，region 离开玩家 60 秒后过期；全局 TPS/MSPT 保持 N/A。双协议 bot 真机验证隔离 region 与受控负载隔离。
+- **Velocity 3.1.1–4.x 平台支持（FR-13）**：新增 `platform-velocity`，同一 jar 覆盖 Velocity 3.1.1 至 4.1.0；能力与 BungeeCord 对齐（总在线、后端 RTT/可达性、玩家路由、玩家 ping）并接入网络取证；共同源码经 API 3.1.1 与 4.1.0 双 `compileOnly` 编译门，发行类保持 Java 8。3.1.1（legacy forwarding，唯一允许 legacy 的版本）/3.5.1/4.1.0（JDK25）三组真机矩阵 PASS。
+- **存储治理：磁盘占用大幅下降 + 通用数据库命名**：取证库更名 `network-forensics.sqlite` → `serverprobe-store.sqlite`（未来所有结构化数据的统一库，旧库启动时自动迁移）；启动画像 agent 栈样本按 `agent-stack-max-samples`（默认 10）均匀抽稀，单份画像从 4.64MB 降至 KB 级；指标 jsonl 过期后 gzip 归档（实测 14.6MB→0.9MB），归档保留期 `history-file.archive-days` 默认 30 天，历史查询自动透明解压；外呼日志（`http-monitor.file-retention-days`/`file-archive-days`）与 MCP 审计（`mcp.audit-max-file-mb`/`mcp.audit-retention-days`）同步支持过期归档与轮转。
+- **旧版本兼容性修复（多版本矩阵真机发现）**：修复 JDK 8 上 IoC 注入链因 `@PlatformSide` 枚举数组注解解析异常而整体中断的问题（1.8–1.16 上组件 `@Inject` 字段全部未注入）；1.8–1.11 服务端改用首帧兜底装配启动画像（该平台无 `ServerLoadEvent`）；1.16 之前 Paper 缺原生 MSPT API 时改由自研 tick 时钟直方图兜底估算（TPS 仍走官方 API）。多版本矩阵（Paper 1.8.8–1.21.1 + Spigot 1.8.8/1.16.5，Java 8/17/21）十场景真机全部 PASS。
+- **Arthas 获取链三级化（FR-14 增强）**：Instrumentation 获取按序自动尝试 premain → self-attach → helper 子进程外置注入（spawn 一次性进程对目标 PID attach + loadAgent，跨进程 attach 不受 JDK 9+ self-attach 限制），自动选择首个成功来源；未挂 `-javaagent`、未加 `-Djdk.attach.allowAttachSelf=true` 的服务器现在无需任何启动参数即可启用 Arthas 深度诊断。
+- **外部 MCP 深度诊断控制（FR-14）**：默认关闭的 MCP Streamable HTTP（JSON-RPC 2.0）控制面，覆盖状态/指标、平台命令、线程 CPU Top/栈/死锁与诊断 bundle；内嵌 Arthas Core（Java 8–16 用 3.1.1、Java 17+ 用 4.3.2，构建期原子提取、SHA-256 校验、隔离 ClassLoader 引导），`arthas_execute` 兜底全部命令，持续命令异步任务化（并发/超时/输出/保留均可配）；产物统一写 `mcp-workspace/` 并支持分块读写与清理；审计记录来源 IP/工具/任务/耗时/参数 SHA-256。七组真机场景（Java 8/21/25 × Bukkit/Paper/Folia/BungeeCord/Velocity/Spigot）全部 PASS，Arthas 上游 Telnet/HTTP/MCP 端口不监听，非回环或空密钥时打印醒目中文 WARN。
 
-> FR9 业务对接代码不纳入本版本验收与对外能力承诺。
+### 修复
+- **CI 依赖解析修复**：`integration-allininventorysync` 的 `allininventorysync-api` 依赖由 `2.1.0-SNAPSHOT` 降级为远程已发布的 `2.0.0`——`2.1.0-SNAPSHOT` 仅存在于本地 Maven 缓存、从未发布到 `maven.wcpe.top` 等公共仓库，导致 GitHub Actions 全新环境（空 mavenLocal）解析 `compileClasspath` 失败。已核对 `2.1.0-SNAPSHOT` 相对 `2.0.0` 仅新增 `PlayerBackup` 与 `listPlayerBackups`/`executePlayerRollback`/带 reason 物品写重载（探针代码均为反射调用、未使用新 API），降级兼容无破坏；模块 18 项单测全绿。
+- **TabooLib 仓库收口 + 升级至 `6.3.0-wcpe.1`**：`repoTabooLib` 由聚合仓库 `maven.wcpe.top/repository/maven-public`（混有 test2 等版本）切到仅含 release 的 `maven-tabooproject-release` 镜像，消除版本解析噪音；运行库同步升级至 `6.3.0-wcpe.1`（含 `incision` 在内的全模块闭包均解析自新镜像）。产物 `META-INF/taboolib/version.properties` 确认 `taboolib=6.3.0-wcpe.1`，`env.properties` 的 `repo-taboolib` 指向 `maven-tabooproject-release`；本地 `./gradlew build` 全绿。
+
+### 文档
+- **PRD 结构规范化（realign）**：按 SDD 模板重构 `docs/PRD.md` 为 §1~§8 结构——FR 统一 `FR-NN` 零填充编号（FR-01~FR-14，子能力收进正文）、优先级收敛为 P1/P2/P3、状态列采用模板枚举（`已交付@vX.Y.Z` / `开发中`，FR-10~FR-14 待发版登记）、新增 §2 角色 / §3 用户故事 / §6 期级验收清单 / §7 分期主题；移除 §10 里程碑表与过程性验收日志（并入 CHANGELOG / specs）。
+- **specs 文件语义化重命名**：`fr8-fr9-e2e-acceptance.md` → `open-api-bridge-e2e.md`、`incision-poc.md` → `method-incision.md`、`fr10-built-in-integrations.md` → `built-in-integrations.md`、`fr11-network-forensics.md` → `network-forensics.md`、`fr12-folia-observed-regions.md` → `folia-observed-regions.md`、`fr13-velocity-platform.md` → `velocity-platform.md`、`fr14-mcp-diagnostics.md` → `mcp-diagnostics.md`；PRD / README / ARCHITECTURE / specs 内部引用同步更新。
+- **过期注记清理**：`CONTRIBUTING.md` / `doc-sync.md` / `adr/README.md` 的 ADR 编号指引更新至 ADR-27；`scope-discipline.md` 活跃范围更新为 v0.2.0 已交付 + FR-10~FR-14 待登记；`API.md` Web 面板描述由"规划中"改为"已交付"；`specs/README.md` / `_template.md` 的 M3/M4 过时措辞改为 P1/P2/P3。
+
+## [0.2.0] - 2026-08-24
 
 ### 变更
 - **标签发布自动化**：推送 `v*` 标签后，GitHub Actions 执行完整构建、上传 `ServerProbe-*.jar`，并创建或更新对应 GitHub Release。
@@ -110,10 +129,6 @@
   - **开源许可证**:选定 **MIT License**(原"待定")。
 
 ---
-
-## 后续
-
-FR9 按用户指示不纳入 `v0.2.0` 验收与对外交付口径，后续安排以 PRD 为准。
 
 [未发布]: https://github.com/
 [0.2.0]: https://github.com/

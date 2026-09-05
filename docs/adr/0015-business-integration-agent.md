@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受
+已接受；决策 1 中“Provider 实现落 platform-bukkit”的部分已被 [ADR-0018](0018-built-in-business-integration-modules.md) 取代，其余决策继续有效
 
 ## 背景
 

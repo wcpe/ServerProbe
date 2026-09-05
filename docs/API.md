@@ -8,7 +8,7 @@
 
 - **形态**:ServerProbe 是 Bukkit/BungeeCord **插件 + 库 API**,**不是 REST 服务**。只读 API 与存储 SPI 以 **Java** 接口形式发布在 `api` 模块（纯 Java + Lombok、零 Kotlin metadata，任意 Kotlin/Java 版本可编译依赖，ADR-13）,Java 8 可直接调用;数据出口另有 Prometheus 文本端点与游戏内命令。
 - **获取方式**:跨插件消费方经 TabooLib IOC 服务获取只读接口,统一走静态门面 `top.wcpe.mc.plugin.serverprobe.ServerProbeApi.read()`,无需了解容器内部细节。
-- **只读**:对外接口仅暴露查询,不暴露任何写入/控制能力,外部消费方无法影响探针运行。
+- **只读边界**:读取 API 仅暴露查询,不暴露运行控制能力；存储 SPI 的受控替换注册见第 4 节，不属于读取 API。
 - **平台语义**:快照/画像携带 `platform` 字段(`BUKKIT` / `BUNGEE` / `VELOCITY`)。`VELOCITY` 为预留,尚未启用。代理端(`BUNGEE`)无世界/TPS/MSPT 概念,对应字段为 null;服务端无代理拓扑,`proxy` 字段为 null。
 - **线程/调用时机**:
   - 调用方应在 ServerProbe 容器就绪后调用(如自身 `ENABLE`/`ACTIVE` 之后);过早调用得到 null 属正常,稍后重试即可。
@@ -26,7 +26,7 @@
 - **SPI 默认方法的向后兼容**:`MetricStore` 的 M2 扩面方法(`readStartupProfiles`、`readHistory`、批量 `appendHistory`)均为 Kotlin 接口默认方法,默认实现为"空读 / 批量退化为逐条",**旧实现无需改动即向后兼容**。
 - **Prometheus 端点错误码**:见第 5 节(401/403/500)。
 
-## 3. 只读 API:ProbeReadApi(FR8.1)
+## 3. 只读 API:ProbeReadApi(FR-08)
 
 接口:`top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi`
 门面:`top.wcpe.mc.plugin.serverprobe.ServerProbeApi`
@@ -82,7 +82,7 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 
 **`StartupProfile`**(启动画像):基础字段 `schemaVersion`、`serverId`、`platform`、`mcVersion`、`jvmStartTimeMs`、`totalMs`、`phaseTimings`、`pluginTimings`、`worldTimings`、`jvmArgs`、`createdAtMs`。**Incision 可选字段**：`incisionEnabled` 表示本次启动是否请求采集，`incisionActive` 表示目标切点已实际执行，`incisionPluginEnableTimings` 仅在实际采集时提供逐插件精确启用耗时；默认关闭或未命中有效切点时 `incisionActive=false` 且列表为 null。**启动 agent 增强字段**(仅 `-javaagent:plugins/ServerProbe.jar` 挂载时有值,否则 `agentAttached = false` 且其余为 null):`agentAttached`、`premainNanos`、`agentPluginLoadTimings`、`agentPluginEnableTimings`、`libraryTimings`、`mainThreadHotspots`、`timelineEvents`、`threadStacks`、`configTimings`、`eventTimings`、`commandTimings`、`sampleIntervalMs`、`httpCalls`。
 
-## 4. 存储 SPI:MetricStore(FR8.2)
+## 4. 存储 SPI:MetricStore(FR-08)
 
 接口:`top.wcpe.mc.plugin.serverprobe.api.store.MetricStore`
 
@@ -101,9 +101,19 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 
 ### 4.2 第三方替换
 
-第三方对接 DB/远程后端时,实现 `MetricStore` 接口:三个抽象方法必须实现;三个带默认实现的 M2 扩面方法按需覆盖(覆盖 `readStartupProfiles`/`readHistory` 以提供历史回读能力,覆盖批量 `appendHistory` 以降低写入开销)。不覆盖即保持"空读 / 批量退化为逐条"语义,不破坏既有 SPI 与既有调用。
+第三方对接 DB/远程后端时，先实现 `MetricStore`：三个抽象方法必须实现；三个带默认实现的 M2 扩面方法按需覆盖（覆盖 `readStartupProfiles`/`readHistory` 以提供历史回读能力，覆盖批量 `appendHistory` 以降低写入开销）。不覆盖即保持“空读 / 批量退化为逐条”语义，不破坏既有 SPI 与既有调用。
 
-## 5. Prometheus 导出端点(FR4.2)
+在 ServerProbe 已启用后，通过运行期插件 jar 中的 `top.wcpe.mc.plugin.serverprobe.ServerProbeStorageApi` 安装实例：
+
+```kotlin
+val registration = ServerProbeStorageApi.install(store)
+// 插件禁用或不再需要替换时：
+registration.close()
+```
+
+`install` 同一时刻只接受一个第三方存储；已有替换实例时抛出 `IllegalStateException`，不会静默覆盖。返回 `MetricStoreRegistration`，关闭当前注册后立即恢复内置 `LocalFileMetricStore`；陈旧注册句柄不会移除后来安装的实例。未安装第三方实例时，全部存储调用始终委派内置本地文件实现。
+
+## 5. Prometheus 导出端点(FR-04)
 
 实现:`top.wcpe.mc.plugin.serverprobe.core.prometheus.PrometheusExporter` / `MetricsHttpHandler` / `PrometheusTextFormatter`
 
@@ -155,9 +165,9 @@ Authorization: Bearer <token>
 - **代理端**(仅代理端):`proxy_players_online`、`proxy_backend_players_online`(label `backend`)。
 
 > 端点仅暴露**最新快照**的瞬时值;历史趋势由 Prometheus 抓取时间序列自身承载。
-> PRD 中的 FR4.3 Web 面板 / FR8.3 的"Web/HTTP 只读 API"为**规划中,未实现**,当前对外 HTTP 出口仅 `/metrics` 一个。
+> Web 面板（FR-04 子能力）为只读三页（总览 / 启动画像 / 历史趋势），默认关闭，见 PRD FR-04。
 
-## 6. 游戏内命令 /probe(FR4.1)
+## 6. 游戏内命令 /probe(FR-04)
 
 实现:`top.wcpe.mc.plugin.serverprobe.command.ProbeCommand`
 
@@ -167,9 +177,9 @@ Authorization: Bearer <token>
 | --- | --- | --- | --- |
 | `health` | 总体概览:TPS(1m)/MSPT(avg)/堆已用·最大/CPU/在线人数/运行时长。 | `serverprobe.command.health` | 服务器维度字段在代理端为 N/A。尚无采样时提示采集中。 |
 | `startup` | 最近一次启动画像:总时长、慢插件 Top-N、各世界耗时、与上次对比;挂载 agent 后追加库下载/主线程热点/配置·事件·命令耗时 Top-N。 | `serverprobe.command.startup` | 无画像时提示"尚无启动画像"。Top-N 取 `startup-top-n`(默认 5)。agent 增强段需 `-javaagent`。 |
-| `tps` | TPS(1/5/15 分钟)与 MSPT(avg/p95/p99),并附近 N 份快照的聚合补充行(FR3.3)。 | `serverprobe.command.tps` | 字段 null(Folia/不可用)显示 N/A;代理端无此指标。聚合窗口取 `aggregation.window`(默认 12)。 |
+| `tps` | TPS(1/5/15 分钟)与 MSPT(avg/p95/p99),并附近 N 份快照的聚合补充行(FR-03)。 | `serverprobe.command.tps` | 字段 null(Folia/不可用)显示 N/A;代理端无此指标。聚合窗口取 `aggregation.window`(默认 12)。 |
 | `gc` | GC(young/old 的 count/timeMs)+ 堆/非堆/各内存池。 | `serverprobe.command.gc` | JVM 指标全平台通用,代理端同样可用。 |
-| `world` | 各世界:已加载区块数、实体数、方块实体数(FR2.3)。 | `serverprobe.command.world` | 代理端无此指标;worlds 未采样时提示采集中;Folia 受限项(-1)显示 N/A。 |
+| `world` | 各世界:已加载区块数、实体数、方块实体数(FR-02)。 | `serverprobe.command.world` | 代理端无此指标;worlds 未采样时提示采集中;Folia 受限项(-1)显示 N/A。 |
 | `proxy` | 代理端总在线 + 各子服在线明细。 | `serverprobe.command.proxy` | 仅代理端有数据;在服务端提示"此为服务端,请在 BungeeCord 执行"。子服 ping/路由为**规划中,未实现**。 |
 | `flamegraph` | 由最近启动画像导出自包含 HTML(火焰图 + 时间线),输出到 `data/flamegraph/`。 | `serverprobe.command.flamegraph` | **需挂载启动 agent**(`-javaagent:plugins/ServerProbe.jar`);未挂载时提示启用方式。 |
 | `http` | 回看最近的对外网络外呼(插件/方法/URL/响应码/耗时/触发处),倒序展示。 | `serverprobe.command.http` | **需挂载启动 agent**且外呼监控开启方有数据;展示条数固定 20(`HTTP_DISPLAY_LIMIT`)。缓冲为空时按 agent 是否挂载给出不同提示。 |
