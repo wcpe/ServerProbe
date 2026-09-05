@@ -33,3 +33,8 @@ tasks.withType<JavaCompile>().configureEach {
     // harness 的 compileOnly(files(...)) 引用 :plugin 发行 jar——显式声明任务依赖，满足 Gradle 隐式依赖校验
     dependsOn(":plugin:jar")
 }
+
+// Kotlin 编译同样依赖被测发行 jar（CI 全新环境无缓存，必须先构建 plugin jar）
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(":plugin:jar")
+}

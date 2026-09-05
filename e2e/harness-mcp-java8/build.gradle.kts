@@ -3,7 +3,7 @@ plugins {
 }
 
 dependencies {
-    compileOnly("org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT")
+    compileOnly("ink.ptms.core:v12004:12004:universal")
 }
 
 java {
@@ -18,4 +18,11 @@ sourceSets.main {
 
 tasks.jar {
     archiveBaseName.set("mc-testkit-mcp-java8-harness")
+}
+
+// 服务端 API SNAPSHOT 须在 JVM 17 上解析；目标属性保持 17，仅让编译产物落到 Java 8 字节码。
+configurations.compileClasspath {
+    attributes {
+        attribute(org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 17)
+    }
 }
