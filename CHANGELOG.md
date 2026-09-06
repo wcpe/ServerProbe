@@ -49,6 +49,12 @@
 - **`backupRestore` 先解析后校验前缀（minor）**：调为前缀校验先行（最小特权），测试断言同步。
 - **`artifact_read_binary` maxBytes 负值/零语义不明（minor）**：入参层与 offset 同款钳制（非正回退默认 64 KiB）。
 
+### 修复（真机复验 + 技术债，sdd-fix-bug 762f481 后续）
+
+- **真机复验 B-1/B-2/B-3（WSL Paper 1.20.1）**：`plugin_threads` 返回真实命中线程（`ServerProbe-MCP` hitFrames=20）、Arthas `version` 4.3.2 可用、`jfr_start` 提交成功——三条默认注入路径全部修复生效。
+- **真机暴露 M-3 修复缺陷并纠正**：`BukkitPluginMetadataProvider` 兜底注册同名工具面会按 IOC 注册序覆盖 core 的 `PluginScopedMcpToolProvider` 路由，导致 `plugin_*` 全部路由到降级实现（"插件维度诊断工具未就绪"）。修复：本类**不再实现 `McpToolProvider`、不注册工具面**（工具面由 core 统一提供），契约测试同步更新。
+- **技术债：抽取 `McpExtensionToolBase` 基类**：统一 `currentWorkspace`/`arthas()`/`taskSnapshot`/`timeoutMillis`/`arthasPath` 五件套，消除 `BinaryArtifactToolProvider`/`GcJfrToolProvider`/`FlamegraphToolProvider`/`PrePatchBackupToolProvider` 四处的复制粘贴；`PrePatchBackupToolProvider.timeoutMillis` 保留 30 秒收紧上限（override 基类）。
+
 ## [0.3.0] - 2026-09-05
 
 ### 新增

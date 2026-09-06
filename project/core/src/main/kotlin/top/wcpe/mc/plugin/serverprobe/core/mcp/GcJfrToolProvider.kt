@@ -18,15 +18,12 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @Service
 class GcJfrToolProvider(
-    private val testArthasControl: ArthasControl? = null,
-    private val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
-) : McpToolProvider {
+    testArthasControl: ArthasControl? = null,
+    testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
+) : McpExtensionToolBase() {
 
-    @Inject
-    lateinit var arthasControlRegistry: ArthasControl
-
-    @Inject
-    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
+    override val testArthasControl: ArthasControl? = testArthasControl
+    override val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = testWorkspaceRegistry
 
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
@@ -109,30 +106,11 @@ class GcJfrToolProvider(
         return taskSnapshot(arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
     }
 
-    private fun arthas(): ArthasControl = testArthasControl ?: arthasControlRegistry
-
-    private fun currentWorkspace(): McpArtifactWorkspace? {
-        testWorkspaceRegistry?.let { return it.current() }
-        return runCatching { workspaceRegistry.current() }.getOrNull()
-    }
-
-    private fun taskSnapshot(snapshot: ArthasTaskSnapshot): Map<String, Any?> =
-        linkedMapOf("taskId" to snapshot.taskId, "state" to snapshot.state.name, "message" to snapshot.message)
-
-    private fun timeoutMillis(arguments: JsonObject?): Long {
-        val requested = arguments?.getRaw("timeoutMillis")?.toString()?.toLongOrNull() ?: DEFAULT_TIMEOUT_MILLIS
-        return requested.coerceIn(0L, MAX_TIMEOUT_MILLIS)
-    }
-
-    private fun arthasPath(path: java.nio.file.Path): String = path.toAbsolutePath().toString().replace('\\', '/')
-
     private companion object {
         const val GC_EVENTS = "gc_events"
         const val GC_STATS = "gc_stats"
         const val JFR_START = "jfr_start"
         const val JFR_STOP = "jfr_stop"
-        const val DEFAULT_TIMEOUT_MILLIS = 30_000L
-        const val MAX_TIMEOUT_MILLIS = 30 * 60 * 1_000L
 
         val TOOLS = listOf(
             McpTool(GC_EVENTS, "返回自上次调用以来的 GC 事件增量（请求驱动差分窗口）",

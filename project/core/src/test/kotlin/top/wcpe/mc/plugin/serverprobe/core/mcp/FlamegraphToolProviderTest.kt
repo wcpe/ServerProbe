@@ -34,7 +34,7 @@ class FlamegraphToolProviderTest {
         clockMillis: Long = FIXED_EPOCH_MILLIS,
     ): FlamegraphToolProvider = FlamegraphToolProvider(
         testWorkspaceRegistry = registry(ws),
-        arthasControl = control,
+        testArthasControl = control,
     ).apply { this.clockMillis = clockMillis }
 
     private fun arguments(vararg values: Pair<String, Any?>): JsonObject = object : JsonObject {
@@ -75,7 +75,7 @@ class FlamegraphToolProviderTest {
         // 空 ArthasControlRegistry 等价于"Arthas 未 attach"：submit 返回 FAILED + 未注册提示
         val provider = FlamegraphToolProvider(
             testWorkspaceRegistry = registry(workspace()),
-            arthasControl = ArthasControlRegistry(),
+            testArthasControl = ArthasControlRegistry(),
         )
 
         val result = provider.call("flamegraph_start", arguments())
@@ -109,7 +109,7 @@ class FlamegraphToolProviderTest {
     fun `flamegraph_stop 未装配工作区时结构化降级`() {
         val provider = FlamegraphToolProvider(
             testWorkspaceRegistry = McpArtifactWorkspaceRegistry(),
-            arthasControl = ArthasControlRegistry(),
+            testArthasControl = ArthasControlRegistry(),
         )
 
         val result = provider.call("flamegraph_stop", arguments())
@@ -204,7 +204,7 @@ class FlamegraphToolProviderTest {
     fun `flamegraph_view 未装配工作区时结构化降级`() {
         val provider = FlamegraphToolProvider(
             testWorkspaceRegistry = McpArtifactWorkspaceRegistry(),
-            arthasControl = ArthasControlRegistry(),
+            testArthasControl = ArthasControlRegistry(),
         )
 
         val result = provider.call("flamegraph_view", arguments("artifactName" to "fg.html"))

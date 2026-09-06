@@ -30,15 +30,12 @@ import java.nio.file.StandardOpenOption
  */
 @Service
 class PrePatchBackupToolProvider(
-    private val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
-    private val testArthasControl: ArthasControl? = null,
-) : McpToolProvider {
+    testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
+    testArthasControl: ArthasControl? = null,
+) : McpExtensionToolBase() {
 
-    @Inject
-    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
-
-    @Inject
-    lateinit var arthasControlRegistry: ArthasControl
+    override val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = testWorkspaceRegistry
+    override val testArthasControl: ArthasControl? = testArthasControl
 
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
@@ -52,11 +49,6 @@ class PrePatchBackupToolProvider(
     fun register() {
         mcpToolProviderRegistry.register(this)
     }
-
-    private fun currentWorkspace(): McpArtifactWorkspace? =
-        (testWorkspaceRegistry ?: workspaceRegistry).current()
-
-    private fun arthas(): ArthasControl = testArthasControl ?: arthasControlRegistry
 
     override fun tools(): List<McpTool> = TOOLS
 
@@ -153,10 +145,8 @@ class PrePatchBackupToolProvider(
 
     private fun nowMillis(): Long = if (clockMillis > 0) clockMillis else System.currentTimeMillis()
 
-    /** Arthas 命令解析器将反斜杠视作转义符，Windows 路径统一转为正斜杠。 */
-    private fun arthasPath(path: java.nio.file.Path): String = path.toAbsolutePath().toString().replace('\\', '/')
-
-    private fun timeoutMillis(arguments: JsonObject?): Long {
+    /** PrePatch 超时上限与默认一致（30 秒），覆盖基类的 30 分钟上限——备份操作应短时完成。 */
+    override fun timeoutMillis(arguments: JsonObject?): Long {
         val requested = arguments?.getRaw("timeoutMillis")?.toString()?.toLongOrNull() ?: DEFAULT_TIMEOUT_MILLIS
         return requested.coerceIn(0, DEFAULT_TIMEOUT_MILLIS)
     }
@@ -166,9 +156,6 @@ class PrePatchBackupToolProvider(
         "size" to artifact.size,
         "modifiedAtMillis" to artifact.modifiedAtMillis,
     )
-
-    private fun taskSnapshot(snapshot: ArthasTaskSnapshot): Map<String, Any?> =
-        linkedMapOf("taskId" to snapshot.taskId, "state" to snapshot.state.name, "message" to snapshot.message)
 
     private companion object {
         const val ARTIFACT_BACKUP_LIST = "artifact_backup_list"

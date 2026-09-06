@@ -24,11 +24,10 @@ import java.util.Base64
  */
 @Service
 class BinaryArtifactToolProvider(
-    private val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
-) : McpToolProvider {
+    testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
+) : McpExtensionToolBase() {
 
-    @Inject
-    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
+    override val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = testWorkspaceRegistry
 
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
@@ -48,7 +47,7 @@ class BinaryArtifactToolProvider(
 
     /** 二进制分块读取：返回 Base64 编码的分片与游标，未装配工作区时结构化降级。 */
     private fun artifactReadBinary(arguments: JsonObject?): Map<String, Any?> {
-        val workspace = (testWorkspaceRegistry ?: workspaceRegistry).current()
+        val workspace = currentWorkspace()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         val name = arguments?.getString("name")?.trim()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("工件操作缺少 name 参数")

@@ -6,9 +6,6 @@ import org.bukkit.plugin.java.JavaPlugin
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import top.wcpe.mc.plugin.serverprobe.core.cpu.PluginClassLoaderRegistry
-import top.wcpe.mc.plugin.serverprobe.core.mcp.McpTool
-import top.wcpe.mc.plugin.serverprobe.core.mcp.McpToolProvider
-import top.wcpe.mc.plugin.serverprobe.core.mcp.McpToolProviderRegistry
 import top.wcpe.mc.plugin.serverprobe.core.mcp.PluginClassEnumeration
 import top.wcpe.mc.plugin.serverprobe.core.mcp.PluginClassResolver
 import top.wcpe.mc.plugin.serverprobe.core.mcp.PluginClassResolverRegistry
@@ -35,15 +32,14 @@ import java.util.jar.JarFile
  *   禁止按插件目录名拼路径**(插件目录名可能与插件名不一致)。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化,依赖注入完成后([PostConstruct])
- * 把元数据实现与类解析实现注册进 core 契约,并把工具面合并进 [McpToolProviderRegistry]
- * (工具目录与 core 的 [PluginScopedMcpToolProvider] 相同,由它统一声明,本类按
- * [McpToolProviderRegistry.register] 的"以首次注册为准"语义在 [PostConstruct] 阶段
- * 兜底注册自身,防止 core provider 缺席时工具缺失;core provider 先注册时自动让位)。
- * 插件卸载时([PreDestroy])撤销注册。
+ * 把元数据实现与类解析实现注册进 core 契约。**本类不实现 [McpToolProvider]、不注册工具面**——
+ * 工具目录由 core 的 [PluginScopedMcpToolProvider] 统一声明(同 jar 内必注册);
+ * 曾兜底注册同名工具,真机发现会按 IOC 注册序覆盖 core 的路由,导致 plugin_* 全部
+ * 路由到降级实现,故移除。插件卸载时([PreDestroy])撤销注册。
  */
 @Service
 @PlatformSide(Platform.BUKKIT)
-class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver, McpToolProvider {
+class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver {
 
     /** 插件 ClassLoader 注册表(core),用于组装 ClassLoader 摘要。 */
     @Inject
@@ -57,40 +53,27 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
     @Inject
     lateinit var classResolverRegistry: PluginClassResolverRegistry
 
-    /** MCP 扩展工具注册表(FR-23),启动期兜底注册工具面。 */
-    @Inject
-    lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
-
     /**
-     * 依赖注入完成后注册两份数据源到 core 契约,并兜底注册工具面。
+     * 依赖注入完成后注册两份数据源到 core 契约。
      *
-     * 工具目录由 core 的 [PluginScopedMcpToolProvider] 作为 [McpToolProvider]
-     * 统一注册;本类在 [PostConstruct] 阶段以 putIfAbsent 语义兜底,避免 core provider
-     * 未就绪时工具缺失(重复注册无害,registry 保留首个)。
+     * 工具目录由 core 的 [PluginScopedMcpToolProvider] 作为 [McpToolProvider] 统一注册——
+     * 本类**不注册工具面**（曾兜底注册同名工具，真机发现会按注册序覆盖 core 的路由，
+     * 导致 plugin_* 全部路由到本类的降级实现）；本类仅实现元数据/类解析数据源契约。
      */
     @PostConstruct
     fun register() {
         if (Platform.CURRENT != Platform.BUKKIT) return
         metadataRegistry.register(this)
         classResolverRegistry.register(this)
-        mcpToolProviderRegistry.register(this)
-        ProbeLogger.info("Bukkit 插件维度诊断数据源已注册(元数据 + 类清单 + 工具面)")
+        ProbeLogger.info("Bukkit 插件维度诊断数据源已注册(元数据 + 类清单)")
     }
 
-    /** 插件卸载时撤销已注册的数据源与工具面,避免关闭后的组件继续被查询。 */
+    /** 插件卸载时撤销已注册的数据源,避免关闭后的组件继续被查询。 */
     @PreDestroy
     fun unregister() {
         metadataRegistry.unregister(this)
         classResolverRegistry.unregister(this)
-        mcpToolProviderRegistry.unregister(this)
     }
-
-    /** 工具目录与 core 的 [PluginScopedMcpToolProvider] 保持一致（同名去重后路由到实际实现）。 */
-    override fun tools(): List<McpTool> = FALLBACK_TOOLS
-
-    /** 工具调用由 core 的 [PluginScopedMcpToolProvider] 提供；本类仅兜底占位，路由到本类时结构化降级而非抛错。 */
-    override fun call(name: String, arguments: top.wcpe.mc.plugin.serverprobe.core.json.JsonObject?): Map<String, Any?> =
-        linkedMapOf("available" to false, "reason" to "插件维度诊断工具未就绪，请稍后重试")
 
     override fun list(): List<PluginMeta> = Bukkit.getPluginManager().plugins.map { plugin ->
         PluginMeta(
@@ -188,14 +171,6 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
 
         /** 类清单枚举有界上限(与 core 对外上限一致,默认 200)。 */
         const val MAX_ENUMERATED_CLASSES = 200
-
-        /** 兜底工具目录：与 core provider 同名，dispatcher 同名去重后保留后注册者（core）。 */
-        val FALLBACK_TOOLS = listOf(
-            McpTool("plugin_list", "列出全部已加载插件"),
-            McpTool("plugin_classes", "按插件枚举可解析类清单"),
-            McpTool("plugin_threads", "按插件过滤归属线程栈"),
-            McpTool("plugin_cpu", "插件 CPU 归因占比"),
-        )
     }
 }
 

@@ -25,19 +25,16 @@ import top.wcpe.taboolib.ioc.annotation.Service
  */
 @Service
 class FlamegraphToolProvider(
-    private val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
-    private val arthasControl: ArthasControl? = null,
-) : McpToolProvider {
+    testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
+    testArthasControl: ArthasControl? = null,
+) : McpExtensionToolBase() {
+
+    override val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = testWorkspaceRegistry
+    override val testArthasControl: ArthasControl? = testArthasControl
 
     /** 测试注入用时钟；生产运行期为当前时间戳。 */
     @Volatile
     var clockMillis: Long = 0L
-
-    @Inject
-    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
-
-    @Inject
-    lateinit var arthasControlRegistry: ArthasControl
 
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
@@ -47,9 +44,6 @@ class FlamegraphToolProvider(
     fun register() {
         mcpToolProviderRegistry.register(this)
     }
-
-    private fun currentWorkspace(): McpArtifactWorkspace? =
-        (testWorkspaceRegistry ?: workspaceRegistry).current()
 
     override fun tools(): List<McpTool> = TOOLS
 
@@ -62,8 +56,8 @@ class FlamegraphToolProvider(
 
     /** start 薄封装：提交 profiler start 异步任务，Arthas 不可用时结构化降级。 */
     private fun flamegraphStart(arguments: JsonObject?): Map<String, Any?> {
-        val control = arthasControl ?: arthasControlRegistry
-        val snapshot = control.submit(ArthasCommandRequest("profiler start", timeout(arguments)))
+        val control = arthas()
+        val snapshot = control.submit(ArthasCommandRequest("profiler start", timeoutMillis(arguments)))
         return if (snapshot.state == ArthasTaskState.FAILED) {
             ProbeLogger.warn("flamegraph_start 失败：${snapshot.message}")
             linkedMapOf("available" to false, "reason" to snapshot.message)
@@ -79,8 +73,7 @@ class FlamegraphToolProvider(
         val artifactName = arguments?.getString("artifactName")?.trim()?.takeIf(String::isNotBlank)
             ?: "flamegraph-${nowMillis()}.html"
         val command = "profiler stop --file '${arthasPath(workspace.outputPath(artifactName))}'"
-        val control = arthasControl ?: arthasControlRegistry
-        val snapshot = control.submit(ArthasCommandRequest(command, timeout(arguments)))
+        val snapshot = arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments)))
         return if (snapshot.state == ArthasTaskState.FAILED) {
             ProbeLogger.warn("flamegraph_stop 失败：${snapshot.message}")
             linkedMapOf("available" to false, "reason" to snapshot.message)
@@ -128,17 +121,7 @@ class FlamegraphToolProvider(
         "hint" to "JFR 为二进制产物，请使用 artifact_read_binary 分块取回后本地分析",
     )
 
-    private fun timeout(arguments: JsonObject?): Long {
-        val requested = arguments?.getRaw("timeoutMillis")?.toString()?.toLongOrNull() ?: DEFAULT_TIMEOUT_MILLIS
-        return requested.coerceIn(0L, MAX_TIMEOUT_MILLIS)
-    }
-
     private fun nowMillis(): Long = if (clockMillis > 0L) clockMillis else System.currentTimeMillis()
-
-    private fun arthasPath(path: java.nio.file.Path): String = path.toAbsolutePath().toString().replace('\\', '/')
-
-    private fun taskSnapshot(snapshot: ArthasTaskSnapshot): Map<String, Any?> =
-        linkedMapOf("taskId" to snapshot.taskId, "state" to snapshot.state.name, "message" to snapshot.message)
 
     private companion object {
         const val FLAMEGRAPH_START = "flamegraph_start"
