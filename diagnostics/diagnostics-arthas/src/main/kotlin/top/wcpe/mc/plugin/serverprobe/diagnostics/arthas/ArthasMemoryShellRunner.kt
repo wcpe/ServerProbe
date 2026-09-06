@@ -202,6 +202,11 @@ class ArthasMemoryShellRunner(
         synchronized(this) {
             if (bootstrap != null) return
             val parameters = ArthasModernBootstrapSettings.parameters(runtimeDirectory)
+            // AsyncProfiler 从 System 属性 one.profiler.libraryPath 定位原生库（ArthasEnvironment 不写系统属性），
+            // 必须在 Bootstrap 初始化前显式设置，否则 profiler 命令报 "Can not find libasyncProfiler so"。
+            runCatching {
+                System.setProperty("one.profiler.libraryPath", runtimeDirectory.resolve("libasyncProfiler.so").toString())
+            }
             val type = loader.loadClass("com.taobao.arthas.core.server.ArthasBootstrap")
             // 4 系 Bootstrap 会统一初始化命令依赖；端口与 MCP endpoint 均显式禁用，不对外监听。
             bootstrap = type.getMethod("getInstance", Instrumentation::class.java, Map::class.java)
@@ -374,6 +379,9 @@ internal object ArthasModernBootstrapSettings {
         "arthas.telnetPort" to "-1",
         "arthas.httpPort" to "-1",
         "arthas.mcpEndpoint" to "",
+        // AsyncProfiler 按 one.profiler.libraryPath 定位原生库；内存 Shell 模式无 arthas 目录部署，
+        // 显式指向闭包内的无后缀 libasyncProfiler.so（profiler 命令依赖，FR-21）。
+        "one.profiler.libraryPath" to runtimeDirectory.resolve("libasyncProfiler.so").toString(),
     )
 }
 

@@ -33,6 +33,14 @@ interface ArthasControl {
     fun output(taskId: String, offset: Int): ArthasTaskOutput
     fun cancel(taskId: String): ArthasTaskSnapshot
     fun retryAttach(): ArthasInstrumentationSnapshot = ArthasInstrumentationSnapshot(false, "UNAVAILABLE", "当前未注册 Arthas 诊断控制器")
+
+    /**
+     * 读取指定类的当前已加载字节码（FR-19 补丁前自动备份）。
+     *
+     * 返回 null 表示备份能力未提供（既有实现未适配本方法），调用方应跳过备份并继续；
+     * 返回非 null 但为空数组表示读取失败，调用方应拒绝替换。默认实现返回 null 以保持向后兼容。
+     */
+    fun dumpClassBytes(className: String): ByteArray? = null
 }
 
 /** Arthas 控制器的生命周期注册契约，平台/诊断模块不依赖具体 registry。 */

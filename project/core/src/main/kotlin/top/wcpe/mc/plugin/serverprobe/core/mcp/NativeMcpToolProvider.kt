@@ -244,30 +244,135 @@ class NativeMcpToolProvider(
         private val ARTHAS_REVERT_SCHEMA = mapOf("entryId" to mapOf("type" to "integer"), "timeoutMillis" to mapOf("type" to "integer"))
         private val TASK_ID_SCHEMA = mapOf("taskId" to mapOf("type" to "string"))
         private val TASK_OUTPUT_SCHEMA = TASK_ID_SCHEMA + ("offset" to mapOf("type" to "integer"))
-        private val TOOLS = listOf(
-            McpTool(SERVER_STATUS, "读取当前服务器与 JVM 状态"),
-            McpTool(SERVER_COMMAND, "在当前平台执行一条控制台命令", COMMAND_INPUT_SCHEMA),
-            McpTool(THREAD_TOP, "读取线程 CPU 时间排名"),
-            McpTool(THREAD_DUMP, "读取有界线程转储"),
-            McpTool(THREAD_DEADLOCKS, "读取 JVM 检测到的死锁线程"),
-            McpTool(ARTHAS_EXECUTE, "异步执行内嵌 Arthas 原始命令", ARTHAS_COMMAND_SCHEMA),
-            McpTool(ARTHAS_TASK_STATUS, "读取 Arthas 任务状态", TASK_ID_SCHEMA),
-            McpTool(ARTHAS_TASK_OUTPUT, "读取 Arthas 任务输出分片", TASK_OUTPUT_SCHEMA),
-            McpTool(ARTHAS_TASK_CANCEL, "取消运行中的 Arthas 任务", TASK_ID_SCHEMA),
-            McpTool(ARTHAS_RETRY_ATTACH, "显式重试获取 Arthas Instrumentation"),
-            McpTool(DIAGNOSTIC_BUNDLE, "汇总服务器、线程与死锁诊断证据"),
-            McpTool(ARTIFACT_WRITE_CHUNK, "写入工件文本分块"),
-            McpTool(ARTIFACT_LIST, "列出 MCP 工件"),
-            McpTool(ARTIFACT_READ_CHUNK, "读取 MCP 工件分块"),
-            McpTool(ARTIFACT_DELETE, "删除 MCP 工件"),
-            McpTool(ARTHAS_WATCH, "异步观察指定方法", ARTHAS_METHOD_SCHEMA), McpTool(ARTHAS_TRACE, "异步追踪指定方法", ARTHAS_METHOD_SCHEMA),
-            McpTool(ARTHAS_STACK, "异步查看指定方法调用栈", ARTHAS_METHOD_SCHEMA), McpTool(ARTHAS_MONITOR, "异步统计指定方法", ARTHAS_METHOD_SCHEMA),
-            McpTool(ARTHAS_TT, "异步记录指定方法时间隧道", ARTHAS_TT_SCHEMA), McpTool(ARTHAS_OGNL, "异步执行 JVM 内 OGNL", ARTHAS_EXPRESSION_SCHEMA),
-            McpTool(ARTHAS_PROFILER, "异步执行 Arthas 性能采样器", ARTHAS_PROFILER_SCHEMA),
-            McpTool(ARTHAS_RETRANSFORM, "异步重转换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA),
-            McpTool(ARTHAS_REDEFINE, "异步替换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA),
-            McpTool(ARTHAS_REVERT, "按重转换条目编号恢复类字节码", ARTHAS_REVERT_SCHEMA),
+        private val ARTIFACT_WRITE_SCHEMA = mapOf(
+            "name" to mapOf("type" to "string", "description" to "工件名（仅字母数字点下划线连字符）"),
+            "content" to mapOf("type" to "string", "description" to "文本内容"),
+            "append" to mapOf("type" to "boolean", "description" to "是否追加"),
         )
+        private val ARTIFACT_READ_SCHEMA = mapOf(
+            "name" to mapOf("type" to "string", "description" to "工件名"),
+            "offset" to mapOf("type" to "integer", "description" to "字节偏移，默认 0"),
+            "maxBytes" to mapOf("type" to "integer", "description" to "本分片最大字节，默认 64 KiB，上限 1 MiB"),
+        )
+        private val ARTIFACT_NAME_SCHEMA = mapOf("name" to mapOf("type" to "string", "description" to "工件名"))
+        private val TOOLS = listOf(
+            McpTool(SERVER_STATUS, "读取当前服务器与 JVM 状态", usageExample = "{}",
+                workflow = "同步调用",
+                outputFields = mapOf(
+                "jvm" to "JVM 指标快照", "classLoading" to "类加载计数", "latestMetricSnapshot" to "最新指标快照",
+            )),
+            McpTool(SERVER_COMMAND, "在当前平台执行一条控制台命令", COMMAND_INPUT_SCHEMA, 
+                usageExample = "{\"command\":\"list\"}", workflow = "同步调用，超时 5 秒",
+                outputFields = mapOf(
+                "success" to "是否被服务器接受", "output" to "回显（截断时含标记）", "outputTruncated" to "是否截断", "error" to "失败原因",
+            )),
+            McpTool(THREAD_TOP, "读取线程 CPU 时间排名", workflow = "同步调用",
+                outputFields = mapOf(
+                "available" to "JVM 是否启用线程 CPU 时间", "threads" to "线程列表（id/name/state/cpuTimeNanos）",
+            )),
+            McpTool(THREAD_DUMP, "读取有界线程转储", workflow = "同步调用",
+                outputFields = mapOf(
+                "threads" to "线程列表（含栈帧）", "truncated" to "是否因上限截断",
+            )),
+            McpTool(THREAD_DEADLOCKS, "读取 JVM 检测到的死锁线程", workflow = "同步调用",
+                outputFields = mapOf(
+                "deadlocked" to "死锁线程列表",
+            )),
+            McpTool(ARTHAS_EXECUTE, "异步执行内嵌 Arthas 原始命令", ARTHAS_COMMAND_SCHEMA, 
+                usageExample = "{\"command\":\"sc *com.example*\"}", workflow = ASYNC_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED/TIMED_OUT", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_TASK_STATUS, "读取 Arthas 任务状态", TASK_ID_SCHEMA, workflow = "同步调用",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_TASK_OUTPUT, "读取 Arthas 任务输出分片", TASK_OUTPUT_SCHEMA, 
+                usageExample = "{\"taskId\":\"<taskId>\",\"offset\":0}", workflow = "同步调用，按 offset 分页",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "content" to "本分片内容", "nextOffset" to "下一页偏移", "truncated" to "是否还有更多",
+            )),
+            McpTool(ARTHAS_TASK_CANCEL, "取消运行中的 Arthas 任务", TASK_ID_SCHEMA, workflow = "同步调用",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "取消后状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_RETRY_ATTACH, "显式重试获取 Arthas Instrumentation", workflow = "同步调用",
+                outputFields = mapOf(
+                "available" to "是否可用", "source" to "获取来源（premain/self-attach/helper）", "message" to "说明",
+            )),
+            McpTool(DIAGNOSTIC_BUNDLE, "汇总服务器、线程与死锁诊断证据", workflow = "同步调用",
+                outputFields = mapOf(
+                "serverStatus" to "服务器状态", "threadTop" to "线程 CPU Top", "threadDump" to "线程转储", "threadDeadlocks" to "死锁",
+            )),
+            McpTool(ARTIFACT_WRITE_CHUNK, "写入工件文本分块", ARTIFACT_WRITE_SCHEMA, 
+                usageExample = "{\"name\":\"<工件名>\",\"content\":\"<文本>\",\"append\":false}", workflow = "同步调用",
+                outputFields = mapOf(
+                "name" to "工件名", "size" to "字节数", "modifiedAtMillis" to "修改时间",
+            )),
+            McpTool(ARTIFACT_LIST, "列出 MCP 工件", workflow = "同步调用",
+                outputFields = mapOf(
+                "artifacts" to "工件列表（name/size/modifiedAtMillis）",
+            )),
+            McpTool(ARTIFACT_READ_CHUNK, "读取 MCP 工件文本分块", ARTIFACT_READ_SCHEMA, 
+                usageExample = "{\"name\":\"<工件名>\",\"offset\":0}", workflow = "同步调用，按 offset 分页；文本工件用本工具，二进制用 artifact_read_binary",
+                outputFields = mapOf(
+                "content" to "本分片文本", "nextOffset" to "下一页偏移", "truncated" to "是否还有更多",
+            )),
+            McpTool(ARTIFACT_DELETE, "删除 MCP 工件", ARTIFACT_NAME_SCHEMA, workflow = "同步调用",
+                outputFields = mapOf(
+                "deleted" to "是否删除",
+            )),
+            McpTool(ARTHAS_WATCH, "异步观察指定方法", ARTHAS_METHOD_SCHEMA, 
+                usageExample = "{\"className\":\"<类名>\",\"methodName\":\"<方法名>\"}", workflow = METHOD_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_TRACE, "异步追踪指定方法", ARTHAS_METHOD_SCHEMA, 
+                usageExample = "{\"className\":\"<类名>\",\"methodName\":\"<方法名>\",\"maxMatches\":1}", workflow = METHOD_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_STACK, "异步查看指定方法调用栈", ARTHAS_METHOD_SCHEMA, workflow = METHOD_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_MONITOR, "异步统计指定方法", ARTHAS_METHOD_SCHEMA, workflow = METHOD_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_TT, "异步记录指定方法时间隧道", ARTHAS_TT_SCHEMA, workflow = METHOD_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_OGNL, "异步执行 JVM 内 OGNL", ARTHAS_EXPRESSION_SCHEMA, 
+                usageExample = "{\"expression\":\"@java.lang.System@getProperty('java.version')\"}",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_PROFILER, "异步执行 Arthas 性能采样器", ARTHAS_PROFILER_SCHEMA, 
+                usageExample = "{\"action\":\"start\"}", workflow = "异步：start → 触发负载 → stop（产物写工作区）→ artifact_read_binary 取回；必须先 stop 再读取",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_RETRANSFORM, "异步重转换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA, 
+                usageExample = "{\"artifactName\":\"<工件名>\"}", workflow = BACKUP_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_REDEFINE, "异步替换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA, 
+                usageExample = "{\"artifactName\":\"<工件名>\"}", workflow = BACKUP_WORKFLOW,
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+            McpTool(ARTHAS_REVERT, "按重转换条目编号恢复类字节码", ARTHAS_REVERT_SCHEMA, 
+                usageExample = "{\"entryId\":1}", workflow = "异步：task_status 轮询",
+                outputFields = mapOf(
+                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+            )),
+        )
+        private const val ASYNC_WORKFLOW = "异步：返回 taskId → arthas_task_status 轮询 → arthas_task_output 分片读 → 完成后可选 arthas_task_cancel"
+        private const val METHOD_WORKFLOW = "异步：先调用再触发目标方法，然后 task_status 轮询 → task_output 分片读"
+        private const val BACKUP_WORKFLOW = "异步：替换前自动备份（见 artifact_backup_list）→ task_status 轮询"
         private const val DEFAULT_ARTIFACT_READ_BYTES = 64 * 1024
         val IDENTIFIER = Regex("[A-Za-z_$][A-Za-z0-9_$.]*")
         val PROFILER_ACTIONS = setOf("start", "stop", "status", "list")

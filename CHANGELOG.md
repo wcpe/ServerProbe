@@ -9,6 +9,31 @@
 
 ---
 
+## [未发布] - 待版本
+
+### 新增（FR-15~23 MCP 深度诊断能力扩展，同一分支并行开发）
+
+- **FR-23 MCP 工具描述增强（接线地基）**：`McpJsonRpcDispatcher` 支持多 provider 组合（`List<McpToolProvider>` 按工具名路由），新增 `McpToolProviderRegistry` 供扩展 provider 注册；`McpTool` 增加 `usageExample`/`outputFields`/`workflow` 元数据，`tools/list` 为每个工具下发结构化中文描述（用途/参数/示例/异步工作流/输出字段/限制），外部 agent 仅凭描述即可正确调用。
+- **FR-15 MCP 插件维度诊断入口**：`plugin_list`（已加载插件清单/元数据）、`plugin_classes`（按插件枚举可解析类，经 `JavaPlugin.file` 实例解析禁止路径拼接）、`plugin_threads`（按 `PluginClassLoaderRegistry.ownerOf` 过滤归属线程栈，≤128×64 有界）、`plugin_cpu`（复用 `CpuAttributionSampler` 窗口占比，未启用/零样本降级）。
+- **FR-16 MCP 日志流式检索**：`log_tail`/`log_search`（尾部 N 行/关键字搜索 + 字节游标分页；路径规范化前缀校验防穿越；平台字符集解码；超长行截断且游标必前进；文件缺失结构化降级）。
+- **FR-17 MCP 区块/实体明细**：`server_status` 的 worlds 输出增强 `entityTypeCounts`（复用 `BukkitWorldCollector` 缓存，不重复遍历）与 `regionStats`（Folia 透传 FR-12 `ObservedRegionMetrics`）；provider 缺失降级保持向后兼容。
+- **FR-18 MCP 二进制产物安全回传**：`McpArtifactWorkspace.readBinaryChunk` + `artifact_read_binary`（Base64 编码二进制分块，默认 64 KiB/上限 1 MiB；与文本 `artifact_read_chunk` 并存；名称白名单防穿越）。
+- **FR-19 MCP 补丁前自动备份**：`ArthasControl.dumpClassBytes` 接口扩面（默认 null=能力缺失→WARN+跳过+继续，读取失败→拒绝替换）；`arthas_redefine`/`arthas_retransform` 替换前自动备份 `backup_<类名转义>_<时间戳>.class`（扁平命名符合工作区白名单）；`artifact_backup_list`/`artifact_backup_restore`（恢复写回 `restored_` 供重新替换）。
+- **FR-20 MCP 在线玩家诊断明细**：`player_lookup`（位置/血量/背包摘要无 NBT/区块/最近事件时间线；主线程周期缓存防阻塞，单周期上限 200；`BoundedEventRing` 有界事件缓冲）；**隐私红线**：默认开启随 MCP 开关、鉴权+审计参数 SHA-256、不落盘/不进 Prometheus/Web/历史；代理端结构化降级。
+- **FR-21 MCP 运行期 CPU 火焰图**：`flamegraph_start`/`flamegraph_stop`（薄封装 `arthas_profiler`，默认命名 `flamegraph-<epochMillis>.html` 消歧）+ `flamegraph_view`（按扩展名分流：`.html` 文本分块 / `.jfr` 元信息提示走 `artifact_read_binary`）；**不推翻 ADR-8**（不自研采样器）。
+- **FR-22 MCP GC/JFR 详诊**：`gc_events`/`gc_stats`（`GcDiff` 纯函数差分，计数/耗时回退钳制归零；请求驱动差分窗口）+ `jfr_start`/`jfr_stop`（经内嵌 Arthas，默认命名 `jfr-<epochMillis>.jfr`，产物配合 FR-18 回传）。
+
+> 全部 9 条 FR 均完成**实现 + 单元测试 + detekt + IoC 静态分析（errors=0）**，`./gradlew build` 全绿；**真机验收**：Paper 1.20.1（Windows）与 WSL Linux（Paper 1.20.1 + Temurin 17）双平台真机通过，详见下方"修复"与验收记录。
+
+### 修复（真机验收发现）
+
+- **MCP 工具列表重复爆炸（真机）**：`McpJsonRpcDispatcher` 多 provider 组合下 `providers.values` 含同一实例的多个引用，`flatMap` 展开导致 `tools/list` 返回 256 个重复工具（26 工具 × ~10 次）。修复：`tools/list` 按 provider 实例 `distinct()` + 同名工具 `groupBy.last()` 去重，现 42 个工具零重复；补"同实例多工具不重复展开"回归测试。
+- **MCP 工件工作区未注册（真机）**：`McpControlPlane.startServer` 创建 `McpArtifactWorkspace` 后未注册进 `McpArtifactWorkspaceRegistry`，导致 `artifact_read_binary`/`flamegraph_*`/`jfr_*`/备份等扩展工具返回"当前未启用 MCP 工件工作区"。修复：`startServer` 补 `register`、`stopServer` 补 `unregister`。
+- **扩展 provider 构造参数注入失效（真机）**：`BinaryArtifactToolProvider`/`FlamegraphToolProvider`/`PrePatchBackupToolProvider` 以构造参数注入 `McpArtifactWorkspaceRegistry`/`ArthasControl`，真机 IOC 装配下与 `McpControlPlane` 注入的 registry 非同一实例。修复：统一改为**字段注入 + 构造参数仅测试注入**（与 `GcJfrToolProvider` 同款）。
+- **MCP HTTP 服务 Linux backlog=0 连接挂起（真机）**：`McpHttpServer` 的 `BACKLOG=0` 在 Linux 上 accept 队列为空、连接超时（Windows 有默认值掩盖）。修复：`BACKLOG=64` 兼容两平台。
+- **Arthas 闭包缺失 async-profiler 原生库（真机）**：FR-14 构建脚本仅从官方 bin zip 提取 4 个 jar，漏了 `async-profiler/libasyncProfiler-*.so`，Linux 上 `flamegraph_*` 报 "Can not find libasyncProfiler so"。修复：构建脚本提取 3 平台原生库入闭包；运行期提取补 `async-profiler/` 子目录布局（`ProfilerCommand` 按 core jar codeSource 相对定位）+ 无后缀 `libasyncProfiler.so`（`AsyncProfiler.loadLibrary` 的 `one.profiler.libraryPath` 属性，`ArthasMemoryShellRunner` 初始化 Bootstrap 前显式 `System.setProperty`）。WSL Linux 真机验证：`flamegraph_start/stop` 真实产出火焰图 HTML，`flamegraph_view` 分块取回完整。
+- **WSL2 mirrored 网络模式破坏 loopback（环境结论）**：mirrored 下 WSL 内连 `127.0.0.1` 被 Windows loopback 劫持导致 MCP 不可达（非代码缺陷）；回退 NAT 模式 + MCP 监听 `0.0.0.0` 后 WSL 内正常。
+
 ## [0.3.0] - 2026-09-05
 
 ### 新增

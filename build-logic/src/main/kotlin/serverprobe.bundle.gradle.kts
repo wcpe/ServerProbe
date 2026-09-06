@@ -25,6 +25,19 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
                 Files.copy(input, output.toPath().resolve(name))
             }
         }
+        // async-profiler 原生库（仅 4.x 含）：Arthas 运行期按 `libasyncProfiler.so` 查找，
+        // 官方包内为平台后缀命名，提取时统一改名为 Arthas 期望的文件名。
+        listOf(
+            "async-profiler/libasyncProfiler-linux-x64.so" to "libasyncProfiler-linux-x64.so",
+            "async-profiler/libasyncProfiler-linux-arm64.so" to "libasyncProfiler-linux-arm64.so",
+            "async-profiler/libasyncProfiler-mac.dylib" to "libasyncProfiler-mac.dylib",
+        ).forEach { (source, target) ->
+            packaging.getEntry(source)?.let { entry ->
+                packaging.getInputStream(entry).use { input ->
+                    Files.copy(input, output.toPath().resolve(target))
+                }
+            }
+        }
     }
     ZipFile(output.toPath().resolve("arthas-core.jar").toFile()).use { core ->
         mapOf("META-INF/LICENSE" to "LICENSE", "META-INF/NOTICE" to "NOTICE").forEach { (source, target) ->
@@ -215,6 +228,11 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
                     )
                 }.toSet() + "META-INF/serverprobe/arthas/runtime.properties"
                 check(entries.containsAll(required)) { "发行 Jar 缺少 Arthas 运行闭包：${required - entries}" }
+                // async-profiler 原生库：仅现代闭包（4.x）应含 Linux x64 库
+                val modernPrefix = "META-INF/serverprobe/arthas/${arthasModernVersion.get()}/"
+                check(entries.contains("${modernPrefix}libasyncProfiler-linux-x64.so")) {
+                    "发行 Jar 现代 Arthas 闭包缺少 libasyncProfiler-linux-x64.so"
+                }
                 val forbidden = entries.filter { entry ->
                     prefixes.any(entry::startsWith) && (
                         entry.contains("arthas-client", ignoreCase = true) ||

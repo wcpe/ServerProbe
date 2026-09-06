@@ -49,6 +49,50 @@ class McpJsonRpcDispatcherTest {
     }
 
     @Test
+    fun `多提供者工具列表合并且按名路由`() {
+        val dispatcher = McpJsonRpcDispatcher(listOf(FakeToolProvider(), ArgumentToolProvider())) { value -> value.toString() }
+
+        val listed = dispatcher.dispatch(request(11, "tools/list"))!!
+        val tools = (listed["result"] as Map<*, *>)["tools"] as List<*>
+        assertEquals(2, tools.size)
+        assertEquals(setOf("server_status", "server_command"), tools.map { (it as Map<*, *>)["name"] }.toSet())
+
+        val called = dispatcher.dispatch(request(12, "tools/call", mapOf(
+            "name" to "server_command",
+            "arguments" to mapOf("command" to "list"),
+        )))!!
+        val content = ((called["result"] as Map<*, *>)["content"] as List<*>).single() as Map<*, *>
+        assertEquals("text", content["type"])
+        assertTrue(content["text"] != null)
+    }
+
+    @Test
+    fun `同一提供者多个工具名不重复展开`() {
+        // 单 provider 提供多个工具：map 的 values 会含同一实例多次，tools/list 必须按实例去重
+        val dispatcher = McpJsonRpcDispatcher(MultiToolProvider()) { value -> value.toString() }
+
+        val listed = dispatcher.dispatch(request(14, "tools/list"))!!
+        val tools = (listed["result"] as Map<*, *>)["tools"] as List<*>
+        val names = tools.map { (it as Map<*, *>)["name"] }
+        assertEquals(setOf("tool_a", "tool_b"), names.toSet())
+        assertEquals(2, names.size, "同一提供者的多工具不应重复展开")
+    }
+
+    @Test
+    fun `工具描述包含参数示例工作流输出关键段`() {
+        val provider = ExampleToolProvider()
+        val dispatcher = McpJsonRpcDispatcher(provider) { value -> value.toString() }
+        val listed = dispatcher.dispatch(request(13, "tools/list"))!!
+        val tool = ((listed["result"] as Map<*, *>)["tools"] as List<*>).single() as Map<*, *>
+        val description = tool["description"] as String
+        assertTrue(description.contains("参数"))
+        assertTrue(description.contains("示例"))
+        assertTrue(description.contains("同步"))
+        assertTrue(description.contains("输出"))
+        assertTrue(tool["inputSchema"] is Map<*, *>)
+    }
+
+    @Test
     fun `未知方法和非法工具返回 JSON RPC 错误`() {
         val methodError = dispatcher.dispatch(request("a", "missing"))!!
         assertEquals(-32601, ((methodError["error"] as Map<*, *>)["code"]))
@@ -98,6 +142,29 @@ class McpJsonRpcDispatcherTest {
             command = arguments?.getString("command")
             return emptyMap()
         }
+    }
+
+    private class ExampleToolProvider : McpToolProvider {
+        override fun tools(): List<McpTool> = listOf(
+            McpTool(
+                "server_status", "读取服务器状态",
+                inputSchema = mapOf("timeout" to mapOf("type" to "integer")),
+                usageExample = "{\"timeout\":5}",
+                workflow = "同步调用，直接返回结果",
+                outputFields = mapOf("status" to "状态"),
+            ),
+        )
+
+        override fun call(name: String, arguments: JsonObject?): Map<String, Any?> = mapOf("status" to "ok")
+    }
+
+    private class MultiToolProvider : McpToolProvider {
+        override fun tools(): List<McpTool> = listOf(
+            McpTool("tool_a", "工具 A"),
+            McpTool("tool_b", "工具 B"),
+        )
+
+        override fun call(name: String, arguments: JsonObject?): Map<String, Any?> = mapOf("name" to name)
     }
 
     private class MapJsonObject(private val values: Map<String, Any?>) : JsonObject {

@@ -56,6 +56,15 @@
 | FR-12 | Folia 已观测 region TPS/MSPT 明细与世界汇总 | P2 | 已交付@v0.3.0 |
 | FR-13 | Velocity 3.1.1–4.x 平台支持（单 jar、双编译门、Java 8 入口） | P2 | 已交付@v0.3.0 |
 | FR-14 | 外部 MCP 深度诊断控制：内嵌 Arthas Core（默认关闭、明确授权控制面） | P2 | 已交付@v0.3.0 |
+| FR-15 | MCP 插件维度诊断入口：列出全部已加载插件（名称/版本/ClassLoader/状态），按插件查看类清单、线程栈、CPU 热点，无需手敲类名 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机） |
+| FR-16 | MCP 日志流式检索：tail 读取 `logs/latest.log`，支持关键字过滤与分页，只读 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机） |
+| FR-17 | MCP 区块/实体明细：`server_status` 按世界输出区块分布、实体类型分布与总数；Folia/低版本降级 N/A | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows 真机；Folia 降级待验） |
+| FR-18 | MCP 二进制产物安全回传：新增 `artifact_read_binary`（Base64 编码二进制分块读取），heapdump/profiler 产物可下载 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机） |
+| FR-19 | MCP 补丁前自动备份：`redefine`/`retransform` 前自动备份原始字节码，可回滚/对比 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机，含非法名拒绝） |
+| FR-20 | MCP 在线玩家诊断明细：按玩家名查询在线玩家的位置/血量/背包摘要/所在区块与事件链路聚合；默认开启（随 MCP 开关），鉴权+审计+不落库 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机，离线降级） |
+| FR-21 | MCP 运行期 CPU 火焰图：直接利用 `arthas_profiler` 产出（start/stop + 产物查看），不自研采样器（不推翻 ADR-8） | P2 | 已交付@v0.3.0（**Linux 真机产出火焰图 HTML**；Windows 因 async-profiler 平台限制降级） |
+| FR-22 | MCP GC/JFR 详诊：GC 事件明细与 JFR 采集入口（低优先，可经 Arthas vmoption/jfr 兜底） | P3 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机，G1 收集器明细） |
+| FR-23 | MCP 工具描述增强：`tools/list` 为每个工具下发完整中文使用说明（参数含义、使用示例、异步工作流提示、输出字段说明），供外部 agent 正确调用；不改变工具名与参数键 | P2 | 已交付@v0.3.0（Paper 1.20.1 Windows/Linux 真机，42 工具零重复） |
 
 > 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
 > FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。

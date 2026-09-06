@@ -39,7 +39,8 @@ class McpHttpServer(
 
     private companion object {
         private const val MCP_PATH = "/mcp"
-        private const val BACKLOG = 0
+        // Linux 上 backlog=0 会导致 accept 队列为空、连接挂起（Windows 有默认值）；用 64 兼容两平台。
+        private const val BACKLOG = 64
         private const val STOP_DELAY_SECONDS = 0
         private const val THREAD_NAME = "ServerProbe-MCP"
     }

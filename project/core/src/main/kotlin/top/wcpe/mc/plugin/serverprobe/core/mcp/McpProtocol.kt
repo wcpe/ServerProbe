@@ -9,6 +9,12 @@ data class McpTool(
     val name: String,
     val description: String,
     val inputSchema: Map<String, Any?> = emptyMap(),
+    /** 使用示例（JSON 片段，禁止真实值，用占位符）。 */
+    val usageExample: String? = null,
+    /** 输出字段名 → 含义。 */
+    val outputFields: Map<String, String>? = null,
+    /** 工作流提示（异步轮询/分页等）。 */
+    val workflow: String? = null,
 )
 
 /** MCP 工具目录与同步调用边界；长任务和 Arthas 后续以独立实现加入。 */
@@ -50,15 +56,22 @@ object McpSafetyWarnings {
     private fun isLoopback(host: String): Boolean = host == "127.0.0.1" || host == "::1" || host.equals("localhost", true)
 }
 
-/** Streamable HTTP 端点使用的 JSON-RPC 2.0 分发器。 */
+/** Streamable HTTP 端点使用的 JSON-RPC 2.0 分发器；支持单 provider（兼容）与多 provider 组合。 */
 class McpJsonRpcDispatcher(
-    private val tools: McpToolProvider,
+    providers: List<McpToolProvider>,
     private val audit: McpAuditTrail? = null,
     private val encodeResult: (Any?) -> String = Json::encode,
 ) {
 
+    private val providers: Map<String, McpToolProvider> = providers.flatMap { provider ->
+        provider.tools().map { it.name to provider }
+    }.toMap()
+
     /** 保持已有调用方传入 JSON 写入器的位置参数兼容。 */
-    constructor(tools: McpToolProvider, encodeResult: (Any?) -> String) : this(tools, null, encodeResult)
+    constructor(provider: McpToolProvider, encodeResult: (Any?) -> String) : this(listOf(provider), null, encodeResult)
+
+    /** 兼容既有只传单 provider 的构造。 */
+    constructor(provider: McpToolProvider) : this(listOf(provider), null, Json::encode)
 
     fun dispatch(request: JsonObject, sourceIp: String = "未知来源"): Map<String, Any?>? {
         val id = request.getRaw("id")
@@ -68,7 +81,8 @@ class McpJsonRpcDispatcher(
         return when (request.getString("method")) {
             INITIALIZE -> result(id, initializeResult())
             PING -> result(id, emptyMap<String, Any?>())
-            TOOLS_LIST -> result(id, mapOf("tools" to tools.tools().map(::toolDescription)))
+            TOOLS_LIST -> result(id, mapOf("tools" to providers.values.distinct().flatMap { it.tools() }
+                .groupBy { it.name }.values.map { it.last() }.map(::toolDescription)))
             TOOLS_CALL -> callTool(id, request.getObject("params"), sourceIp)
             INITIALIZED_NOTIFICATION -> null
             else -> error(id, METHOD_NOT_FOUND, "未实现的 MCP 方法")
@@ -78,8 +92,10 @@ class McpJsonRpcDispatcher(
     private fun callTool(id: Any?, params: JsonObject?, sourceIp: String): Map<String, Any?> {
         val name = params?.getString("name")?.takeIf(String::isNotBlank)
             ?: return error(id, INVALID_PARAMS, "tools/call 缺少工具名称")
+        val provider = providers[name]
+            ?: return error(id, INVALID_PARAMS, "未找到 MCP 工具：$name")
         val started = System.nanoTime()
-        val value = runCatching { tools.call(name, params?.getObject("arguments")) }.getOrElse {
+        val value = runCatching { provider.call(name, params?.getObject("arguments")) }.getOrElse {
             audit?.record(McpAuditRecord(sourceIp, name, null, elapsedMillis(started), "FAILED", params?.getObject("arguments").toString()))
             return error(id, INVALID_PARAMS, it.message ?: "未找到或无法执行的 MCP 工具")
         }
@@ -98,7 +114,7 @@ class McpJsonRpcDispatcher(
 
     private fun toolDescription(tool: McpTool): Map<String, Any?> = linkedMapOf(
         "name" to tool.name,
-        "description" to tool.description,
+        "description" to ToolDescriptionBuilder.describe(tool),
         "inputSchema" to mapOf("type" to "object", "properties" to tool.inputSchema),
     )
 

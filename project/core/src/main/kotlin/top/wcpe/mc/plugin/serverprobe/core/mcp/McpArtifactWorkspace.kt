@@ -21,6 +21,9 @@ data class McpArtifact(val name: String, val size: Long, val modifiedAtMillis: L
 /** 有界工件读取分片。 */
 data class McpArtifactChunk(val content: String, val nextOffset: Long, val truncated: Boolean)
 
+/** 有界二进制工件读取分片（FR-18）。 */
+data class McpBinaryChunk(val content: ByteArray, val nextOffset: Long, val truncated: Boolean)
+
 /** 仅允许固定文件名的本地 MCP 工件目录，拒绝任意路径穿越。 */
 class McpArtifactWorkspace(
     private val directory: Path,
@@ -50,6 +53,28 @@ class McpArtifactWorkspace(
 
     @Synchronized
     fun readChunk(name: String, offset: Long, maxBytes: Int): McpArtifactChunk {
+        val read = readBytes(name, offset, maxBytes)
+        return McpArtifactChunk(
+            String(read.content, 0, read.content.size, StandardCharsets.UTF_8),
+            read.nextOffset,
+            read.truncated,
+        )
+    }
+
+    /**
+     * 按字节偏移读取二进制工件分片（FR-18）。
+     *
+     * 与 [readChunk] 共享定位逻辑：offset 越界裁剪到文件末尾、maxBytes 限制在
+     * 1 MiB 以内、以读取时文件大小为快照判定是否截断。
+     */
+    @Synchronized
+    fun readBinaryChunk(name: String, offset: Long, maxBytes: Int): McpBinaryChunk {
+        val read = readBytes(name, offset, maxBytes)
+        return McpBinaryChunk(read.content, read.nextOffset, read.truncated)
+    }
+
+    /** 文本与二进制读取共用的有界定位读取；偏移越界裁剪、上限 1 MiB、整块读满判定截断。 */
+    private fun readBytes(name: String, offset: Long, maxBytes: Int): McpBinaryChunk {
         val file = resolve(name)
         require(Files.isRegularFile(file)) { "工件不存在" }
         val size = Files.size(file)
@@ -61,7 +86,8 @@ class McpArtifactWorkspace(
             input.read(buffer)
         }.coerceAtLeast(0)
         val next = safeOffset + count
-        return McpArtifactChunk(String(buffer, 0, count, StandardCharsets.UTF_8), next, next < size)
+        val content = if (count == limit) buffer else buffer.copyOf(count)
+        return McpBinaryChunk(content, next, next < size)
     }
 
     @Synchronized
