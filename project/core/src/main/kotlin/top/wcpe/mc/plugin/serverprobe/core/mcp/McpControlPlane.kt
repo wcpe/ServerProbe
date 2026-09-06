@@ -175,7 +175,9 @@ class McpControlPlane {
             "server" to enhancedServer,
             "proxy" to snapshot.proxy,
         )
-        return output + ("latestMetricSnapshot" to enhancedSnapshot)
+        // McpJsonWriter 对 Map/数组按 MAX_ITEMS(256) 静默截断；worlds 超限时给出提示，避免 agent 误读为完整列表
+        return output + ("latestMetricSnapshot" to enhancedSnapshot) +
+            ("worldsTruncated" to (enhancedWorlds.size >= McpJsonWriter.MAX_ITEMS))
     }
 
     /** 组合全部 MCP 工具提供者：原生工具 + 扩展 provider（FR-15~22 交付时在 McpToolProviderRegistry 注册）。 */

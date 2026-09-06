@@ -107,5 +107,6 @@ internal object McpJsonWriter {
 
     private const val NULL = "null"
     private const val MAX_DEPTH = 16
-    private const val MAX_ITEMS = 256
+    /** 集合/对象序列化项数上限；McpControlPlane 据此提示输出截断。 */
+    internal const val MAX_ITEMS = 256
 }
