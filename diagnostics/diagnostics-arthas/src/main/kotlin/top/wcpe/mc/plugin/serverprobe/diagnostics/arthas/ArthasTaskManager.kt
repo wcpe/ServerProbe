@@ -64,6 +64,7 @@ class ArthasTaskManager(
     private val settings: ArthasTaskSettings = ArthasTaskSettings(),
     private val maxOutputChars: Int = settings.maxOutputChars,
     private val audit: (ArthasAuditRecord) -> Unit = {},
+    private val bytecodeReader: (String) -> ByteArray? = { null },
     private val executor: ExecutorService = Executors.newFixedThreadPool(settings.maxConcurrent),
 ) : ArthasControl, AutoCloseable {
     private val tasks = ConcurrentHashMap<String, Task>()
@@ -96,6 +97,9 @@ class ArthasTaskManager(
         task.timeout?.cancel(false)
         return task.snapshot("已请求取消")
     }
+
+    /** 读取已加载类字节码（FR-19 补丁前自动备份）；未提供读取器或类未加载时返回 null。 */
+    override fun dumpClassBytes(className: String): ByteArray? = bytecodeReader(className)
 
     private fun execute(task: Task) {
         if (task.state == ArthasTaskState.CANCELLED) return

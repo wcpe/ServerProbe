@@ -34,6 +34,21 @@
 - **Arthas 闭包缺失 async-profiler 原生库（真机）**：FR-14 构建脚本仅从官方 bin zip 提取 4 个 jar，漏了 `async-profiler/libasyncProfiler-*.so`，Linux 上 `flamegraph_*` 报 "Can not find libasyncProfiler so"。修复：构建脚本提取 3 平台原生库入闭包；运行期提取补 `async-profiler/` 子目录布局（`ProfilerCommand` 按 core jar codeSource 相对定位）+ 无后缀 `libasyncProfiler.so`（`AsyncProfiler.loadLibrary` 的 `one.profiler.libraryPath` 属性，`ArthasMemoryShellRunner` 初始化 Bootstrap 前显式 `System.setProperty`）。WSL Linux 真机验证：`flamegraph_start/stop` 真实产出火焰图 HTML，`flamegraph_view` 分块取回完整。
 - **WSL2 mirrored 网络模式破坏 loopback（环境结论）**：mirrored 下 WSL 内连 `127.0.0.1` 被 Windows loopback 劫持导致 MCP 不可达（非代码缺陷）；回退 NAT 模式 + MCP 监听 `0.0.0.0` 后 WSL 内正常。
 
+### 修复（代码审查发现，sdd-review-code 556660f）
+
+- **`plugin_threads` 生产恒返回空列表（blocking）**：`threadSource` 默认实现把 dump 的 `stack` 丢弃（`stack=emptyList()`），`filterOwned` 只数 stack 命中帧 → 生产调用恒 0 命中。修复：`NativeThreadDiagnostics` 新增 `threadSamples()` 保留原始 `StackTraceElement`（含 className），默认 `threadSource` 改用它；补"默认采样源保留真实栈帧"回归测试。
+- **`ArthasControlRegistry` 未转发 `dumpClassBytes`（blocking）**：FR-19 自动备份经 Registry 委托链恒返回 null（"能力缺失→跳过备份"），生产 100% 不生效。修复：Registry 显式转发；`ArthasMemoryShellRunner` 新增 `dumpClassBytes`（经 Instrumentation `getBytecodes`），`ArthasTaskManager` 经 `bytecodeReader` 参数接入；补委托链回归测试。
+- **`GcJfrToolProvider.arthasControl` 构造参数未改字段注入（blocking）**：生产 IOC 下 `jfr_start/stop` 恒 FAILED。修复：与 Flamegraph/PrePatch 一致改 `@Inject lateinit var arthasControlRegistry` + 构造参数仅测试注入。
+- **`BukkitWorldDetailProvider` 对可选注入无条件解引用（blocking）**：`foliaObservedRegionService` 标 `@Inject(required=false)` 但直接调用，注入缺失时 NPE 全量降级。修复：判空 `?.snapshot()?.regions ?: emptyMap()`。
+- **日志路径回退工作目录架空前缀校验（major）**：`BukkitLogPathProvider` 取不到根目录时回退进程工作目录，使 core 的 `LogPathGuard.withinRoot` 前缀校验形同虚设。修复：回退改为 null（工具降级"平台未提供日志文件"）；KDoc 修正"世界容器目录"语义。
+- **玩家事件监听注册依赖插件加载时序且不重试（major）**：`BukkitPlayerDiagnosticsProvider` 的 `getPlugin("ServerProbe")` 失败被吞且不重试，`recentActivity` 可能永久为空。修复：`registerListenerWithRetry` 按 20 tick 间隔重试（最多 10 次）。
+- **`BukkitPluginMetadataProvider` 空工具面占位（major）**：`tools()=emptyList()` + `call()` 抛错，core provider 未就绪时 FR-15 工具全挂。修复：兜底返回与 core 同名工具目录 + `call()` 结构化降级。
+- **`McpControlPlane.startServer` 注册早于 HttpServer.start（major）**：端口占用启动失败时留下工作区幽灵注册与审计线程泄漏。修复：`register` 移到 `server.start()` 成功之后。
+- **`arthas_ognl` 描述误标"同步"（major）**：补 `ASYNC_WORKFLOW`，对齐其他异步工具描述。
+- **`BoundedEventRing` 并发非精确有界（major）**：`ConcurrentLinkedDeque.size()` O(n) 弱一致，瞬时可能超 capacity。修复：改用 `LinkedBlockingDeque`（`offerLast` 满则先 `pollFirst`，严格有界）。
+- **`backupRestore` 先解析后校验前缀（minor）**：调为前缀校验先行（最小特权），测试断言同步。
+- **`artifact_read_binary` maxBytes 负值/零语义不明（minor）**：入参层与 offset 同款钳制（非正回退默认 64 KiB）。
+
 ## [0.3.0] - 2026-09-05
 
 ### 新增

@@ -85,12 +85,12 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
         mcpToolProviderRegistry.unregister(this)
     }
 
-    /** 工具目录与 core 的 [PluginScopedMcpToolProvider] 保持一致;通常已被其先注册。 */
-    override fun tools(): List<McpTool> = emptyList()
+    /** 工具目录与 core 的 [PluginScopedMcpToolProvider] 保持一致（同名去重后路由到实际实现）。 */
+    override fun tools(): List<McpTool> = FALLBACK_TOOLS
 
-    /** 工具调用由 core 的 [PluginScopedMcpToolProvider] 提供;本类不处理调用(注册时通常已让位)。 */
+    /** 工具调用由 core 的 [PluginScopedMcpToolProvider] 提供；本类仅兜底占位，路由到本类时结构化降级而非抛错。 */
     override fun call(name: String, arguments: top.wcpe.mc.plugin.serverprobe.core.json.JsonObject?): Map<String, Any?> =
-        throw IllegalArgumentException("未找到 MCP 工具")
+        linkedMapOf("available" to false, "reason" to "插件维度诊断工具未就绪，请稍后重试")
 
     override fun list(): List<PluginMeta> = Bukkit.getPluginManager().plugins.map { plugin ->
         PluginMeta(
@@ -188,6 +188,14 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
 
         /** 类清单枚举有界上限(与 core 对外上限一致,默认 200)。 */
         const val MAX_ENUMERATED_CLASSES = 200
+
+        /** 兜底工具目录：与 core provider 同名，dispatcher 同名去重后保留后注册者（core）。 */
+        val FALLBACK_TOOLS = listOf(
+            McpTool("plugin_list", "列出全部已加载插件"),
+            McpTool("plugin_classes", "按插件枚举可解析类清单"),
+            McpTool("plugin_threads", "按插件过滤归属线程栈"),
+            McpTool("plugin_cpu", "插件 CPU 归因占比"),
+        )
     }
 }
 

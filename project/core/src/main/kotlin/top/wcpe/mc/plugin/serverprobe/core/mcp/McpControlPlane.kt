@@ -71,8 +71,6 @@ class McpControlPlane {
         val artifactWorkspace = McpArtifactWorkspace(workspace.resolve("artifacts"), artifactSettings())
         artifactWorkspace.cleanup()
         artifacts = artifactWorkspace
-        // 注册进工作区注册表，供 Binary/PrePatch/Flamegraph/GcJfr 等扩展 provider 委托访问
-        mcpArtifactWorkspaceRegistry.register(artifactWorkspace)
         val audit = McpAuditTrail(
             workspace,
             maxFileBytes = ProbeConfig.mcpAuditMaxFileMb() * 1024L * 1024L,
@@ -82,9 +80,11 @@ class McpControlPlane {
             providers(),
             audit = audit,
             encodeResult = McpJsonWriter::encode,
-        )).also {
-            it.start()
-            httpServer = it
+        )).also { server ->
+            server.start()
+            // HttpServer.start() 成功后才注册工作区与审计，避免启动失败（端口占用等）留下幽灵注册与线程泄漏
+            mcpArtifactWorkspaceRegistry.register(artifactWorkspace)
+            httpServer = server
             auditTrail = audit
             artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }

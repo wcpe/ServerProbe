@@ -1,13 +1,13 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
-import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.LinkedBlockingDeque
 
 /**
  * 有界事件环形缓冲（FR-20）：只保留最近 [capacity] 条事件，按时间顺序提供过滤查询。
  *
- * 线程安全（[ConcurrentLinkedDeque]），读多写少；玩家事件监听写入、MCP 请求线程读取。
+ * 线程安全（[LinkedBlockingDeque] 内部锁保证 add 与裁剪原子，容量严格有界），
+ * 读多写少；玩家事件监听写入、MCP 请求线程读取。
  */
-/** 有界事件环形缓冲（FR-20）：只保留最近 [capacity] 条事件，按时间顺序提供过滤查询。 */
 class BoundedEventRing<T>(val capacity: Int = DEFAULT_CAPACITY) {
 
     init {
@@ -19,12 +19,15 @@ class BoundedEventRing<T>(val capacity: Int = DEFAULT_CAPACITY) {
         const val DEFAULT_CAPACITY = 2000
     }
 
-    private val deque = ConcurrentLinkedDeque<T>()
+    private val deque = LinkedBlockingDeque<T>(capacity)
 
-    /** 追加事件；超出容量时丢弃最旧一条。 */
+    /** 追加事件；容量已满时丢弃最旧一条（并发下严格有界）。 */
     fun add(event: T) {
-        deque.addLast(event)
-        while (deque.size > capacity) deque.pollFirst()
+        // offerLast 满时返回 false 不抛异常；满则先移除最旧再追加，保证严格有界。
+        if (!deque.offerLast(event)) {
+            deque.pollFirst()
+            deque.offerLast(event)
+        }
     }
 
     /** 返回最近至多 [limit] 条（时间正序）；[limit] 非正时返回空列表。 */

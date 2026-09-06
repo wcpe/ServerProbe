@@ -346,6 +346,7 @@ class NativeMcpToolProvider(
             )),
             McpTool(ARTHAS_OGNL, "异步执行 JVM 内 OGNL", ARTHAS_EXPRESSION_SCHEMA, 
                 usageExample = "{\"expression\":\"@java.lang.System@getProperty('java.version')\"}",
+                workflow = ASYNC_WORKFLOW,
                 outputFields = mapOf(
                 "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
             )),
@@ -437,6 +438,21 @@ class NativeThreadDiagnostics(private val threadBean: ThreadMXBean = ManagementF
         "truncated" to (threadBean.threadCount > MAX_THREADS),
     )
 
+    /** 返回保留原始 [StackTraceElement] 的线程快照（供按类名归属过滤，避免 toString 反解丢 className）。 */
+    fun threadSamples(): List<NativeThreadSample> = threadBean.dumpAllThreads(false, false)
+        .asSequence()
+        .take(MAX_THREADS)
+        .map { info ->
+            NativeThreadSample(
+                id = info.threadId,
+                name = info.threadName,
+                state = info.threadState.name,
+                stack = info.stackTrace.take(MAX_STACK_FRAMES).toList(),
+                cpuTimeNanos = runCatching { threadBean.getThreadCpuTime(info.threadId) }.getOrDefault(-1L),
+            )
+        }
+        .toList()
+
     fun deadlocks(): Map<String, Any?> {
         val ids = threadBean.findDeadlockedThreads() ?: return mapOf("deadlocked" to emptyList<Map<String, Any?>>())
         return mapOf("deadlocked" to threadBean.getThreadInfo(ids, true, true).asSequence()
@@ -466,3 +482,12 @@ class NativeThreadDiagnostics(private val threadBean: ThreadMXBean = ManagementF
         private const val MAX_STACK_FRAMES = 64
     }
 }
+
+/** 保留原始栈帧的线程快照（供按类名归属过滤）。 */
+data class NativeThreadSample(
+    val id: Long,
+    val name: String,
+    val state: String,
+    val stack: List<StackTraceElement>,
+    val cpuTimeNanos: Long,
+)

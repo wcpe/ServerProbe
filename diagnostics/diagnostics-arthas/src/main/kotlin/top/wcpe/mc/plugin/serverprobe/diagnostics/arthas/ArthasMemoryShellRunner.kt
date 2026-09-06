@@ -33,6 +33,17 @@ class ArthasMemoryShellRunner(
         }
     }
 
+    /** 读取指定类的当前已加载字节码（FR-19 补丁前自动备份）；类未加载或读取失败返回 null。 */
+    fun dumpClassBytes(className: String): ByteArray? {
+        val inst = instrumentation() ?: return null
+        val target = inst.allLoadedClasses.firstOrNull { it.name == className } ?: return null
+        // getBytecodes 为 Java 9+ 才加入 Instrumentation，Java 8 编译期无此方法，经反射调用保持双版本兼容。
+        return runCatching {
+            val method = Instrumentation::class.java.getMethod("getBytecodes", Class::class.java)
+            (method.invoke(inst, target) as? Array<*>)?.firstOrNull() as? ByteArray
+        }.getOrNull()
+    }
+
     override fun close() {
         synchronized(this) {
             destroyBootstrap()

@@ -53,7 +53,9 @@ class BinaryArtifactToolProvider(
         val name = arguments?.getString("name")?.trim()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("工件操作缺少 name 参数")
         val offset = arguments?.getRaw("offset")?.toString()?.toLongOrNull()?.coerceAtLeast(0) ?: 0L
-        val maxBytes = arguments?.getRaw("maxBytes")?.toString()?.toIntOrNull() ?: DEFAULT_READ_BYTES
+        // maxBytes 与 offset 同款钳制：负值/零回退默认 64 KiB（语义明确，避免 0 读空、负值歧义）
+        val maxBytes = arguments?.getRaw("maxBytes")?.toString()?.toIntOrNull()
+            ?.takeIf { it > 0 } ?: DEFAULT_READ_BYTES
         val chunk = workspace.readBinaryChunk(name, offset, maxBytes)
         return linkedMapOf(
             "name" to name,

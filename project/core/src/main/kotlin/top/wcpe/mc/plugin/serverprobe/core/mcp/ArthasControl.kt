@@ -86,6 +86,9 @@ class ArthasControlRegistry : ArthasControl, ArthasControlRegistration {
         ?.retryAttach()
         ?: ArthasInstrumentationSnapshot(false, "UNAVAILABLE", "当前未注册 Arthas 诊断控制器")
 
+    /** 转发补丁前备份字节码读取；未注册控制器时返回 null（能力缺失，调用方跳过备份继续）。 */
+    override fun dumpClassBytes(className: String): ByteArray? = controlOrNull()?.dumpClassBytes(className)
+
     private fun controlOrNull(): ArthasControl? = controlRef.get()
 
     private fun unavailableSnapshot(taskId: String = ""): ArthasTaskSnapshot =

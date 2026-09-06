@@ -57,16 +57,15 @@ class PluginScopedMcpToolProvider : McpToolProvider {
     /** CPU 归因窗口快照;默认复用注入的 [CpuAttributionSampler]。 */
     var cpuSnapshot: () -> List<PluginCpuMetric> = { cpuSampler.snapshot(MAX_CPU_SAMPLES) }
 
-    /** 线程采样源;默认复用 [NativeThreadDiagnostics.dump] 的线程信息。 */
+    /** 线程采样源;默认复用 [NativeThreadDiagnostics.threadSamples] 的原始栈帧（保留 className 供归属过滤）。 */
     var threadSource: () -> List<PluginThreadSample> = {
-        @Suppress("UNCHECKED_CAST")
-        (NativeThreadDiagnostics().dump()["threads"] as? List<Map<String, Any?>>).orEmpty().map { row ->
+        NativeThreadDiagnostics().threadSamples().map { sample ->
             PluginThreadSample(
-                id = row["id"] as? Long ?: -1L,
-                name = row["name"] as? String ?: "",
-                state = row["state"] as? String ?: "",
-                stack = emptyList(),
-                cpuTimeNanos = 0L,
+                id = sample.id,
+                name = sample.name,
+                state = sample.state,
+                stack = sample.stack,
+                cpuTimeNanos = sample.cpuTimeNanos,
             )
         }
     }

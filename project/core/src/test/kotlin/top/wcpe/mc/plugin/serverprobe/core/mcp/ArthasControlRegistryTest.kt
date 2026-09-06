@@ -32,4 +32,20 @@ class ArthasControlRegistryTest {
         assertEquals("输出", registry.output("task-1", 0).content)
         assertEquals(ArthasTaskState.CANCELLED, registry.cancel("task-1").state)
     }
+
+    @Test
+    fun `注册实现后转发补丁前备份字节码读取`() {
+        // 回归：Registry 必须转发 dumpClassBytes（曾漏转发导致 FR-19 自动备份生产恒降级）
+        val registry = ArthasControlRegistry()
+        val control = object : ArthasControl {
+            override fun submit(request: ArthasCommandRequest) = ArthasTaskSnapshot("task-1", ArthasTaskState.QUEUED, "已提交")
+            override fun status(taskId: String) = ArthasTaskSnapshot(taskId, ArthasTaskState.RUNNING, "执行中")
+            override fun output(taskId: String, offset: Int) = ArthasTaskOutput(taskId, "输出", 2, false)
+            override fun cancel(taskId: String) = ArthasTaskSnapshot(taskId, ArthasTaskState.CANCELLED, "已取消")
+            override fun dumpClassBytes(className: String): ByteArray? = byteArrayOf(1, 2, 3)
+        }
+        registry.register(control)
+
+        assertEquals(3, registry.dumpClassBytes("com.example.Foo")?.size)
+    }
 }

@@ -132,9 +132,9 @@ class PrePatchBackupToolProvider(
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         val backupName = arguments?.getString("backupName")?.trim()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("备份恢复缺少 backupName 参数")
-        // 先经工作区白名单校验名称（防路径注入），再校验前缀，最后校验存在性。
-        val source = workspace.outputPath(backupName)
+        // 先校验前缀（最小特权），再经工作区白名单校验名称（防路径注入），最后校验存在性。
         require(backupName.startsWith(BACKUP_PREFIX)) { "backupName 必须以 backup_ 前缀开头" }
+        val source = workspace.outputPath(backupName)
         require(Files.isRegularFile(source)) { "备份工件不存在：$backupName" }
         val targetName = "restored_" + backupName
         writeBinary(workspace, targetName, Files.readAllBytes(source))

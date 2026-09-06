@@ -18,12 +18,15 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @Service
 class GcJfrToolProvider(
-    private val arthasControl: ArthasControl = ArthasControlRegistry(),
-    private val workspaceRegistry: McpArtifactWorkspaceRegistry? = null,
+    private val testArthasControl: ArthasControl? = null,
+    private val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null,
 ) : McpToolProvider {
 
     @Inject
-    lateinit var injectedWorkspaceRegistry: McpArtifactWorkspaceRegistry
+    lateinit var arthasControlRegistry: ArthasControl
+
+    @Inject
+    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
 
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
@@ -103,12 +106,14 @@ class GcJfrToolProvider(
                 ?: "jfr-${System.currentTimeMillis()}.jfr"
             "jfr stop --filename '${arthasPath(workspace.outputPath(name))}'"
         }
-        return taskSnapshot(arthasControl.submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
+        return taskSnapshot(arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
     }
 
+    private fun arthas(): ArthasControl = testArthasControl ?: arthasControlRegistry
+
     private fun currentWorkspace(): McpArtifactWorkspace? {
-        workspaceRegistry?.let { return it.current() }
-        return runCatching { injectedWorkspaceRegistry.current() }.getOrNull()
+        testWorkspaceRegistry?.let { return it.current() }
+        return runCatching { workspaceRegistry.current() }.getOrNull()
     }
 
     private fun taskSnapshot(snapshot: ArthasTaskSnapshot): Map<String, Any?> =

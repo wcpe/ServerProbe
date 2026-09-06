@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.mcp
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -42,6 +43,22 @@ class PluginScopedMcpToolProviderTest {
         val registry = PluginClassLoaderRegistry()
         registry.register(name, URLClassLoader(arrayOf<URL>(), javaClass.classLoader))
         return registry
+    }
+
+    @Test
+    fun `默认线程采样源保留真实栈帧供归属过滤`() {
+        // 回归：threadSource 默认实现必须保留 StackTraceElement（含 className），
+        // 否则 plugin_threads 生产环境恒 0 命中（曾误置 stack=emptyList()）。
+        val registry = loaderFor("TestPlugin")
+        // 不经 provider() 工厂（它会覆盖 threadSource），直接构造验证默认实现
+        val provider = PluginScopedMcpToolProvider().apply {
+            classLoaderRegistry = registry
+        }
+        val samples = provider.threadSource()
+        assertTrue(samples.isNotEmpty(), "默认线程采样应返回真实 JVM 线程")
+        val withStack = samples.firstOrNull { it.stack.isNotEmpty() }
+        assertNotNull(withStack, "至少一个线程应有非空栈帧")
+        assertTrue(withStack!!.stack.all { it.className.isNotBlank() }, "栈帧应保留 className")
     }
 
     @Test

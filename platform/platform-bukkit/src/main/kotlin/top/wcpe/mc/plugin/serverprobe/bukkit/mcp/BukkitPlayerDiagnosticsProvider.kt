@@ -54,12 +54,27 @@ class BukkitPlayerDiagnosticsProvider : PlayerDiagnosticsProvider, Listener {
         task = submit(period = 600L, async = false) {
             runCatching { refresh() }.onFailure { ProbeLogger.error("玩家诊断缓存刷新失败", it) }
         }
-        // 事件监听：经 Bukkit 注册（需插件实例）
-        runCatching {
+        // 事件监听：经 Bukkit 注册（需插件实例）；@PostConstruct 可能早于插件 enable，
+        // 失败则延迟重试（最多 RETRY_TIMES 次），避免 recentActivity 永久缺失。
+        registerListenerWithRetry()
+        ProbeLogger.info("玩家诊断提供者已注册")
+    }
+
+    /** 注册玩家事件监听；插件实例未就绪时按 20 tick 间隔重试。 */
+    private fun registerListenerWithRetry(attempt: Int = 0) {
+        val ok = runCatching {
             val plugin = requireNotNull(Bukkit.getPluginManager().getPlugin(PLUGIN_NAME)) { "未找到 ServerProbe 插件实例" }
             Bukkit.getPluginManager().registerEvents(this, plugin)
-        }.onFailure { ProbeLogger.warn("玩家诊断事件监听注册失败：${it.javaClass.simpleName}") }
-        ProbeLogger.info("玩家诊断提供者已注册")
+            true
+        }.getOrDefault(false)
+        if (ok) return
+        if (attempt < MAX_LISTENER_RETRY) {
+            submit(delay = LISTENER_RETRY_DELAY_TICKS, async = false) {
+                registerListenerWithRetry(attempt + 1)
+            }
+        } else {
+            ProbeLogger.warn("玩家诊断事件监听注册失败（已重试 ${MAX_LISTENER_RETRY} 次），recentActivity 将不可用")
+        }
     }
 
     @PreDestroy
@@ -147,5 +162,9 @@ class BukkitPlayerDiagnosticsProvider : PlayerDiagnosticsProvider, Listener {
         const val CACHE_PLAYER_LIMIT = 200
         const val MAX_ACTIVITY = 20
         const val PLUGIN_NAME = "ServerProbe"
+        /** 事件监听注册重试上限（20 tick 间隔）。 */
+        const val MAX_LISTENER_RETRY = 10
+        /** 事件监听注册重试间隔（tick；20 tick = 1 秒）。 */
+        const val LISTENER_RETRY_DELAY_TICKS = 20L
     }
 }

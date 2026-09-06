@@ -35,7 +35,7 @@ class ArthasDiagnosticsLifecycle {
         agentJar = ServerProbeAgentJarLocator.locate(javaClass)
         instrumentation = agentJar?.let(instrumentationAccess!!::acquire) ?: unavailableAgentJar()
         val runner = ArthasMemoryShellRunner(extraction.directory) { instrumentation.instrumentation }
-        ArthasTaskManager(runner, taskSettings()).also(::register)
+        register(runner)
     }
 
     @PreDestroy fun stop() {
@@ -44,7 +44,12 @@ class ArthasDiagnosticsLifecycle {
         tasks = null
     }
 
-    private fun register(manager: ArthasTaskManager) {
+    private fun register(runner: ArthasMemoryShellRunner) {
+        val manager = ArthasTaskManager(
+            runner,
+            taskSettings(),
+            bytecodeReader = runner::dumpClassBytes,
+        )
         tasks = manager
         RetryingArthasControl(manager, ::retryAttach).also { current -> control = current; registry.register(current) }
     }

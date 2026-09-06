@@ -215,7 +215,8 @@ class PrePatchBackupToolProviderTest {
         val traversal = assertThrows(IllegalArgumentException::class.java) {
             p.call("artifact_backup_restore", arguments("backupName" to "../x.class"))
         }
-        assertTrue(traversal.message!!.contains("工件名称"))
+        // 前缀校验先于白名单（最小特权）：非 backup_ 前缀直接拒绝
+        assertTrue(traversal.message!!.contains("backup_"))
 
         val missing = assertThrows(IllegalArgumentException::class.java) {
             p.call("artifact_backup_restore", arguments("backupName" to "backup_missing.class"))

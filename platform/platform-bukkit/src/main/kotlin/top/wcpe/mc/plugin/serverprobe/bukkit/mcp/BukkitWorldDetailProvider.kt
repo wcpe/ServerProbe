@@ -46,7 +46,8 @@ class BukkitWorldDetailProvider : WorldDetailProvider {
         }
         return runCatching {
             val regionByWorld = if (Folia.isFolia) {
-                foliaObservedRegionService.snapshot().regions.groupBy { it.worldName }
+                // @Inject(required=false)：Bean 缺席（非 Bukkit 或服务降级）时跳过 region 明细，避免 NPE 全量降级
+                foliaObservedRegionService?.snapshot()?.regions?.groupBy { it.worldName } ?: emptyMap()
             } else {
                 emptyMap()
             }
