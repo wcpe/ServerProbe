@@ -262,6 +262,11 @@ class NativeMcpToolProvider(
             "maxBytes" to mapOf("type" to "integer", "description" to "本分片最大字节，默认 64 KiB，上限 1 MiB"),
         )
         private val ARTIFACT_NAME_SCHEMA = mapOf("name" to mapOf("type" to "string", "description" to "工件名", "required" to true))
+
+        /** 异步任务类工具的通用输出字段描述（taskId/state/message 三元组，多处复用消除复制粘贴）。 */
+        private val TASK_OUTPUT_FIELDS: Map<String, String> = mapOf(
+            "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
+        )
         private val TOOLS = listOf(
             McpTool(SERVER_STATUS, "读取当前服务器与 JVM 状态", usageExample = "{}",
                 workflow = "同步调用",
@@ -291,9 +296,7 @@ class NativeMcpToolProvider(
                 "taskId" to "任务 ID", "state" to "QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED/TIMED_OUT", "message" to "状态说明",
             )),
             McpTool(ARTHAS_TASK_STATUS, "读取 Arthas 任务状态", TASK_ID_SCHEMA, workflow = "同步调用",
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_TASK_OUTPUT, "读取 Arthas 任务输出分片", TASK_OUTPUT_SCHEMA, 
                 usageExample = "{\"taskId\":\"<taskId>\",\"offset\":0}", workflow = "同步调用，按 offset 分页",
                 outputFields = mapOf(
@@ -331,52 +334,32 @@ class NativeMcpToolProvider(
             )),
             McpTool(ARTHAS_WATCH, "异步观察指定方法", ARTHAS_METHOD_SCHEMA, 
                 usageExample = "{\"className\":\"<类名>\",\"methodName\":\"<方法名>\"}", workflow = METHOD_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_TRACE, "异步追踪指定方法", ARTHAS_METHOD_SCHEMA, 
                 usageExample = "{\"className\":\"<类名>\",\"methodName\":\"<方法名>\",\"maxMatches\":1}", workflow = METHOD_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_STACK, "异步查看指定方法调用栈", ARTHAS_METHOD_SCHEMA, workflow = METHOD_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_MONITOR, "异步统计指定方法", ARTHAS_METHOD_SCHEMA, workflow = METHOD_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_TT, "异步记录指定方法时间隧道", ARTHAS_TT_SCHEMA, workflow = METHOD_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_OGNL, "异步执行 JVM 内 OGNL", ARTHAS_EXPRESSION_SCHEMA, 
                 usageExample = "{\"expression\":\"@java.lang.System@getProperty('java.version')\"}",
                 workflow = ASYNC_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_PROFILER, "异步执行 Arthas 性能采样器", ARTHAS_PROFILER_SCHEMA, 
                 usageExample = "{\"action\":\"start\"}", workflow = "异步：start → 触发负载 → stop（产物写工作区）→ artifact_read_binary 取回；必须先 stop 再读取",
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_RETRANSFORM, "异步重转换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA, 
                 usageExample = "{\"artifactName\":\"<工件名>\"}", workflow = BACKUP_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_REDEFINE, "异步替换工作区内的类字节码", ARTHAS_ARTIFACT_SCHEMA, 
                 usageExample = "{\"artifactName\":\"<工件名>\"}", workflow = BACKUP_WORKFLOW,
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
             McpTool(ARTHAS_REVERT, "按重转换条目编号恢复类字节码", ARTHAS_REVERT_SCHEMA, 
                 usageExample = "{\"entryId\":1}", workflow = "异步：task_status 轮询",
-                outputFields = mapOf(
-                "taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明",
-            )),
+                outputFields = TASK_OUTPUT_FIELDS),
         )
         private const val ASYNC_WORKFLOW = "异步：返回 taskId → arthas_task_status 轮询 → arthas_task_output 分片读 → 完成后可选 arthas_task_cancel"
         private const val METHOD_WORKFLOW = "异步：先调用再触发目标方法，然后 task_status 轮询 → task_output 分片读"
