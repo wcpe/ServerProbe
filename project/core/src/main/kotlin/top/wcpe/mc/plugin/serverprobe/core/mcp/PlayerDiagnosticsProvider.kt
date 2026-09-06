@@ -80,8 +80,11 @@ class PlayerDiagnosticsToolProvider : McpToolProvider {
     private fun playerLookup(arguments: JsonObject?): Map<String, Any?> {
         val name = arguments?.getString("name")?.trim()?.takeIf(String::isNotBlank)
         val uuidRaw = arguments?.getString("uuid")?.trim()?.takeIf(String::isNotBlank)
-        val uuid = uuidRaw?.let { runCatching { UUID.fromString(it) }.getOrNull()
-            ?: throw IllegalArgumentException("uuid 必须是合法 UUID 格式") }
+        // 前置格式校验（标准 36 字符含连字符），再严格解析；避免 UUID.fromString 对非标准格式的宽容解析
+        val uuid = uuidRaw?.let { raw ->
+            require(UUID_PATTERN.matches(raw)) { "uuid 必须是合法 UUID 格式" }
+            UUID.fromString(raw)
+        }
         if (name == null && uuid == null) require(false) { "玩家查询至少需要 name 或 uuid" }
         val request = PlayerLookupRequest(name, uuid)
         val result = provider?.lookup(request)
@@ -108,6 +111,8 @@ class PlayerDiagnosticsToolProvider : McpToolProvider {
 
     private companion object {
         const val PLAYER_LOOKUP = "player_lookup"
+        /** 标准 UUID 格式：8-4-4-4-12 十六进制含连字符。 */
+        val UUID_PATTERN = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         val TOOLS = listOf(
             McpTool(PLAYER_LOOKUP, "按玩家名或 UUID 查询在线玩家诊断明细（位置/状态/背包摘要/区块/最近事件；隐私数据仅单次返回不落盘）",
                 mapOf(

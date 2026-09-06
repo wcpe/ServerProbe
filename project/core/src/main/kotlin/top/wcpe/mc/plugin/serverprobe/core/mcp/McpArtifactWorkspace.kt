@@ -22,7 +22,7 @@ data class McpArtifact(val name: String, val size: Long, val modifiedAtMillis: L
 data class McpArtifactChunk(val content: String, val nextOffset: Long, val truncated: Boolean)
 
 /** 有界二进制工件读取分片（FR-18）。 */
-data class McpBinaryChunk(val content: ByteArray, val nextOffset: Long, val truncated: Boolean)
+data class ChunkReadResult(val content: ByteArray, val nextOffset: Long, val truncated: Boolean)
 
 /** 仅允许固定文件名的本地 MCP 工件目录，拒绝任意路径穿越。 */
 class McpArtifactWorkspace(
@@ -68,13 +68,13 @@ class McpArtifactWorkspace(
      * 1 MiB 以内、以读取时文件大小为快照判定是否截断。
      */
     @Synchronized
-    fun readBinaryChunk(name: String, offset: Long, maxBytes: Int): McpBinaryChunk {
+    fun readBinaryChunk(name: String, offset: Long, maxBytes: Int): ChunkReadResult {
         val read = readBytes(name, offset, maxBytes)
-        return McpBinaryChunk(read.content, read.nextOffset, read.truncated)
+        return ChunkReadResult(read.content, read.nextOffset, read.truncated)
     }
 
     /** 文本与二进制读取共用的有界定位读取；偏移越界裁剪、上限 1 MiB、整块读满判定截断。 */
-    private fun readBytes(name: String, offset: Long, maxBytes: Int): McpBinaryChunk {
+    private fun readBytes(name: String, offset: Long, maxBytes: Int): ChunkReadResult {
         val file = resolve(name)
         require(Files.isRegularFile(file)) { "工件不存在" }
         val size = Files.size(file)
@@ -87,13 +87,20 @@ class McpArtifactWorkspace(
         }.coerceAtLeast(0)
         val next = safeOffset + count
         val content = if (count == limit) buffer else buffer.copyOf(count)
-        return McpBinaryChunk(content, next, next < size)
+        return ChunkReadResult(content, next, next < size)
     }
 
     @Synchronized
     fun list(): List<McpArtifact> = Files.list(directory).use { paths ->
         paths.filter { Files.isRegularFile(it) }.map(::metadata)
             .sorted(Comparator.comparing(McpArtifact::name)).collect(Collectors.toList())
+    }
+
+    /** 返回单个工件的元数据；不存在返回 null（避免分片读取时全量列目录的 O(n) 开销）。 */
+    @Synchronized
+    fun metadata(name: String): McpArtifact? {
+        val file = resolve(name)
+        return if (Files.isRegularFile(file)) metadata(file) else null
     }
 
     @Synchronized

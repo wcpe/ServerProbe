@@ -216,45 +216,52 @@ class NativeMcpToolProvider(
             "command" to mapOf(
                 "type" to "string",
                 "description" to "要执行的控制台命令，不要带斜杠",
+                "required" to true,
             ),
         )
-        private val ARTHAS_COMMAND_SCHEMA = mapOf("command" to mapOf("type" to "string"), "timeoutMillis" to mapOf("type" to "integer"))
+        private val ARTHAS_COMMAND_SCHEMA = mapOf(
+            "command" to mapOf("type" to "string", "required" to true),
+            "timeoutMillis" to mapOf("type" to "integer"),
+        )
         private val ARTHAS_METHOD_SCHEMA = mapOf(
-            "className" to mapOf("type" to "string"), "methodName" to mapOf("type" to "string"),
+            "className" to mapOf("type" to "string", "required" to true), "methodName" to mapOf("type" to "string", "required" to true),
             "expression" to mapOf("type" to "string"), "maxMatches" to mapOf("type" to "integer"),
             "timeoutMillis" to mapOf("type" to "integer"),
         )
         private val ARTHAS_TT_SCHEMA = mapOf(
-            "className" to mapOf("type" to "string"), "methodName" to mapOf("type" to "string"),
+            "className" to mapOf("type" to "string", "required" to true), "methodName" to mapOf("type" to "string", "required" to true),
             "timeoutMillis" to mapOf("type" to "integer"),
         )
         private val ARTHAS_EXPRESSION_SCHEMA = mapOf(
-            "expression" to mapOf("type" to "string"),
+            "expression" to mapOf("type" to "string", "required" to true),
             "timeoutMillis" to mapOf("type" to "integer"),
         )
         private val ARTHAS_PROFILER_SCHEMA = mapOf(
-            "action" to mapOf("type" to "string"),
+            "action" to mapOf("type" to "string", "required" to true),
             "artifactName" to mapOf("type" to "string"),
             "timeoutMillis" to mapOf("type" to "integer"),
         )
         private val ARTHAS_ARTIFACT_SCHEMA = mapOf(
-            "artifactName" to mapOf("type" to "string"),
+            "artifactName" to mapOf("type" to "string", "required" to true),
             "timeoutMillis" to mapOf("type" to "integer"),
         )
-        private val ARTHAS_REVERT_SCHEMA = mapOf("entryId" to mapOf("type" to "integer"), "timeoutMillis" to mapOf("type" to "integer"))
-        private val TASK_ID_SCHEMA = mapOf("taskId" to mapOf("type" to "string"))
+        private val ARTHAS_REVERT_SCHEMA = mapOf(
+            "entryId" to mapOf("type" to "integer", "required" to true),
+            "timeoutMillis" to mapOf("type" to "integer"),
+        )
+        private val TASK_ID_SCHEMA = mapOf("taskId" to mapOf("type" to "string", "required" to true))
         private val TASK_OUTPUT_SCHEMA = TASK_ID_SCHEMA + ("offset" to mapOf("type" to "integer"))
         private val ARTIFACT_WRITE_SCHEMA = mapOf(
-            "name" to mapOf("type" to "string", "description" to "工件名（仅字母数字点下划线连字符）"),
-            "content" to mapOf("type" to "string", "description" to "文本内容"),
+            "name" to mapOf("type" to "string", "description" to "工件名（仅字母数字点下划线连字符）", "required" to true),
+            "content" to mapOf("type" to "string", "description" to "文本内容", "required" to true),
             "append" to mapOf("type" to "boolean", "description" to "是否追加"),
         )
         private val ARTIFACT_READ_SCHEMA = mapOf(
-            "name" to mapOf("type" to "string", "description" to "工件名"),
+            "name" to mapOf("type" to "string", "description" to "工件名", "required" to true),
             "offset" to mapOf("type" to "integer", "description" to "字节偏移，默认 0"),
             "maxBytes" to mapOf("type" to "integer", "description" to "本分片最大字节，默认 64 KiB，上限 1 MiB"),
         )
-        private val ARTIFACT_NAME_SCHEMA = mapOf("name" to mapOf("type" to "string", "description" to "工件名"))
+        private val ARTIFACT_NAME_SCHEMA = mapOf("name" to mapOf("type" to "string", "description" to "工件名", "required" to true))
         private val TOOLS = listOf(
             McpTool(SERVER_STATUS, "读取当前服务器与 JVM 状态", usageExample = "{}",
                 workflow = "同步调用",

@@ -17,7 +17,16 @@ object ToolDescriptionBuilder {
         appendExample(builder, tool)
         appendWorkflow(builder, tool)
         appendOutput(builder, tool)
-        return builder.toString().take(MAX_DESCRIPTION_CHARS)
+        // 按码点截断，避免切断 UTF-16 代理对（补充平面字符）导致孤立代理项
+        return truncateByCodePoint(builder.toString(), MAX_DESCRIPTION_CHARS)
+    }
+
+    /** 按 Unicode 码点截断到上限字符数，保证不产生孤立代理项。 */
+    private fun truncateByCodePoint(text: String, maxChars: Int): String {
+        if (text.length <= maxChars) return text
+        return text.codePoints().limit(maxChars.toLong()).toArray().let { codepoints ->
+            String(codepoints, 0, codepoints.size)
+        }
     }
 
     private fun appendParameters(builder: StringBuilder, tool: McpTool) {

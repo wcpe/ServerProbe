@@ -216,7 +216,8 @@ class ArthasMemoryShellRunner(
             // AsyncProfiler 从 System 属性 one.profiler.libraryPath 定位原生库（ArthasEnvironment 不写系统属性），
             // 必须在 Bootstrap 初始化前显式设置，否则 profiler 命令报 "Can not find libasyncProfiler so"。
             runCatching {
-                System.setProperty("one.profiler.libraryPath", runtimeDirectory.resolve("libasyncProfiler.so").toString())
+                val library = runtimeDirectory.resolve(ArthasModernBootstrapSettings.asyncProfilerLibraryName()).toString()
+                System.setProperty("one.profiler.libraryPath", library)
             }
             val type = loader.loadClass("com.taobao.arthas.core.server.ArthasBootstrap")
             // 4 系 Bootstrap 会统一初始化命令依赖；端口与 MCP endpoint 均显式禁用，不对外监听。
@@ -391,9 +392,15 @@ internal object ArthasModernBootstrapSettings {
         "arthas.httpPort" to "-1",
         "arthas.mcpEndpoint" to "",
         // AsyncProfiler 按 one.profiler.libraryPath 定位原生库；内存 Shell 模式无 arthas 目录部署，
-        // 显式指向闭包内的无后缀 libasyncProfiler.so（profiler 命令依赖，FR-21）。
-        "one.profiler.libraryPath" to runtimeDirectory.resolve("libasyncProfiler.so").toString(),
+        // 显式指向闭包内当前平台的库文件（profiler 命令依赖，FR-21）。
+        "one.profiler.libraryPath" to runtimeDirectory.resolve(asyncProfilerLibraryName()).toString(),
     )
+
+    /** 当前 JVM 平台的 async-profiler 原生库文件名（Linux 用无后缀 .so，Mac 用 .dylib 原名）。 */
+    fun asyncProfilerLibraryName(): String {
+        val os = System.getProperty("os.name").lowercase()
+        return if (os.contains("mac")) "libasyncProfiler-mac.dylib" else "libasyncProfiler.so"
+    }
 }
 
 /** 仅携带固定执行阶段，不保留用户命令原文。 */

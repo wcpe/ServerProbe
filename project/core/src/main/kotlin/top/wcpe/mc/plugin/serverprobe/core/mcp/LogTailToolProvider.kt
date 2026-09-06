@@ -61,6 +61,8 @@ class LogTailToolProvider(
                 "file" to scanner.path.toString(),
                 "lines" to result.lines.map { linkedMapOf("lineNumber" to it.lineNumber, "text" to it.text) },
                 "truncated" to result.truncated,
+                // 大日志（>64MiB）无法精确统计起点前换行数时，行号从窗口起点重计，非文件真实行号
+                "lineNumbersExact" to result.lineNumbersExact,
             )
         }
     }
@@ -170,7 +172,7 @@ internal class LogScanner(
             window
         }
         val filtered = if (keyword == null) tail else tail.filter { it.text.contains(keyword, ignoreCase = true) }
-        return TailResult(filtered, truncated)
+        return TailResult(filtered, truncated, lineStart.exact)
     }
 
     /** 自 [sinceOffset] 起扫描至当前文件大小，收集命中行；游标按读取时快照推进。 */
@@ -213,7 +215,8 @@ internal class LogScanner(
         }
         if (length == 0 && raf.filePointer == start) return null
         if (newline) length = dropCr(buffer, length)
-        val truncated = length >= MAX_LINE_BYTES
+        // 恰好读满 8KiB 时探测下一字节：仍有内容才算截断（文件末行恰好 8192 字节无换行是合法情形）
+        val truncated = length >= MAX_LINE_BYTES && raf.filePointer < raf.length()
         if (truncated) skipToEol()
         return Line(String(buffer, 0, length, charset), truncated)
     }
@@ -289,17 +292,12 @@ internal class LogScanner(
 /** 一行日志的读取结果。 */
 internal data class Line(val text: String, val truncated: Boolean)
 
-/** 扫描起点的行号信息：lineNumber 为起点后的首行行号；exact 为 false 表示行号非精确（从起点重计）。 */
 internal data class LineStart(val lineNumber: Long, val exact: Boolean)
 
-/** tail 结果：命中行 + 是否截断。 */
-internal data class TailResult(val lines: List<TailLine>, val truncated: Boolean)
+internal data class TailResult(val lines: List<TailLine>, val truncated: Boolean, val lineNumbersExact: Boolean)
 
-/** 尾行：相对文件头的行号（从 1 起）+ 行文本。 */
 internal data class TailLine(val lineNumber: Long, val text: String)
 
-/** search 结果：命中行 + 下一页字节偏移 + 是否截断。 */
 internal data class SearchResult(val hits: List<HitLine>, val nextOffset: Long, val truncated: Boolean)
 
-/** 命中行：行首字节偏移 + 行文本。 */
 internal data class HitLine(val offset: Long, val text: String)

@@ -163,7 +163,8 @@ class PrePatchBackupToolProvider(
         const val ARTHAS_REDEFINE = "arthas_redefine"
         const val ARTHAS_RETRANSFORM = "arthas_retransform"
         const val BACKUP_PREFIX = "backup_"
-        val CLASS_NAME = Regex("[A-Za-z_$][A-Za-z0-9_$.]*")
+        // Java 标识符规则：段间单点分隔、段内合法标识符（禁止连续点/开头点/结尾点）
+        val CLASS_NAME = Regex("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*")
         const val DEFAULT_TIMEOUT_MILLIS = 30 * 60 * 1_000L
         val TOOLS = listOf(
             McpTool(

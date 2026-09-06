@@ -59,7 +59,8 @@ class BinaryArtifactToolProvider(
         return linkedMapOf(
             "name" to name,
             "contentBase64" to Base64.getEncoder().encodeToString(chunk.content),
-            "size" to (workspace.list().firstOrNull { it.name == name }?.size ?: 0L),
+            // 单文件元数据（避免每分片全量列目录的 O(n) 开销）
+            "size" to (workspace.metadata(name)?.size ?: 0L),
             "nextOffset" to chunk.nextOffset,
             "truncated" to chunk.truncated,
         )

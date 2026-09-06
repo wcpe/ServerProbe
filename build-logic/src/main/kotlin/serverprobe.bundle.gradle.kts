@@ -18,6 +18,13 @@ plugins {
 
 fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
     val jarNames = listOf("arthas-core.jar", "arthas-boot.jar", "arthas-agent.jar", "arthas-spy.jar")
+    // async-profiler 原生库（仅 4.x 含）：Arthas 运行期按 `libasyncProfiler.so` 查找，
+    // 官方包内为平台后缀命名，提取时统一改名为 Arthas 期望的文件名。
+    val asyncProfilerLibraries = listOf(
+        "async-profiler/libasyncProfiler-linux-x64.so" to "libasyncProfiler-linux-x64.so",
+        "async-profiler/libasyncProfiler-linux-arm64.so" to "libasyncProfiler-linux-arm64.so",
+        "async-profiler/libasyncProfiler-mac.dylib" to "libasyncProfiler-mac.dylib",
+    )
     ZipFile(archive).use { packaging ->
         jarNames.forEach { name ->
             val entry = packaging.getEntry(name) ?: error("官方 Arthas 发行包缺少：$name")
@@ -25,13 +32,7 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
                 Files.copy(input, output.toPath().resolve(name))
             }
         }
-        // async-profiler 原生库（仅 4.x 含）：Arthas 运行期按 `libasyncProfiler.so` 查找，
-        // 官方包内为平台后缀命名，提取时统一改名为 Arthas 期望的文件名。
-        listOf(
-            "async-profiler/libasyncProfiler-linux-x64.so" to "libasyncProfiler-linux-x64.so",
-            "async-profiler/libasyncProfiler-linux-arm64.so" to "libasyncProfiler-linux-arm64.so",
-            "async-profiler/libasyncProfiler-mac.dylib" to "libasyncProfiler-mac.dylib",
-        ).forEach { (source, target) ->
+        asyncProfilerLibraries.forEach { (source, target) ->
             packaging.getEntry(source)?.let { entry ->
                 packaging.getInputStream(entry).use { input ->
                     Files.copy(input, output.toPath().resolve(target))
@@ -47,7 +48,9 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
             }
         }
     }
-    val manifest = jarNames.joinToString("\n") { name -> "$name=${sha256(output.toPath().resolve(name))}" }
+    // checksum manifest：4 个 jar + 实际提取到的原生库（存在才写；3.1.1 无原生库则跳过）
+    val checksummed = jarNames + asyncProfilerLibraries.map { it.second }.filter { Files.isRegularFile(output.toPath().resolve(it)) }
+    val manifest = checksummed.joinToString("\n") { name -> "$name=${sha256(output.toPath().resolve(name))}" }
     output.resolve("sha256.properties").writeText(manifest + "\n")
 }
 

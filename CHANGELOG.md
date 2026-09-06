@@ -55,6 +55,21 @@
 - **真机暴露 M-3 修复缺陷并纠正**：`BukkitPluginMetadataProvider` 兜底注册同名工具面会按 IOC 注册序覆盖 core 的 `PluginScopedMcpToolProvider` 路由，导致 `plugin_*` 全部路由到降级实现（"插件维度诊断工具未就绪"）。修复：本类**不再实现 `McpToolProvider`、不注册工具面**（工具面由 core 统一提供），契约测试同步更新。
 - **技术债：抽取 `McpExtensionToolBase` 基类**：统一 `currentWorkspace`/`arthas()`/`taskSnapshot`/`timeoutMillis`/`arthasPath` 五件套，消除 `BinaryArtifactToolProvider`/`GcJfrToolProvider`/`FlamegraphToolProvider`/`PrePatchBackupToolProvider` 四处的复制粘贴；`PrePatchBackupToolProvider.timeoutMillis` 保留 30 秒收紧上限（override 基类）。
 
+### 技术债清理（安全/边界/可维护性/性能）
+
+- **F5 `.so` 入 checksum manifest**：构建脚本把 3 平台 async-profiler 原生库纳入 `sha256.properties`（存在才写，3.1.1 无则跳过）；运行期 `isVerified`/`copyResources` 对 .so 做哈希校验（旧闭包无哈希键时存在性兜底），堵住原生库被替换的供应链攻击面。
+- **F1 Mac 平台 dylib 扩展名修复**：Mac 不再生成 `libasyncProfiler.so` 无后缀副本（`.so` 后缀的 Mach-O 无法被 Darwin 加载器识别）；`one.profiler.libraryPath` 按平台选库名（Mac 用 `.dylib` 原名），`isVerified` 同步按平台校验。
+- **F-06 log_tail 行号脱节提示**：大日志（>64MiB）无法精确统计起点前换行数时，`TailResult` 新增 `lineNumbersExact` 字段透传，工具响应带 `lineNumbersExact:false` 提示行号从窗口重计。
+- **F-07 8KiB 恰好行误标截断修复**：`readLine` 读满 8KiB 后探测下一字节，仍有内容才算截断（文件末行恰好 8192 字节无换行不再误标）。
+- **F-11 flamegraph_stop 扩展名校验**：显式命名必须 `.html`/`.jfr`，避免产物无法经 view 取回。
+- **F-12 CLASS_NAME 正则收紧**：按 Java 标识符规则（段间单点、禁止连续点/开头点/结尾点）。
+- **F-14 uuid 解析规范化**：前置标准格式校验（8-4-4-4-12 正则）再 `UUID.fromString`，替换晦涩的 `runCatching{}.getOrNull() ?: throw`。
+- **m-10 inputSchema 补 required**：Native 工具的关键参数（command/className/methodName/name/artifactName/taskId/action/expression/entryId）标注必填，工具描述显示"必填"。
+- **m-9 描述截断按码点**：`ToolDescriptionBuilder` 截断改用 `codePoints().limit()`，避免切断 UTF-16 代理对产生孤立代理项。
+- **m-4 `McpBinaryChunk` 重命名 `ChunkReadResult`**：内部读取结果类型不再带 "Binary" 误导（文本/二进制共用）。
+- **m-5 分片读取免全量列目录**：`McpArtifactWorkspace.metadata(name)` 单文件元数据，`artifact_read_binary` 分片不再 `list().firstOrNull` O(n)。
+- **m-8 注册表保注册序**：`McpToolProviderRegistry` 改同步 `LinkedHashMap`，同名工具覆盖/去重的路由归属确定（不再依赖 CHM 随机迭代序）。
+
 ## [0.3.0] - 2026-09-05
 
 ### 新增

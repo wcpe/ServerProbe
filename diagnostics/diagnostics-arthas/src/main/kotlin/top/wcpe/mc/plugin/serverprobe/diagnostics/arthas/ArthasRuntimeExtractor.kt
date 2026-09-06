@@ -133,16 +133,26 @@ class ArthasRuntimeExtractor(
             Files.isRegularFile(file) && sha256(file) == expected[name]
         }
         if (!jarsOk) return false
-        // 原生库按文件存在性校验（构建期未入 checksum manifest；4.x 闭包必须含 Linux x64 库与两处加载布局）
+        // 原生库：manifest 含哈希则校验哈希（供应链完整性）；旧闭包无哈希键则仅存在性兜底
         val version = target.fileName.toString()
         val libraries = ArthasRuntimeLayout.requiredLibraries(version)
         if (libraries.isEmpty()) return true
+        val librariesOk = libraries.all { name ->
+            val file = target.resolve(name)
+            if (!Files.isRegularFile(file)) return@all false
+            expected[name]?.let { sha256(file) == it } ?: true
+        }
+        if (!librariesOk) return false
         val platformName = platformLibraryName()
-            ?: return libraries.all { Files.isRegularFile(target.resolve(it)) }
+            ?: return true
         val asyncDirFile = target.resolve("async-profiler").resolve(platformName)
-        val plainFile = target.resolve("libasyncProfiler.so")
-        return libraries.all { Files.isRegularFile(target.resolve(it)) } &&
-            Files.isRegularFile(asyncDirFile) && Files.isRegularFile(plainFile)
+        // 无后缀 libasyncProfiler.so 仅 Linux 生成（Mac 的 .dylib 不能改名 .so，Darwin 无法加载）
+        val plainOk = if (platformName.endsWith(".so")) {
+            Files.isRegularFile(target.resolve("libasyncProfiler.so"))
+        } else {
+            true
+        }
+        return Files.isRegularFile(asyncDirFile) && plainOk
     }
 
     /** 当前 JVM 平台对应的闭包内 async-profiler 原生库文件名；无匹配返回 null。 */
@@ -163,18 +173,20 @@ class ArthasRuntimeExtractor(
             copyResourceAtomically(version, name, target.resolve(name), expected.getValue(name))
         }
         ArthasRuntimeLayout.requiredLibraries(version).forEach { name ->
-            copyResourceAtomically(version, name, target.resolve(name), null)
+            copyResourceAtomically(version, name, target.resolve(name), expected[name])
         }
         // Arthas ProfilerCommand 按闭包目录下 `async-profiler/<平台库>` 的相对布局查找（基于 core jar 的 codeSource 定位），
-        // 同时 AsyncProfiler.loadLibrary 按无后缀名 `libasyncProfiler.so` 从 one.profiler.libraryPath 加载：
-        // 两处都补齐，确保内存 Shell 模式下 profiler 命令可用。
+        // 同时 AsyncProfiler.loadLibrary 按 one.profiler.libraryPath 加载（Linux 用无后缀 libasyncProfiler.so；
+        // Mac 用 .dylib 原名——.so 后缀的 Mach-O 无法被 Darwin 加载器识别，故 Mac 不生成无后缀副本）。
         platformLibrary(target)?.let { platformFile ->
             val asyncDir = target.resolve("async-profiler")
             Files.createDirectories(asyncDir)
             Files.copy(platformFile, asyncDir.resolve(platformFile.fileName.toString()), StandardCopyOption.REPLACE_EXISTING)
-            val plain = target.resolve("libasyncProfiler.so")
-            if (!Files.isRegularFile(plain)) {
-                Files.copy(platformFile, plain, StandardCopyOption.REPLACE_EXISTING)
+            if (platformFile.fileName.toString().endsWith(".so")) {
+                val plain = target.resolve("libasyncProfiler.so")
+                if (!Files.isRegularFile(plain)) {
+                    Files.copy(platformFile, plain, StandardCopyOption.REPLACE_EXISTING)
+                }
             }
         }
         copyResourceAtomically(version, "LICENSE", target.resolve("LICENSE"), null)

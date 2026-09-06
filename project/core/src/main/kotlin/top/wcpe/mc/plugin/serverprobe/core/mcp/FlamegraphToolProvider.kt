@@ -72,6 +72,10 @@ class FlamegraphToolProvider(
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         val artifactName = arguments?.getString("artifactName")?.trim()?.takeIf(String::isNotBlank)
             ?: "flamegraph-${nowMillis()}.html"
+        // 显式命名必须为 .html/.jfr，避免产物无法经 flamegraph_view 取回
+        require(artifactName.endsWith(".html") || artifactName.endsWith(".jfr")) {
+            "flamegraph_stop 产物名必须以 .html 或 .jfr 结尾"
+        }
         val command = "profiler stop --file '${arthasPath(workspace.outputPath(artifactName))}'"
         val snapshot = arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments)))
         return if (snapshot.state == ArthasTaskState.FAILED) {
