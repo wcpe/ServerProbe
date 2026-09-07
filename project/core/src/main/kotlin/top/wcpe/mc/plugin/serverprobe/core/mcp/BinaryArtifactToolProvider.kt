@@ -29,6 +29,16 @@ class BinaryArtifactToolProvider(
 
     override val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = testWorkspaceRegistry
 
+    /** 生产工作区注册表（IOC 注入；基类抽象属性 getter 委托，规避父类字段不注入）。 */
+    @Inject
+    lateinit var injectedWorkspaceRegistry: McpArtifactWorkspaceRegistry
+
+    override val workspaceRegistry: McpArtifactWorkspaceRegistry get() = injectedWorkspaceRegistry
+
+    /** 本工具不调用 Arthas，仅满足基类抽象属性；不注入。 */
+    override val arthasControlRegistry: ArthasControl
+        get() = throw UnsupportedOperationException("BinaryArtifactToolProvider 不依赖 Arthas")
+
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
 

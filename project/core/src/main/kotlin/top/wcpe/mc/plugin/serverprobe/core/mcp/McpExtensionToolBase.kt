@@ -1,21 +1,23 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
-import top.wcpe.taboolib.ioc.annotation.Inject
 
 /**
  * MCP 扩展工具提供者的公共基类（技术债收敛，消除 4 个 provider 的复制粘贴）。
  *
- * 统一封装：工作区获取（构造参数测试注入优先、字段注入兜底）、Arthas 提交与快照、
- * 超时钳制、Windows 路径转正斜杠。
+ * 统一封装：工作区获取、Arthas 提交与快照、超时钳制、Windows 路径转正斜杠。
+ *
+ * **注入约定**：TabooLib IOC 不注入父类字段，故基类以抽象属性声明
+ * [workspaceRegistry]/[arthasControlRegistry]，由子类用 `@Inject lateinit var`
+ * 字段 + getter 委托实现（测试注入经 [testWorkspaceRegistry]/[testArthasControl] 优先）。
  */
 abstract class McpExtensionToolBase : McpToolProvider {
 
-    @Inject
-    lateinit var workspaceRegistry: McpArtifactWorkspaceRegistry
+    /** 生产工作区注册表（子类经 IOC 注入后 getter 委托）。 */
+    protected abstract val workspaceRegistry: McpArtifactWorkspaceRegistry
 
-    @Inject
-    lateinit var arthasControlRegistry: ArthasControl
+    /** 生产 Arthas 控制器（子类经 IOC 注入后 getter 委托）。 */
+    protected abstract val arthasControlRegistry: ArthasControl
 
     /** 测试注入用工作区（构造参数）；生产为 null 走字段注入。 */
     protected open val testWorkspaceRegistry: McpArtifactWorkspaceRegistry? = null

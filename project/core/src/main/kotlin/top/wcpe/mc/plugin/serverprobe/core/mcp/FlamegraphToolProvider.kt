@@ -36,6 +36,18 @@ class FlamegraphToolProvider(
     @Volatile
     var clockMillis: Long = 0L
 
+    /** 生产工作区注册表（IOC 注入；基类抽象属性 getter 委托）。 */
+    @Inject
+    lateinit var injectedWorkspaceRegistry: McpArtifactWorkspaceRegistry
+
+    override val workspaceRegistry: McpArtifactWorkspaceRegistry get() = injectedWorkspaceRegistry
+
+    /** 生产 Arthas 控制器（IOC 注入；基类抽象属性 getter 委托）。 */
+    @Inject
+    lateinit var injectedArthasControl: ArthasControl
+
+    override val arthasControlRegistry: ArthasControl get() = injectedArthasControl
+
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
 

@@ -69,6 +69,11 @@
 - **m-4 `McpBinaryChunk` 重命名 `ChunkReadResult`**：内部读取结果类型不再带 "Binary" 误导（文本/二进制共用）。
 - **m-5 分片读取免全量列目录**：`McpArtifactWorkspace.metadata(name)` 单文件元数据，`artifact_read_binary` 分片不再 `list().firstOrNull` O(n)。
 - **m-8 注册表保注册序**：`McpToolProviderRegistry` 改同步 `LinkedHashMap`，同名工具覆盖/去重的路由归属确定（不再依赖 CHM 随机迭代序）。
+- **m-7 抽取任务输出字段常量**：`TASK_OUTPUT_FIELDS` 消除 11 处 taskId/state/message 三元组复制粘贴（行为零变化）。
+- **m-13 server_status 截断提示**：新增 `worldsTruncated` 字段（worlds ≥ writer 的 256 上限时 true），`McpJsonWriter.MAX_ITEMS` 改 internal 供读取。
+- **真机回归发现并修复两个问题（WSL Paper）**：
+  - `BukkitLogPathProvider` 日志路径 lazy 固化 null + 无工作目录回退导致 `log_tail` 永久降级：改为**每次实时解析** + 回退进程工作目录绝对路径（服务器 chdir 到服务端根启动，与 `StartupLoadListener` 同源）。
+  - `McpExtensionToolBase` 父类 `@Inject` 字段不被 TabooLib IOC 注入，导致扩展 provider 生产 `lateinit` 未初始化：改为**子类各自注入 + 抽象属性 getter 委托**（`workspaceRegistry`/`arthasControlRegistry`）。
 
 ## [0.3.0] - 2026-09-05
 
