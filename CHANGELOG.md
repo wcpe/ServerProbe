@@ -5,11 +5,11 @@
 本文件格式遵循 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本(SemVer)](https://semver.org/lang/zh-CN/)。
 
-> 最新版本 **0.2.0(2026-08-24)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
+> 最新版本 **0.4.0(2026-09-07)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
 
 ---
 
-## [未发布] - 待版本
+## [0.4.0] - 2026-09-07
 
 ### 新增（FR-15~23 MCP 深度诊断能力扩展，同一分支并行开发）
 

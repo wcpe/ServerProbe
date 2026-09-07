@@ -7,7 +7,7 @@
 [![许可证](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-8%2B-red)](#兼容性与验收)
 
-当前正式版本：[v0.3.0](https://github.com/wcpe/ServerProbe/releases/tag/v0.3.0)。项目坚持只读采集与默认安全：可选增强默认关闭，失败时降级，不应影响服务器或其他插件启动。
+当前正式版本：[v0.4.0](https://github.com/wcpe/ServerProbe/releases/tag/v0.4.0)。项目坚持只读采集与默认安全：可选增强默认关闭，失败时降级，不应影响服务器或其他插件启动。
 
 ## 能做什么
 
@@ -23,7 +23,7 @@
 
 ## 快速开始
 
-1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载最新的 `ServerProbe-<版本>.jar`（当前 v0.3.0）。
+1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载最新的 `ServerProbe-<版本>.jar`（当前 v0.4.0）。
 2. 将 jar 放入服务端的 `plugins/` 目录（Velocity/BungeeCord 同样放入其插件目录）。
 3. 重启服务器。首次启动会生成 `plugins/ServerProbe/config.yml`。
 4. 在游戏内执行 `/probe health`，或按需启用 Prometheus 后访问 `/metrics`。

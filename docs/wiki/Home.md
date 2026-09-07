@@ -9,7 +9,7 @@ ServerProbe 是一个面向 Minecraft 服务器的**运维探针**，使用同�
 
 - 单 jar 多端运行，核心 Java 8 字节码
 - 只读采集、默认安全：可选增强默认关闭、失败时降级，不影响服务器或其他插件启动
-- 当前正式版本：**[v0.3.0](https://github.com/wcpe/ServerProbe/releases)**
+- 当前正式版本：**[v0.4.0](https://github.com/wcpe/ServerProbe/releases)**
 
 ## 文档导航
 
