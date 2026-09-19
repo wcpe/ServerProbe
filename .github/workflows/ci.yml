@@ -88,6 +88,60 @@ jobs:
       - name: 构建 + 单元测试 + detekt 静态检查
         run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
 
+  # 覆盖率统计：只产出报告、不设门槛(JaCoCo 已在 serverprobe.base 约定插件中统一应用)。
+  # 目的：先积累几个月的真实基线数据，再据此讨论阈值；避免凭空定一个数把 PR 卡住或催生凑数测试。
+  # 报告不挂进 build 链路，故单独跑并上传 artifact；本 job 失败不影响发版链路。
+  coverage:
+    name: 覆盖率统计(不设门槛)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 必须先跑测试产出 exec 数据，否则各模块的 jacocoTestReport 会因无数据被 SKIPPED
+      - name: 生成各模块覆盖率报告
+        run: ./gradlew test jacocoTestReport --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+
+      - name: 汇总覆盖率概览
+        run: |
+          # 从各模块 XML 报告提取行/分支覆盖率，作为 PR 可读的基线数字（不用于判定通过与否）
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          line_c = line_m = br_c = br_m = 0
+          for path in sorted(glob.glob('*/build/reports/jacoco/test/jacocoTestReport.xml') +
+                             glob.glob('*/*/build/reports/jacoco/test/jacocoTestReport.xml')):
+              root = ET.parse(path).getroot()
+              for c in root.findall('counter'):
+                  if c.get('type') == 'LINE':
+                      line_m += int(c.get('missed')); line_c += int(c.get('covered'))
+                  elif c.get('type') == 'BRANCH':
+                      br_m += int(c.get('missed')); br_c += int(c.get('covered'))
+          def pct(c, m):
+              t = c + m
+              return (c / t * 100) if t else 0.0
+          print('行覆盖率: %.1f%% (%d/%d)' % (pct(line_c, line_m), line_c, line_c + line_m))
+          print('分支覆盖率: %.1f%% (%d/%d)' % (pct(br_c, br_m), br_c, br_c + br_m))
+          PY
+
+      - name: 上传覆盖率报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: '*/build/reports/jacoco/'
+          if-no-files-found: warn
+          retention-days: 90
+
   release:
     name: 发布 GitHub Release
     needs: build

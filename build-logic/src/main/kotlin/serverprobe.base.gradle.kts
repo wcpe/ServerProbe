@@ -77,3 +77,20 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
 tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
     jvmTarget = "1.8"
 }
+
+// 覆盖率统计:只产生报告、不设门槛。
+// 理由:先积累几个月的真实基线再讨论阈值,避免凭空定一个数把 PR 卡住或催生凑数测试。
+// 报告不挂进 check/build 链路——由 CI 单独调用 `jacocoTestReport`(或聚合任务)产出,
+// 避免每次本地构建都额外跑一遍报告生成。
+apply(plugin = "jacoco")
+configure<JacocoPluginExtension> {
+    // JaCoCo 需能解析 Java 8 字节码;版本随 Gradle 8.9 默认供给,不额外声明以避免与 detekt 依赖冲突。
+    toolVersion = "0.8.12"
+}
+tasks.withType<JacocoReport>().configureEach {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+}
