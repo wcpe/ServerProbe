@@ -96,15 +96,20 @@ FR-24 提供两级运行期开关，使运维可以"平时零 Arthas 成本、�
 | 附 | 无资源泄漏 | 5 轮 `arthas on/off` 后 `arthas-*` 线程全部清理，`ServerProbe-*` 线程各恒定 1 个 |
 | 附 | 向后兼容 | `mcp.enabled=true` 时启动期端点与 Arthas 自动就绪，`status` 报"运行中 / 已加载" |
 | 附 | 插件卸载清理 | `stop` 服务器时 `MCP 控制面已停止`（运行时已开启状态下正确关闭） |
+| 附 | **Java 8 分支复验** | Paper 1.12.2 + JDK 8 + premain（瘦 agent）：走 **Arthas 3.1.1** 分支；`tools/list` 42 工具；`version`→`3.1.1`；**二次加载成功且 `watch` 真实可用**（决定性证据：不可撤销的 spy 注入在重载后仍生效）；`on→off→on→off→on` 多轮无异常 |
 
-### 真机验收中发现并修复的两个缺陷
+### 真机验收中发现并修复的四个缺陷
 
 1. **主线程阻塞（项目红线）**：四个启停动作的阻塞点——端点级要建目录并按保留期/容量清理工件（最多扫 10 GiB）；Arthas 级要解包约 20 MB 闭包，且 Instrumentation 附加可能 spawn helper 子进程并等待最长 30 秒。已改为经 `submitAsync` 异步执行后回执（`status` 为纯内存读取，保持同步）。
 2. **并发下的幂等误报**：命令层"先查状态再调用"的写法在排队执行时失效——多条命令都在预检时看到未加载/已加载，导致重复 `arthas on` 复述上一次 attach 结果、连续 `arthas off` 把空操作回报成卸载成功。已把幂等判定收敛到实现内部（`startRuntime()` 返回"无需重复开启"说明；`stopRuntime()` 返回是否确实卸载），命令层不再做竞态预检。`McpControlPlane.enable()` 同理，避免并发 `on` 把已监听的端点在无人使用的情况下重启。
+3. **增强类命令后卸载导致服务器崩溃**：执行 `watch`/`trace` 等 retransform 类命令后再卸载，若未还原字节码，被插桩方法仍回调已释放的 Arthas 类 → 下一 tick NPE 崩服务器（Java 8 + Arthas 3.1.1 实测 4/4 必现，崩溃点即被插桩方法）。修复：runner 的 `close()` 先执行 Arthas `reset` 再拆 bootstrap 与加载器；复位失败只告警并继续释放。**复验：7 次 `watch → off` 全部存活，0 次 NPE，`crash-reports/` 未生成，复位 WARN 0 次，且卸载后可再次加载。**
+4. **attach 失败时状态误报“已加载”**：Java 8 纯 `-jar` 启动下 `com.sun.tools.attach.VirtualMachine` 不可见（在 `lib/tools.jar` 里），两条 attacher 链均失败，但 `status` 仍报“已加载”而 `arthas_execute` 实际 FAILED。修复：`runtimeReady` 改为“控制器已注册 **且** Instrumentation 可用”；并让重试可用——attach 失败时回收残留控制器，避免运维陷入“显示未加载、却被幂等拦截”而无法重试。
 
 ## 6. 风险
 
-- **Arthas 运行时二次加载（已验证可行）**：真机验收第 6 项通过，卸载后重新加载成功，ADR-0028 记录的降级方案（卸载保留 ClassLoader）无需启用。该方案仍作为 Java 8–16 路径的兜底保留——该路径的 `appendToBootstrapClassLoaderSearch(arthas-spy.jar)` 不可撤销，而本次真机在 Java 17 上执行（走 4.x 分支）；如需覆盖 3.x 路径须另跑一次 Java 8 真机。
+- **Arthas 运行时二次加载（已验证可行，双分支均通过）**：Java 17（Arthas 4.3.2）与 Java 8（Arthas 3.1.1，premain 模式）真机均验证通过——卸载后重新加载成功、`version` 与依赖 bootstrap spy 的 `watch` 命令均真实可用，证明不可撤销的 `appendToBootstrapClassLoaderSearch(spy.jar)` 在二次加载后仍有效。ADR-0028 记录的降级方案（卸载保留 ClassLoader）无需启用，仅作为兜底保留。
+- **Java 8 上 Arthas 的前置条件（非代码缺陷，环境约束）**：Java 8 的 `com.sun.tools.attach.VirtualMachine` 位于 `lib/tools.jar`，纯 `-jar` 启动的 classpath 与 helper 子进程都看不到它，故两条 attacher 链全失败，必须用 **premain** 路径。且 premain 在 Paper 1.12.2 上**不能用完整发行 jar**（父优先类加载会把 `BukkitPlugin` 当系统类加载导致插件加载失败），须用项目自带的瘦 agent `serverprobe-mcp-java8-agent.jar`。
+- **卸载前必须复位增强类（真机发现的崩溃缺陷，已修）**：执行 `watch`/`trace` 等 retransform 类命令后再卸载，若未还原字节码，被插桩方法仍回调已释放的 Arthas 类 → 下一 tick NPE 崩服务器（Java 8 真机 4/4 必现，崩溃点即被插桩方法）。修复：runner 的 `close()` 先执行 Arthas `reset` 再拆 bootstrap 与加载器；复位失败只告警不阻止释放（否则线程与加载器永不释放、JVM 无法退出）。
 - **线程泄漏**：`ArthasTaskManager` 的固定线程池与超时调度器均非 daemon，卸载必须确保关闭，否则会阻止 JVM 退出。真机验收第 5 / 7 项与 5 轮开关的线程快照已确认清理彻底。
 - 端点级开关的单测无法覆盖成功路径：`enable()` 需要插件数据目录与真实端口绑定，不宜在单测中执行；该路径由真机验收第 3 / 7 / 8 项覆盖。
 - **异步执行的取舍**：启停动作改为异步后，回执不再与命令输入同步（快速连发时输出按完成时序排列）。这是避免主线程阻塞的必然代价；纯内存读取的 `status` 保持同步以便立即回显。

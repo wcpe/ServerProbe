@@ -21,6 +21,8 @@
 - **MCP 控制面关闭时的残留守卫**：`McpControlPlane` 的停止逻辑原先依赖 `httpServer != null` 判断，启动中途失败（端口占用等）时 `artifacts` 已创建并注册但守卫会跳过清理，留下幽灵工作区注册；改为无条件走停止路径。同时为启停路径加锁（`start`/`stop`/`enable`/`disable`），避免运行期开关引入的命令线程与生命周期线程并发访问四个无保护句柄字段。
 - **运行期开关阻塞主线程（真机发现）**：四个启停动作都含阻塞操作——端点级要建目录并按保留期/容量清理工件（最多扫 10 GiB）；Arthas 级要解包约 20 MB 闭包，且 Instrumentation 附加可能 spawn helper 子进程并等待其退出（最长 30 秒）。若在命令主线程执行会冻结服务器（违反项目红线）。已改为经 `submitAsync` 异步执行后回执；纯内存读取的 `status` 保持同步以便立即回显。
 - **并发下的开关幂等误报（真机发现）**：命令层"先查状态再调用"的写法在多条命令排队时失效——都在预检时看到未加载/已加载，导致重复 `arthas on` 复述上一次 attach 结果、连续 `arthas off` 把空操作回报成"卸载成功"、并发 `mcp on` 把已监听的端点在无人使用的情况下重启。已把幂等判定收敛到实现内部（`ArthasRuntime.startRuntime()` 返回"无需重复开启"说明、`stopRuntime()` 返回是否确实卸载、`McpControlPlane.enable()` 内部判 `running`），命令层不再做竞态预检。
+- **增强类命令后卸载导致服务器崩溃（Java 8 真机发现）**：执行 `watch`/`trace` 等会 retransform 目标方法的命令后再 `arthas off`，若未还原字节码，被插桩方法仍回调已释放的 Arthas 类，下一 tick NPE 崩服务器（崩溃点即被插桩方法，Java 8 + Arthas 3.1.1 实测 4/4 必现）。修复：`ArthasMemoryShellRunner.close()` 在拆除 bootstrap 与隔离加载器**之前**执行 Arthas `reset` 还原全部增强类；复位失败只告警并继续释放（否则线程与加载器永不释放、JVM 无法退出）。真机复验：7 次 `watch → off` 全部存活，0 次 NPE，`crash-reports/` 未生成，复位 WARN 0 次。
+- **attach 失败时状态误报“已加载”（Java 8 真机发现）**：Java 8 纯 `-jar` 启动下 `com.sun.tools.attach.VirtualMachine` 不可见（位于 `lib/tools.jar`），两条 attacher 链均失败，但 `status` 仍报“已加载”，而 `arthas_execute` 实际 FAILED。原因是 `runtimeReady` 只判断“控制器已注册”（attach 失败也会注册）。修复：改为“控制器已注册 **且** Instrumentation 可用”；同时让重试可用——attach 失败时回收残留控制器，避免运维陷入“显示未加载、却被幂等拦截”而无法重试。
 
 ### 真机验收（FR-24）
 
