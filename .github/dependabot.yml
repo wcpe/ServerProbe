@@ -1,0 +1,33 @@
+# Dependabot：Gradle 依赖自动升级与漏洞告警。
+# 每周扫描 dependencies 声明，按下方 ignore 规则排除需人工判断的坐标。
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # 同时开放的 PR 上限：本项目依赖较多，限制 5 个避免刷屏
+    open-pull-requests-limit: 5
+    # 提交信息沿用 Conventional Commits，与仓库提交规范一致
+    commit-message:
+      prefix: "build"
+      prefix-development: "chore"
+      include: "scope"
+
+    ignore:
+      # NMS 版本锁定：ink.ptms.core 的坐标（如 v12004）跟随 Minecraft 版本矩阵，
+      # 升级会破坏 NMS 反射适配，必须随 MC 版本支持计划人工调整。
+      - dependency-name: "ink.ptms.core"
+
+      # wcpe 私有 fork：io.izzel.taboolib 与 top.wcpe.taboolib.ioc 托管在
+      # maven.wcpe.top 私有镜像，公共源（Maven Central）可能解析不到，
+      # Dependabot 依据公共源提出的升级会导致构建失败。
+      - dependency-name: "io.izzel.taboolib"
+      - dependency-name: "top.wcpe.taboolib.ioc"
+
+      # 服务端 API 受兼容矩阵约束：paper-api / bungeecord-api / velocity-api
+      # 的升级需对照各服务端最低支持版本人工判断，
+      # 盲目升级会抬高运行门槛、与 Java 8 字节码不变量冲突。
+      - dependency-name: "io.papermc.paper:paper-api"
+      - dependency-name: "net.md-5:bungeecord-api"
+      - dependency-name: "com.velocitypowered:velocity-api"

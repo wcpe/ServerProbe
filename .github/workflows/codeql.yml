@@ -1,0 +1,57 @@
+# CodeQL 静态代码扫描：检出安全缺陷与代码质量问题，结果写入 Security > Code Scanning。
+# 语言：java-kotlin(CodeQL 对 Kotlin 与 Java 混合工程统一按 java-kotlin 处理)。
+name: CodeQL
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  # 每周一 03:00 UTC 例行扫描：捕获新披露漏洞对应的查询规则命中
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  analyze:
+    name: CodeQL 分析
+    runs-on: ubuntu-latest
+    # 上传 SARIF 到 Code Scanning 需要此权限
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 采用手动构建而非 autobuild，原因：
+      # 1) 本工程 Gradle 多模块 + Kotlin/Java 混合，且构建需 JDK 8 编译 toolchain(核心 Java 8 字节码)
+      #    与 JDK 21 运行 Gradle(detekt 要求 11+)，autobuild 只会挑一个默认 JDK，易在 toolchain 解析处失败；
+      # 2) autobuild 对 Gradle 的启发式尝试跳过 detekt 等插件配置，Kotlin 源码可能未被完整编译，
+      #    导致分析覆盖率偏低。显式构建可确保 CodeQL 拿到完整字节码与源码索引。
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 初始化 CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+
+      # assemble 而非 build：只产出字节码供 CodeQL 分析，跳过测试与 detekt，
+      # 避免重复 ci.yml 已覆盖的检查、缩短扫描耗时
+      - name: 编译(供 CodeQL 索引)
+        run: ./gradlew assemble --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+
+      - name: 执行 CodeQL 分析
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:java-kotlin"

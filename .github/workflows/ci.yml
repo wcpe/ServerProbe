@@ -62,6 +62,32 @@ jobs:
           path: plugin/build/libs/ServerProbe-*.jar
           if-no-files-found: error
 
+  # Windows 交叉验证：项目日常在 Windows 开发，历史上出现过平台相关缺陷在 Windows 上被掩盖、
+  # 只在 Linux 暴露的情况(如 HttpServer backlog=0 在 Linux 挂起而 Windows 掩盖、async-profiler
+  # 平台差异)。此 job 在 Windows runner 上跑同一套构建，防止此类缺陷逃逸；
+  # 与 Linux 构建逻辑保持一致，不额外发布产物。
+  build-windows:
+    name: 构建 · 测试 · detekt (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码)
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建 + 单元测试 + detekt 静态检查
+        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+
   release:
     name: 发布 GitHub Release
     needs: build

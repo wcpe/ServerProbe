@@ -1,0 +1,60 @@
+# Java 8 字节码门禁：核心模块与发行 jar 的所有 .class 必须 major version <= 52(Java 8)。
+# README 对外承诺 "Java 8+"，此门禁防止 toolchain 或依赖变更悄悄抬高字节码版本。
+# 触发条件与 ci.yml 保持一致（纯文档改动不触发）。
+name: Java 8 字节码门禁
+
+on:
+  push:
+    branches: [ master, main ]
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/**'
+      - '.claude/**'
+      - '.editorconfig'
+      - '.gitignore'
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/**'
+      - '.claude/**'
+      - '.editorconfig'
+      - '.gitignore'
+
+permissions:
+  contents: read
+
+jobs:
+  bytecode-gate:
+    name: 校验 class major version <= 52
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 与 ci.yml 一致：Gradle 运行于 JDK 21，编译 toolchain 用 JDK 8
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 必须先完整构建，校验脚本才能读到 classes 与发行 jar
+      - name: 构建
+        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+
+      # runner 自带 python3，无需额外安装依赖
+      - name: 扫描字节码版本
+        run: python3 .github/scripts/check-bytecode.py "$GITHUB_WORKSPACE"

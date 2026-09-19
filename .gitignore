@@ -138,5 +138,8 @@ target/
 # WorkBuddy 会话数据(不入库)
 .workbuddy/
 
+# Python 字节码缓存(CI 脚本本地跑动产生,不入库)
+__pycache__/
+
 # NarraFork 会话数据(不入库):实施计划与探索笔记属易朽过程稿
 .narrafork/

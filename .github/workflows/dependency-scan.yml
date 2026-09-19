@@ -1,0 +1,82 @@
+# OSV-Scanner 依赖漏洞扫描：按 OSV.dev 数据库比对项目依赖的已知漏洞。
+# 触发：push 到 master/main、PR、每周一 02:00 UTC 例行扫描(捕获新披露漏洞)。
+name: 依赖漏洞扫描
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+  schedule:
+    - cron: '0 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV-Scanner 扫描
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # Gradle 运行于 JDK 21，编译 toolchain 用 JDK 8(核心 Java 8 字节码)
+      - name: 安装 JDK 8 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      # OSV-Scanner 的 Java 生态只认 gradle.lockfile / pom.xml 等清单，本工程未启用依赖锁定；
+      # 直接 scan source 会漏掉绝大多数依赖。故先用 Gradle 解析出真实依赖树
+      # (含传递依赖与版本仲裁结果)，再转成 OSV 支持的自定义清单 osv-scanner.json。
+      # 只取 compileClasspath/runtimeClasspath，避免把 detekt 等构建期工具依赖
+      # (不随发行包分发)计入漏洞面。
+      - name: 导出依赖树
+        run: |
+          : > deps.txt
+          for m in api "project:core" plugin "platform:platform-bukkit" "platform:platform-bungee" "platform:platform-velocity" "diagnostics:diagnostics-arthas"; do
+            ./gradlew ":$m:dependencies" --configuration compileClasspath --console=plain -q >> deps.txt
+            ./gradlew ":$m:dependencies" --configuration runtimeClasspath --console=plain -q >> deps.txt
+          done
+          python3 .github/scripts/gradle-deps-to-osv.py deps.txt osv-scanner.json
+
+      # 版本策略：该 action 仓库不提供 v1/v2 浮动 tag(实际只有 v1.7.1、v1.9.2、v2.6.0 等固定 tag)，
+      # 故锁定到已验证存在的 v2.6.0。
+      # 失败策略：osv-scanner 发现漏洞时以非 0 退出，这里用 continue-on-error 起步——
+      # 先积累基线、避免存量告警直接卡住 PR；待存量清零后再去掉 continue-on-error 转为严格卡口。
+      # 当前仅以 JSON 结果落盘并上传 artifact，不上报 Security > Code Scanning
+      # (那需要 SARIF 格式与 security-events 写权限，留待基线稳定后再开启)。
+      - name: 扫描依赖漏洞
+        id: osv
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@v2.6.0
+        with:
+          scan-args: |-
+            --format=json
+            --output=osv-results.json
+            --lockfile=osv-scanner:osv-scanner.json
+
+      - name: 汇总扫描结论
+        run: |
+          if [ "${{ steps.osv.outcome }}" = "failure" ]; then
+            echo "::warning::OSV-Scanner 报告了依赖漏洞或扫描失败，详见上方步骤日志与上传的扫描结果。"
+          else
+            echo "OSV-Scanner 未报告漏洞。"
+          fi
+
+      - name: 上传扫描结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osv-scan-results
+          path: |
+            deps.txt
+            osv-scanner.json
+            osv-results.json
+          if-no-files-found: warn
