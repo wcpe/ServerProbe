@@ -37,8 +37,13 @@ class ArthasDiagnosticsLifecycle {
         "尚未初始化 Arthas Instrumentation",
     )
 
-    /** 注册进 [ArthasRuntimeRegistry] 的启停入口（构造一次，长期有效）。 */
-    private val runtime = LifecycleArthasRuntime(::startRuntime, ::stopRuntime) { tasks != null }
+    /**
+     * 注册进 [ArthasRuntimeRegistry] 的启停入口（构造一次，长期有效）。
+     *
+     * `runtimeReady` 以"控制器已注册 **且** Instrumentation 可用"为准：attach 失败时控制器仍会被注册
+     * （命令执行时会报"无 Instrumentation"），若只按"已注册"呈现会与"已加载 = 可用"的预期不符。
+     */
+    private val runtime = LifecycleArthasRuntime(::startRuntime, ::stopRuntime) { tasks != null && instrumentation.instrumentation != null }
 
     @PostEnable fun start() {
         runtimeRegistration.register(runtime)
@@ -57,12 +62,18 @@ class ArthasDiagnosticsLifecycle {
      * 两条并发命令若都在检查时看到"未加载"，后到的一条会落到已加载分支却回执上一次的 attach 结果，
      * 造成"重复开启"的误报。此处作为唯一决策点，已加载时返回"无需重复开启"的说明。
      *
+     * "已加载"取"控制器已注册 **且** Instrumentation 可用"，与 [runtime] 呈现给运维的口径一致：
+     * attach 失败时控制器虽已注册但无 Instrumentation，此时必须允许再次尝试（先卸载残留再重来），
+     * 否则运维会陷入"状态显示未加载、却又被幂等拦截"的矛盾，永远无法重试。
+     *
      * 每次加载都新建 [ArthasMemoryShellRunner] 与 [ArthasTaskManager]：后者被关闭后其线程池永久终止，
      * 且关闭会连带关闭 runner，故实例不可复用。Instrumentation 访问器同样重建，以复位此前失败的 attach 记录。
      */
     @Synchronized
     private fun startRuntime(): ArthasInstrumentationSnapshot {
-        if (tasks != null) return alreadyLoaded()
+        if (tasks != null && instrumentation.instrumentation != null) return alreadyLoaded()
+        // 上一次 attach 失败留下的控制器必须回收：其任务管理器持有非 daemon 线程，不释放会阻止 JVM 退出。
+        if (tasks != null) stopRuntime()
         val runtime = getDataFolder().toPath().resolve("mcp-workspace").resolve("arthas")
         val extraction = ArthasRuntimeExtractor { path -> javaClass.classLoader.getResourceAsStream(path) }.extract(runtime)
         if (extraction !is ArthasRuntimeExtraction.Ready) return unavailableRuntime(extraction)
@@ -70,6 +81,11 @@ class ArthasDiagnosticsLifecycle {
         agentJar = ServerProbeAgentJarLocator.locate(javaClass)
         instrumentation = agentJar?.let { jar -> instrumentationAccess?.acquire(jar) } ?: unavailableAgentJar()
         register(ArthasMemoryShellRunner(extraction.directory) { instrumentation.instrumentation })
+        if (instrumentation.instrumentation == null) {
+            // attach 失败同样不留残骸：控制器无法工作，留着只会让状态与能力不一致。
+            stopRuntime()
+            return instrumentation.toSnapshot()
+        }
         return instrumentation.toSnapshot()
     }
 
