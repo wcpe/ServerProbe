@@ -15,6 +15,8 @@
 
 - **FR-24 MCP 控制面运行期两级开关**：新增控制台命令 `/probe mcp <on|off|status>` 运行期起停 MCP 端点、`/probe mcp arthas <on|off>` 运行期加载/卸载内嵌 Arthas 运行时。端点级开关起来后原生工具（状态/命令执行/线程转储/日志检索/插件与玩家诊断）立即可用、不付 Arthas 代价；Arthas 级开关才执行闭包解包与 Instrumentation 附加。**仅控制台/RCON 可执行**（开启 MCP 等于授予 JVM 完整控制权，游戏内即使持有权限节点也拒绝，防游戏内管理员提权）；开关只作用于当前运行期、不写回 `config.yml`，重启回到配置声明的姿态。`mcp.enabled` 的启动期语义保持不变（`true` 时仍自动开端点并加载 Arthas）。见 [ADR-0028](docs/adr/0028-mcp-runtime-toggle.md) 与 [spec](docs/specs/mcp-runtime-toggle.md)。
 - 新增 core 契约 `ArthasRuntime`（运行期启停）与装配点 `ArthasRuntimeRegistry`，与既有 `ArthasControl`（已加载运行时内的任务执行）职责分离；诊断模块经内部转发实现自注册，`core` 编译期不依赖任何 Arthas 类型（维持 ADR-0025 边界）。
+- **CI 质量门禁补齐**：新增字节码门禁（校验各业务模块与发行 jar 内 class 的 major version 不超过 52，保护“编译为 Java 8 字节码”这一关键不变量，此前完全无自动化保护）、OSV-Scanner 依赖漏洞扫描、Dependabot 周更新、CodeQL 代码扫描，以及 Windows runner 交叉验证 job（历史上出现过平台相关缺陷在 Windows 上被掩盖）。依赖扫描起步设为 continue-on-error 以先收集基线。
+- **覆盖率统计**：在 `serverprobe.base` 约定插件中统一应用 JaCoCo，一处生效覆盖全部业务模块；CI 新增独立 coverage job 只产出报告、不设任何阈值（先积累真实基线再讨论阈值）。当前基线：行覆盖 50.4%、分支覆盖 36.1%。
 
 ### 修复
 

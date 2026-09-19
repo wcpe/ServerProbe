@@ -37,7 +37,10 @@ ServerProbe 是**单 jar 多端**：同一个 jar 既能放进 Bukkit 系服务�
 
 ### E2E 验收（可选）
 
+mc-testkit 跨平台，Linux 与 Windows 均可直接运行：
+
 ```powershell
+# Windows
 .\gradlew.bat e2eReadApi
 .\gradlew.bat e2eStorageSpi
 .\gradlew.bat e2eBridgeFixture
@@ -45,6 +48,14 @@ ServerProbe 是**单 jar 多端**：同一个 jar 既能放进 Bukkit 系服务�
 .\gradlew.bat e2eNetworkForensicsPaperWithBot
 .\gradlew.bat e2eFoliaObservedRegionsWithBot
 .\gradlew.bat e2eMcpDiagnosticsPaper
+```
+
+```bash
+# Linux / macOS
+./gradlew e2eReadApi
+./gradlew e2eStorageSpi
+./gradlew e2eBridgeFixture
+./gradlew e2eMcpDiagnosticsPaper
 ```
 
 E2E 基于 [mc-testkit](https://github.com/wcpe/mc-testkit)，在真实服务端上验证。
