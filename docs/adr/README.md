@@ -33,7 +33,8 @@
 | ADR-25 | Arthas 按 JVM 选择双运行时闭包 | 已接受 | [0025](0025-arthas-dual-runtime-compatibility.md) |
 | ADR-26 | Velocity 采用共享源码与双实际兼容编译门 | 已接受 | [0026](0026-velocity-shared-source-dual-compile-gates.md) |
 | ADR-27 | SQLite JDBC 驱动改为发行 jar 内嵌闭包 | 已接受 | [0027](0027-sqlite-jdbc-embedded-runtime-closure.md) |
+| ADR-28 | MCP 控制面支持运行期两级开关 | 已接受 | [0028](0028-mcp-runtime-toggle.md) |
 
-> 下一个 ADR 取号 **ADR-28**（编号 = 现有最大 + 1，永不复用、不补洞；现有最大看本目录，别硬记某个数）。新建复制 [`_template.md`](_template.md)。
+> 下一个 ADR 取号 **ADR-29**（编号 = 现有最大 + 1，永不复用、不补洞；现有最大看本目录，别硬记某个数）。新建复制 [`_template.md`](_template.md)。
 
 > **别慌通读**：ADR 有意稀少（只为重大决策写），理解现状看 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)，ADR 只按需查"为什么"；被取代的归档不打扰，当前架构 = 未取代的活跃集。增长过快是滥写信号——日常变更归 PRD 状态列 + CHANGELOG。

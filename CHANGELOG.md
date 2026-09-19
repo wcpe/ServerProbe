@@ -9,6 +9,25 @@
 
 ---
 
+## [未发布]
+
+### 新增
+
+- **FR-24 MCP 控制面运行期两级开关**：新增控制台命令 `/probe mcp <on|off|status>` 运行期起停 MCP 端点、`/probe mcp arthas <on|off>` 运行期加载/卸载内嵌 Arthas 运行时。端点级开关起来后原生工具（状态/命令执行/线程转储/日志检索/插件与玩家诊断）立即可用、不付 Arthas 代价；Arthas 级开关才执行闭包解包与 Instrumentation 附加。**仅控制台/RCON 可执行**（开启 MCP 等于授予 JVM 完整控制权，游戏内即使持有权限节点也拒绝，防游戏内管理员提权）；开关只作用于当前运行期、不写回 `config.yml`，重启回到配置声明的姿态。`mcp.enabled` 的启动期语义保持不变（`true` 时仍自动开端点并加载 Arthas）。见 [ADR-0028](docs/adr/0028-mcp-runtime-toggle.md) 与 [spec](docs/specs/mcp-runtime-toggle.md)。
+- 新增 core 契约 `ArthasRuntime`（运行期启停）与装配点 `ArthasRuntimeRegistry`，与既有 `ArthasControl`（已加载运行时内的任务执行）职责分离；诊断模块经内部转发实现自注册，`core` 编译期不依赖任何 Arthas 类型（维持 ADR-0025 边界）。
+
+### 修复
+
+- **MCP 控制面关闭时的残留守卫**：`McpControlPlane` 的停止逻辑原先依赖 `httpServer != null` 判断，启动中途失败（端口占用等）时 `artifacts` 已创建并注册但守卫会跳过清理，留下幽灵工作区注册；改为无条件走停止路径。同时为启停路径加锁（`start`/`stop`/`enable`/`disable`），避免运行期开关引入的命令线程与生命周期线程并发访问四个无保护句柄字段。
+- **运行期开关阻塞主线程（真机发现）**：四个启停动作都含阻塞操作——端点级要建目录并按保留期/容量清理工件（最多扫 10 GiB）；Arthas 级要解包约 20 MB 闭包，且 Instrumentation 附加可能 spawn helper 子进程并等待其退出（最长 30 秒）。若在命令主线程执行会冻结服务器（违反项目红线）。已改为经 `submitAsync` 异步执行后回执；纯内存读取的 `status` 保持同步以便立即回显。
+- **并发下的开关幂等误报（真机发现）**：命令层"先查状态再调用"的写法在多条命令排队时失效——都在预检时看到未加载/已加载，导致重复 `arthas on` 复述上一次 attach 结果、连续 `arthas off` 把空操作回报成"卸载成功"、并发 `mcp on` 把已监听的端点在无人使用的情况下重启。已把幂等判定收敛到实现内部（`ArthasRuntime.startRuntime()` 返回"无需重复开启"说明、`stopRuntime()` 返回是否确实卸载、`McpControlPlane.enable()` 内部判 `running`），命令层不再做竞态预检。
+
+### 真机验收（FR-24）
+
+Paper 1.20.1（Windows、Java 17）以 `mcp.enabled=false` 启动后**全程不重启服务器**：状态查询 → RCON 放行 → 端点开启（`tools/list` 42 工具零重复、`server_status` 无需 Arthas 即返回真实数据）→ Arthas 加载（helper 子进程注入成功，`version`/`thread` 真实输出）→ 卸载（工具降级、端点工具不受影响）→ **二次加载成功**（原设计主风险点，无需启用 ADR 记录的降级方案）→ 端口释放与重开 → 重复开关幂等。附加确认：5 轮 `arthas on/off` 后 `arthas-*` 线程全部清理、`ServerProbe-*` 线程恒定各 1 个；`mcp.enabled=true` 时启动期行为与既有版本一致。
+
+---
+
 ## [0.4.0] - 2026-09-07
 
 ### 新增（FR-15~23 MCP 深度诊断能力扩展，同一分支并行开发）

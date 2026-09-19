@@ -45,25 +45,70 @@ class McpControlPlane {
     private var artifacts: McpArtifactWorkspace? = null
 
     @PostEnable
+    @Synchronized
     fun start() {
         val settings = settings()
         if (!settings.enabled) {
             ProbeLogger.info("MCP 控制面未开启(mcp.enabled=false)，已跳过")
             return
         }
-        McpSafetyWarnings.messages(settings).forEach(ProbeLogger::warn)
-        runCatching { startServer(settings) }.onFailure {
-            ProbeLogger.warn("MCP 控制面启动失败(${settings.host}:${settings.port})，已降级跳过：${it.javaClass.simpleName}")
-        }
+        enable()
     }
 
     @PreDestroy
+    @Synchronized
     fun stop() {
-        if (httpServer != null) {
-            stopServer()
+        if (disable()) {
             ProbeLogger.info("MCP 控制面已停止")
         }
     }
+
+    /**
+     * 运行期开启 MCP 控制面（FR-24，控制台命令触发）。
+     *
+     * 与启动期 [start] 共用同一实现，区别仅在绕过 `mcp.enabled` 配置门；危险配置（空密钥、非回环）
+     * 的中文告警照常输出。启动失败（端口占用等）在此收敛为返回值并回滚残留，不向调用方抛异常。
+     *
+     * 幂等判定在此完成（而非由调用方先查 [running] 再调用）：并发命令若都在检查时看到"未运行"，
+     * 后到的一条会走到 [startServer] 首行的停止逻辑，把已起来的端点在无人使用的情况下重启一次。
+     * 此处作为唯一决策点，已运行时直接返回说明。
+     *
+     * @return 启动结果说明；失败时 [McpToggleOutcome.success] 为 false。
+     */
+    @Synchronized
+    fun enable(): McpToggleOutcome {
+        val settings = settings(enabled = true)
+        if (running) return McpToggleOutcome(true, "MCP 控制面已在运行中，无需重复开启。")
+        McpSafetyWarnings.messages(settings).forEach(ProbeLogger::warn)
+        // 失败时必须清理：startServer 可能已创建并注册工件工作区，留下幽灵注册会让扩展工具误判为已启用。
+        return runCatching { startServer(settings) }.fold(
+            onSuccess = { McpToggleOutcome(true, "MCP 控制面已启动，监听 ${settings.host}:${settings.port}/mcp") },
+            onFailure = { error ->
+                stopServer()
+                ProbeLogger.warn("MCP 控制面启动失败(${settings.host}:${settings.port})：${error.javaClass.simpleName}")
+                McpToggleOutcome(false, "MCP 控制面启动失败(${settings.host}:${settings.port})：${error.javaClass.simpleName}")
+            },
+        )
+    }
+
+    /**
+     * 运行期关闭 MCP 控制面（FR-24，控制台命令触发）。
+     *
+     * 无条件走 [stopServer]（其内部全空安全）：启动中途失败可能留下已注册但未监听的工作区，
+     * 旧实现的 `httpServer != null` 守卫会跳过这类残留，故不再按句柄判断。
+     *
+     * @return 本次是否确实执行了停止（此前未运行返回 false）。
+     */
+    @Synchronized
+    fun disable(): Boolean {
+        if (httpServer == null && artifacts == null) return false
+        stopServer()
+        return true
+    }
+
+    /** MCP 控制面当前是否正在监听。 */
+    val running: Boolean
+        get() = httpServer != null
 
     private fun startServer(settings: McpSettings) {
         stopServer()
@@ -115,8 +160,9 @@ class McpControlPlane {
         TimeUnit.HOURS.toMillis(ProbeConfig.mcpArtifactRetentionHours().coerceAtMost(MAX_ARTIFACT_RETENTION_HOURS)),
     )
 
-    private fun settings(): McpSettings = McpSettings(
-        ProbeConfig.mcpEnabled(), ProbeConfig.mcpHost(), ProbeConfig.mcpPort(), ProbeConfig.mcpSecret(),
+    /** 组装控制面设置；[enabled] 供运行期开关显式覆盖 `mcp.enabled`（该字段仅语义用途，不参与监听决策）。 */
+    private fun settings(enabled: Boolean = ProbeConfig.mcpEnabled()): McpSettings = McpSettings(
+        enabled, ProbeConfig.mcpHost(), ProbeConfig.mcpPort(), ProbeConfig.mcpSecret(),
     )
 
     /** 供 NativeMcpToolProvider 组合 server_status 与 diagnostic_bundle；测试经内部可见性直测合并逻辑。 */

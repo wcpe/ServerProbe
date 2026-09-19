@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.command
 
 import taboolib.common.platform.ProxyCommandSender
+import taboolib.common.platform.ProxyPlayer
 import taboolib.common.platform.command.CommandBody
 import taboolib.common.platform.command.CommandHeader
 import taboolib.common.platform.command.mainCommand
@@ -24,6 +25,8 @@ import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
+import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasRuntime
+import top.wcpe.mc.plugin.serverprobe.core.mcp.McpControlPlane
 import top.wcpe.taboolib.ioc.annotation.Inject
 import java.io.File
 
@@ -80,6 +83,22 @@ object ProbeCommand {
     lateinit var cpuSampler: CpuAttributionSampler
 
     /**
+     * MCP 控制面(core),由 IOC 注入;供 `/probe mcp on|off` 运行期起停端点(FR-24)。
+     */
+    @Inject
+    lateinit var mcpControlPlane: McpControlPlane
+
+    /**
+     * Arthas 运行期启停契约(core),由 IOC 注入;供 `/probe mcp arthas on|off` 加载/卸载运行时(FR-24)。
+     *
+     * 注入的是 [top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasRuntimeRegistry] 注册表(该接口下唯一的
+     * IOC Bean);诊断模块在启动期把启停实现注册进来,未装配诊断模块时降级为安全失败(不抛异常),
+     * 命令在任意平台均可执行。
+     */
+    @Inject
+    lateinit var arthasRuntime: ArthasRuntime
+
+    /**
      * 主命令 / 帮助:列出全部子命令(全程 i18n)。
      *
      * 不使用 `createHelper()`(其 `§cUsage:` 前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
@@ -99,6 +118,7 @@ object ProbeCommand {
             sender.sendLang("command-help-cpu")
             sender.sendLang("command-help-flamegraph")
             sender.sendLang("command-help-http")
+            sender.sendLang("command-help-mcp")
         }
     }
 
@@ -321,6 +341,37 @@ object ProbeCommand {
                 return@execute
             }
             sendHttp(sender, recent)
+        }
+    }
+
+    /**
+     * `/probe mcp ...`:运行期开关 MCP 诊断控制面(FR-24,见 ADR-0028)。
+     *
+     * 两级开关:端点级([mcpControlPlane])只起 HTTP 端点,原生工具立即可用;Arthas 级([arthasRuntime])才
+     * 付出解包与 Instrumentation 附加代价。参数用 `dynamic` 收单串后在代码内分发(项目无三级 `literal` 先例)。
+     *
+     * **仅控制台**:开启 MCP 等于授予 JVM 完整控制权,游戏内玩家即便持有权限也拒绝,防"游戏内管理员提权";
+     * 判定为"发送者不是玩家"([ProxyPlayer] 跨平台可用),故控制台与 RCON 等非玩家发送者照常放行。
+     */
+    @CommandBody(permission = "serverprobe.command.mcp")
+    val mcp = subCommand {
+        dynamic("on|off|status|arthas on|arthas off") {
+            suggestion<ProxyCommandSender>(uncheck = true) { _, _ -> MCP_ACTIONS }
+            // 参数白名单在 execute 内统一校验：dynamic 的 restrict 无法表达"两段式"取值（arthas on/off）。
+            execute<ProxyCommandSender> { sender, context, _ ->
+                if (sender is ProxyPlayer) {
+                    sender.sendLang("command-mcp-console-only")
+                    return@execute
+                }
+                when (context.get("on|off|status|arthas on|arthas off").trim().lowercase()) {
+                    "on" -> McpCommandHandler.on(sender, mcpControlPlane)
+                    "off" -> McpCommandHandler.off(sender, mcpControlPlane, arthasRuntime)
+                    "status" -> McpCommandHandler.status(sender, mcpControlPlane, arthasRuntime)
+                    ARTHAS_ON -> McpCommandHandler.arthasOn(sender, arthasRuntime)
+                    ARTHAS_OFF -> McpCommandHandler.arthasOff(sender, arthasRuntime)
+                    else -> sender.sendLang("command-mcp-usage")
+                }
+            }
         }
     }
 
@@ -812,6 +863,15 @@ object ProbeCommand {
 
     /** `/probe http` 展示的近期外呼条数。 */
     private const val HTTP_DISPLAY_LIMIT = 20
+
+    /** `/probe mcp` 的两段式动作字面量(Arthas 级开关)。 */
+    private const val ARTHAS_ON = "arthas on"
+
+    /** `/probe mcp` 的两段式动作字面量(Arthas 级关闭)。 */
+    private const val ARTHAS_OFF = "arthas off"
+
+    /** `/probe mcp` 的补全候选(与 execute 内的分支保持一致)。 */
+    private val MCP_ACTIONS = listOf("on", "off", "status", ARTHAS_ON, ARTHAS_OFF)
 
     /**
      * 内存"最大值"文案:-1(JVM 约定的"无上限")时显示无上限文案,否则为可读字节数。

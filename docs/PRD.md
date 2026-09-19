@@ -65,10 +65,11 @@
 | FR-21 | MCP 运行期 CPU 火焰图：直接利用 `arthas_profiler` 产出（start/stop + 产物查看），不自研采样器（不推翻 ADR-8） | P2 | 已交付@v0.4.0（**Linux 真机产出火焰图 HTML**；Windows 因 async-profiler 平台限制降级） |
 | FR-22 | MCP GC/JFR 详诊：GC 事件明细与 JFR 采集入口（低优先，可经 Arthas vmoption/jfr 兜底） | P3 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，G1 收集器明细） |
 | FR-23 | MCP 工具描述增强：`tools/list` 为每个工具下发完整中文使用说明（参数含义、使用示例、异步工作流提示、输出字段说明），供外部 agent 正确调用；不改变工具名与参数键 | P2 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，42 工具零重复） |
+| FR-24 | MCP 控制面运行期两级开关：控制台 `/probe mcp on\|off\|status` 起停端点（原生工具立即可用）、`/probe mcp arthas on\|off` 单独加载/卸载 Arthas 运行时；仅控制台可执行，不写回配置 | P2 | 已交付@v0.4.0（Paper 1.20.1 Windows 真机，8 项验收 + 5 轮开关零泄漏；待下次发版登记） |
 
 > 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
 > FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
-> 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [built-in-integrations](specs/built-in-integrations.md)、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
+> 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [built-in-integrations](specs/built-in-integrations.md)、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)、FR-24 见 [mcp-runtime-toggle](specs/mcp-runtime-toggle.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 5. 非功能需求（NFR）
 
@@ -121,6 +122,7 @@
 | Folia region（FR-12） | 双真实 bot 验证隔离 region、受控负载 p95、世界汇总、全局 N/A、离开后过期 | 真机 E2E | ◐ 验收通过，待发版登记 |
 | Velocity（FR-13） | 3.1.1 / 3.5.1 / 4.1.0（JDK25）三组真机矩阵 PASS | 真机 E2E | ◐ 验收通过，待发版登记 |
 | MCP 诊断（FR-14） | Java 8/21/25 × 六平台七组真机场景 PASS；默认关闭不监听；动态 attach 失败降级 | 真机 E2E + 单测 | ◐ 验收通过，待发版登记 |
+| MCP 运行期开关（FR-24） | 全程不重启：状态查询、控制台放行、端点开启后 42 工具可用、Arthas 加载/卸载/二次加载、端口释放与重开、重复开关幂等；5 轮开关零线程泄漏；`mcp.enabled=true` 时启动期行为不变 | 真机 + 单测 | ◐ 验收通过，待发版登记 |
 
 > `◐ 验收通过，待发版登记`：证据已齐（见对应 spec），需用户在真实环境复验确认后，由下次正式版本 `sdd-release-version` 统一标 `已交付@vX.Y.Z`。
 

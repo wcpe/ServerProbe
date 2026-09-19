@@ -19,6 +19,8 @@
 | `/probe proxy` | 代理端子服在线、RTT、可达性、玩家路由 | BungeeCord / Velocity |
 | `/probe flamegraph` | 导出最近启动画像为自包含 HTML 火焰图 + 时间线（需启动 agent） | Bukkit |
 | `/probe http` | 回看近期对外网络调用（需启动 agent） | Bukkit |
+| `/probe mcp <on\|off\|status>` | 运行期起停 MCP 诊断控制面端点（**仅控制台**） | 通用 |
+| `/probe mcp arthas <on\|off>` | 运行期加载/卸载内嵌 Arthas 运行时（**仅控制台**） | 通用 |
 
 ## 权限节点
 
@@ -35,9 +37,11 @@
 | `serverprobe.command.proxy` | `/probe proxy` |
 | `serverprobe.command.flamegraph` | `/probe flamegraph` |
 | `serverprobe.command.http` | `/probe http` |
+| `serverprobe.command.mcp` | `/probe mcp`（仅控制台生效，游戏内即使持有该权限也被拒） |
 
 ## 备注
 
 - 命令输出均为内存快照/聚合结果，无阻塞 IO。
 - Folia 下 `/probe tps` 的全局值显示 N/A，并额外输出已观测 region 的 TPS/MSPT 明细。
 - `/probe flamegraph` / `/probe http` 依赖启动期 agent 采集的数据，未挂 `-javaagent` 时显示不可用。
+- `/probe mcp` 是唯一的**写操作**类命令（运行期开关控制面，见 [ADR-0028](../adr/0028-mcp-runtime-toggle.md)）：仅控制台/RCON 可执行（开启 MCP 等于授予 JVM 完整控制权，防游戏内权限提权）；开关只作用于当前运行期，不写回 `config.yml`，重启回到配置声明的姿态。典型用法是"平时按默认关闭运行，线上出问题时在控制台 `mcp on` 取得原生诊断，需要 `watch`/火焰图等深度手段再 `mcp arthas on`，处理完 `mcp off`"。
