@@ -132,6 +132,13 @@ class ArthasTaskManager(
         }
     }
 
+    /**
+     * 关闭任务管理器并卸载运行时。
+     *
+     * runner 的 `close()` 会先执行 Arthas `reset` 还原被增强的字节码再拆除加载器（顺序不可换，
+     * 否则被插桩方法会回调已释放的类导致崩溃）；复位失败时 runner 自行记录警告并继续释放，
+     * 因为不释放会阻止 JVM 退出。
+     */
     override fun close() {
         cleanup?.cancel(false)
         timeouts.shutdownNow()

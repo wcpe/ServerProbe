@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.diagnostics.arthas
 
+import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.lang.instrument.Instrumentation
 import java.lang.reflect.Proxy
 import java.nio.file.Path
@@ -44,12 +45,50 @@ class ArthasMemoryShellRunner(
         }.getOrNull()
     }
 
+    /**
+     * 卸载前复位：先还原被增强的字节码，再拆掉 Bootstrap 与隔离加载器。
+     *
+     * **必须先 reset**：`watch`/`trace`/`monitor` 等增强类命令会 retransform 目标方法，使其每 tick 回调
+     * Arthas 的 spy 类。若直接 `destroy` + 关加载器而不还原，被插桩的方法仍会回调已释放的类 → 下一 tick
+     * NPE 崩服务器（Java 8 + Arthas 3.1.1 真机 4/4 必现，崩溃点即被插桩方法本身）。
+     * reset 由 Arthas 官方命令还原全部增强类，是本类唯一能做该还原的时机（Bootstrap 仍存活）。
+     *
+     * reset 失败不阻止卸载：此时若不释放线程会阻止 JVM 退出，故记录警告后继续，
+     * 由上层把失败原因回报给运维（服务器可能需要重启）。
+     */
     override fun close() {
         synchronized(this) {
+            resetEnhancedClasses()
             destroyBootstrap()
             loader?.close()
             loader = null
             legacySpyInitialized = false
+        }
+    }
+
+    /**
+     * 执行 Arthas `reset` 还原全部被 retransform 的类，失败只告警不抛出。
+     *
+     * 走与常规命令相同的执行通道（3 系 ShellServer / 4 系会话），因此不重复实现增强还原逻辑；
+     * 输出丢弃即可，只需成功与否。未初始化 Bootstrap 时说明从未增强过，视为已复位。
+     */
+    private fun resetEnhancedClasses() {
+        val currentBootstrap = bootstrap
+        val currentLoader = loader
+        if (currentBootstrap == null || currentLoader == null) return
+        val buffer = ArthasTaskOutputBuffer(RESET_OUTPUT_LIMIT)
+        runCatching {
+            if (usesModernApi()) {
+                executeModern(currentLoader, RESET_COMMAND, buffer)
+            } else {
+                val inst = instrumentation()
+                    ?: error("当前 JVM 未提供 Instrumentation，无法复位增强类")
+                execute(currentLoader, legacyShellServer(currentLoader, inst), RESET_COMMAND, buffer)
+            }
+        }.onFailure { error ->
+            // 复位失败也必须继续卸载（否则线程与加载器永不释放、JVM 无法退出），
+            // 但必须告警：此时被插桩的方法可能残留回调，服务器有崩溃风险。
+            ProbeLogger.warn("Arthas 卸载前复位失败，被增强的字节码可能未还原：${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -378,6 +417,10 @@ class ArthasMemoryShellRunner(
     private companion object {
         const val WORKER_SHUTDOWN_WAIT_MILLIS = 1_000L
         const val JOB_TERMINATE_WAIT_MILLIS = 3_000L
+        /** 卸载前复位命令：还原全部被 retransform 的类，避免卸载后回调已释放的 Arthas 类而崩溃。 */
+        const val RESET_COMMAND = "reset"
+        /** 复位输出仅用于诊断，无需保留完整内容。 */
+        const val RESET_OUTPUT_LIMIT = 4_096
         private val ANSI_ESCAPE = Regex("\u001B\\[[0-9;]*[A-Za-z]")
     }
 }
