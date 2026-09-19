@@ -1,0 +1,180 @@
+# E2E 真机验收：在 mc-testkit 拉起的真实服务端（Paper/Spigot/BungeeCord/Velocity）上执行断言。
+#
+# 与 ci.yml 分开的原因：触发条件与代价不同。本工作流只做手动触发与推送 v* 标签时运行——
+# 单次要下载多个服务端 jar 并逐个启动真实服务器，耗时数十分钟且受网络波动影响，
+# 挂到 push/PR 上会让每个 PR 等待半小时并产生非代码缺陷导致的假红。
+#
+# 覆盖范围：无 bot、无需外部闭源插件的 8 个场景（第 1 批 3 个 + 第 2 批 5 个）。
+# 依赖 bot（mineflayer/Node）与真实业务插件的场景仍保留为本地验收，不进 CI。
+#
+# 判据：唯一真源是 build/mc-testkit/results/<场景>.properties 中的 status=PASS，
+# gradle 退出码不能证明服务端内的断言通过，故末尾单独做结果文件断言。
+name: E2E 真机验收
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 验收范围（batch1 = 只跑第 1 批三个只读/存储/桥场景）
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - batch1
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: mc-testkit 真机验收
+    runs-on: ubuntu-latest
+    # 需下载 Paper/Spigot/BungeeCord/Velocity 服务端 jar 并逐个启动真实服务器，留足余量
+    timeout-minutes: 90
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 三个 JDK 各司其职，缺一不可：
+      # - 8：核心模块编译 toolchain（发行面向旧服务器，Java 8 字节码）
+      # - 17：e2e/harness-mcp-* 明确声明 java.toolchain.languageVersion=17，
+      #      settings.gradle.kts 未配 foojay toolchain resolver，缺 17 会直接解析失败
+      # - 21：Gradle 8.9 运行期与服务端启动（Paper/Spigot 1.20.1、Velocity 3.1.1）
+      - name: 安装 JDK 8、17 与 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+            21
+
+      - name: 配置 Gradle(含缓存)
+        uses: gradle/actions/setup-gradle@v4
+
+      # 服务端 jar 由 mc-testkit 自动下载到 ~/.gradle/caches/mc-testkit-jars/，跨次运行复用。
+      # key 用服务端版本清单所在脚本的 hash：拓扑里的平台/版本一变即失效重建；
+      # restore-keys 兜底保证版本清单未变时也能命中上一次的 jar 缓存。
+      - name: 缓存服务端 jar
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/mc-testkit-jars
+          key: mc-testkit-jars-${{ hashFiles('build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts') }}
+          restore-keys: |
+            mc-testkit-jars-
+
+      # 固定各组件使用的 JDK，不依赖 setup-java 对多版本 JAVA_HOME 的默认取值：
+      # - Gradle 跑 21（build-logic 以 Java 21 编译，插件 variant 要求 ≥21）
+      # - 后端 java 由 JavaRuntimeSelector 解析：先查 MC_TESTKIT_JAVA_HOME_<版本段>，
+      #   本批次后端全是 1.20.1 → MC_TESTKIT_JAVA_HOME_1_20；未设则回退 JAVA_HOME。
+      #   两者都指向 21，避免解析顺序变化影响起服 JDK。
+      # - 代理（Bungee/Velocity）未声明 javaVersion，直接用当前 JVM（同上为 21）。
+      - name: 固定 JDK 环境变量
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          echo "MC_TESTKIT_JAVA_HOME_1_20=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+      # 被测发行 jar 与各 harness 桩先单独构建：harness 的 compileOnly 依赖 :plugin:jar，
+      # 独立一步可在进入漫长的起服流程之前就暴露编译问题。
+      - name: 构建被测产物与验收桩
+        run: >-
+          ./gradlew
+          :plugin:jar
+          :e2e:harness:jar
+          :e2e:harness-mcp-bukkit:jar
+          :e2e:harness-mcp-bungee:jar
+          :e2e:harness-mcp-velocity:jar
+          --no-daemon --console=plain
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      # 第 1 批：只读 API、存储 SPI、回环桥 fixture（Paper 1.20.1 单后端）
+      - name: 第 1 批场景
+        run: >-
+          ./gradlew
+          e2eReadApi
+          e2eStorageSpi
+          e2eBridgeFixture
+          --no-daemon --console=plain
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      # 第 2 批：MCP 诊断五平台。一次 gradle 调用内任务按声明顺序串行执行（未开 --parallel）——
+      # 所有场景共享 build/mc-testkit/run/，cleanupIntegrationsLibraries 会在 prepare 阶段清
+      # run/libraries，并行会互相破坏；分批调用则便于按批定位失败。
+      #
+      # Bungee / Velocity 两个场景必须走 Via<Proxy> 变体，不能用同名的直连任务：
+      # mc-testkit 对每个场景都无条件注册直连任务 e2e<Key>（见 McTestkitTasks 的 verify 注册），
+      # 直连变体不起代理进程，而 prepare 却已按 via 把后端切成代理转发模式（online-mode=false +
+      # forwarding secret），代理侧断言桩也不会加载——跑出来既不代表代理路径通过，还会因转发校验失败。
+      - name: 第 2 批场景
+        if: inputs.scope != 'batch1'
+        run: >-
+          ./gradlew
+          e2eMcpDiagnosticsPaper
+          e2eMcpDiagnosticsPaperJava21
+          e2eMcpDiagnosticsSpigot
+          e2eMcpDiagnosticsBungeeViaBungeeMcp
+          e2eMcpDiagnosticsVelocityViaVelocityMcp
+          --no-daemon --console=plain
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      # 结果文件是唯一的验收证据，失败时也要留档
+      - name: 上传 E2E 结果文件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: build/mc-testkit/results/
+          if-no-files-found: error
+
+      - name: 断言结果文件全部 PASS
+        if: always()
+        env:
+          # 结果文件名为 <scenario>.properties，scenario 是 kebab-case 场景名（与 harness 内
+          # 桩判定 MC_TESTKIT_E2E_SCENARIO 的字面量一致，不由 gradle 任务名推导）。
+          # 清单按手动触发的范围收窄；标签推送没有 inputs，按全量校验。
+          EXPECTED_SCENARIOS: ${{ inputs.scope == 'batch1' && 'read-api storage-spi bridge-fixture' || 'read-api storage-spi bridge-fixture mcp-diagnostics-paper mcp-diagnostics-paper-java21 mcp-diagnostics-spigot mcp-diagnostics-bungee mcp-diagnostics-velocity' }}
+        run: |
+          python3 - <<'PY'
+          import glob
+          import os
+          import sys
+
+          RESULTS_DIR = 'build/mc-testkit/results'
+          expected = os.environ['EXPECTED_SCENARIOS'].split()
+          paths = sorted(glob.glob(os.path.join(RESULTS_DIR, '*.properties')))
+          failed = False
+          present = {}
+
+          for path in paths:
+              with open(path, encoding='utf-8') as handle:
+                  text = handle.read()
+              props = {}
+              for line in text.splitlines():
+                  stripped = line.strip()
+                  # 跳过注释与空行，按第一个等号切分键值
+                  if stripped and not stripped.startswith('#') and '=' in stripped:
+                      key, value = stripped.split('=', 1)
+                      props[key.strip()] = value.strip()
+              name = os.path.basename(path)[: -len('.properties')]
+              present[name] = props
+              if props.get('status') == 'PASS':
+                  print('[PASS] %s' % name)
+              else:
+                  print('[FAIL] %s -> status=%r' % (name, props.get('status')))
+                  print(text)
+                  failed = True
+
+          # 场景根本没产出结果文件（如服务端未能启动）同样判失败，不能静默放过
+          for scenario in expected:
+              if scenario not in present:
+                  print('[缺失] 未找到结果文件: %s' % scenario)
+                  failed = True
+
+          print('---')
+          print('结果文件 %d 个，期望场景 %d 个' % (len(present), len(expected)))
+          sys.exit(1 if failed else 0)
+          PY
