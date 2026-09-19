@@ -137,3 +137,6 @@ target/
 
 # WorkBuddy 会话数据(不入库)
 .workbuddy/
+
+# NarraFork 会话数据(不入库):实施计划与探索笔记属易朽过程稿
+.narrafork/
