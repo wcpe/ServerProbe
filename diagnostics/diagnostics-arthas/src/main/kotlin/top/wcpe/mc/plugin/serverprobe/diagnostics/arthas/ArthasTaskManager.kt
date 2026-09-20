@@ -115,8 +115,11 @@ class ArthasTaskManager(
             Thread.currentThread().interrupt()
         } catch (error: Throwable) {
             if (task.state != ArthasTaskState.TIMED_OUT) {
-                task.state = ArthasTaskState.FAILED
+                // message 必须先于 state 写入：两者虽均为 @Volatile，但 state 一变即为"终态已发布"的信号，
+                // 轮询方（状态查询/测试等待）看到 FAILED 后会立即读 message；先写 state 会留下
+                // "状态已终态、原因尚未就绪"的窗口（CI 实测间歇假红）。
                 task.message = "Arthas 命令执行失败：${failureType(error)}"
+                task.state = ArthasTaskState.FAILED
             }
         } finally {
             task.timeout?.cancel(false)
