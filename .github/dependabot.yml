@@ -31,3 +31,8 @@ updates:
       - dependency-name: "io.papermc.paper:paper-api"
       - dependency-name: "net.md-5:bungeecord-api"
       - dependency-name: "com.velocitypowered:velocity-api"
+
+      # JUnit 主版本升级：JUnit 6 要求 Java 17+，与本项目 Java 8 字节码目标
+      # （ADR-3 锁定）硬冲突，解析期即失败。只忽略主版本，5.x 内的小版本仍会提示。
+      - dependency-name: "org.junit.jupiter:junit-jupiter"
+        update-types: ["version-update:semver-major"]
