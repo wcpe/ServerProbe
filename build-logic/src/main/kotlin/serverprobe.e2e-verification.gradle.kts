@@ -738,7 +738,7 @@ private data class IntegrationsPluginSet(
  * 为 FR10 组合准备真实外部插件与离线闭包。
  *
  * ⚠️ 本函数的注入链仍指向 mc-testkit 的遗留共享运行目录（`build/mc-testkit/run`），而 mc-testkit
- * 0.10.1 起单后端运行目录已隔离为 `run-<后端名>`，故离线闭包与外部插件不会到达实际运行目录。
+ * 现已把单后端运行目录隔离为 `run-<后端名>`，故离线闭包与外部插件不会到达实际运行目录。
  * FR10 场景需按 `mcTestkit.backendRunDirectory("paper-integrations")` 迁移后再跑（本次未验）。
  */
 private fun Project.prepareIntegrationsRuntime(
