@@ -16,7 +16,7 @@ dependencies {
     compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
 
     testImplementation(project(":project:core"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
 }
 
 tasks.test {
