@@ -23,7 +23,7 @@ dependencies {
     // 注解为 RUNTIME retention；测试反射校验字段 @Inject 时必须能解析注解类型（compileOnly 不进测试运行时）。
     testImplementation("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
     // 仅用于验证反射 Netty 处理器的真实透传行为，不参与发行包。
-    testImplementation("io.netty:netty-transport:4.2.17.Final")
+    testImplementation("io.netty:netty-transport:4.2.18.Final")
     testImplementation("org.xerial:sqlite-jdbc:3.53.2.1")
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
 }
