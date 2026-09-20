@@ -15,6 +15,16 @@ public final class BukkitMcpDiagnosticsHarness extends JavaPlugin {
     private static final String SPIGOT_SCENARIO = "mcp-diagnostics-spigot";
     private static final String TARGET_VALUE = "mcp-arthas-target";
 
+    /**
+     * watch / trace 任务的超时：须**明显大于**触发窗口，否则任务会在持续触发期间先行超时
+     * （窗口见 [ARTHAS_TRIGGER_ATTEMPTS] × [ARTHAS_TRIGGER_INTERVAL_MILLIS]）。
+     */
+    private static final int ARTHAS_OBSERVE_TIMEOUT_MILLIS = 20_000;
+
+    /** 触发窗口 ≈ 50 × 200ms = 10s，覆盖 Arthas 懒初始化 + 类增强完成较慢的情形。 */
+    private static final int ARTHAS_TRIGGER_ATTEMPTS = 50;
+    private static final long ARTHAS_TRIGGER_INTERVAL_MILLIS = 200L;
+
     @Override
     public void onEnable() {
         if (PAPER_SCENARIO.equals(System.getenv("MC_TESTKIT_E2E_SCENARIO"))) {
@@ -45,12 +55,12 @@ public final class BukkitMcpDiagnosticsHarness extends JavaPlugin {
     /** 调用纯函数触发有限次数的 Arthas watch 与 trace，不改变服务器状态。 */
     private void verifyModernArthas(McpDiagnosticsE2eSupport.Client client) throws Exception {
         String className = BukkitMcpDiagnosticsHarness.class.getName();
-        String watchTask = client.task("arthas_watch", "{\"className\":\"" + className + "\",\"methodName\":\"watchTarget\",\"expression\":\"{params,returnObj}\",\"maxMatches\":1,\"timeoutMillis\":5000}");
+        String watchTask = client.task("arthas_watch", "{\"className\":\"" + className + "\",\"methodName\":\"watchTarget\",\"expression\":\"{params,returnObj}\",\"maxMatches\":1,\"timeoutMillis\":" + ARTHAS_OBSERVE_TIMEOUT_MILLIS + "}");
         invokeTargetUntilComplete(client, watchTask);
         String watch = client.awaitSuccess(watchTask, "watch");
         require(watch.contains(TARGET_VALUE), "结构化 watch 未记录目标调用");
 
-        String traceTask = client.task("arthas_trace", "{\"className\":\"" + className + "\",\"methodName\":\"watchTarget\",\"maxMatches\":1,\"timeoutMillis\":5000}");
+        String traceTask = client.task("arthas_trace", "{\"className\":\"" + className + "\",\"methodName\":\"watchTarget\",\"maxMatches\":1,\"timeoutMillis\":" + ARTHAS_OBSERVE_TIMEOUT_MILLIS + "}");
         invokeTargetUntilComplete(client, traceTask);
         client.awaitSuccess(traceTask, "trace");
 
@@ -61,15 +71,27 @@ public final class BukkitMcpDiagnosticsHarness extends JavaPlugin {
         client.awaitSuccess(client.task("arthas_revert", "{\"entryId\":" + retransformEntryId(retransformOutput, retransformList, className) + ",\"timeoutMillis\":5000}"), "revert");
     }
 
+    /**
+     * 持续触发观察目标直到任务进入终态。
+     *
+     * 触发窗口必须**显著长于** Arthas 的懒初始化 + 类增强耗时：本 harness 的第一个 Arthas 调用就是
+     * watch/trace，任务提交后 Arthas 才 bootstrap（实测 ~0.6s）再增强（~0.3s）；若把窗口写成与之
+     * 相当的一小段（如 10×100ms），窗口内调用会全部落在增强完成之前，任务只能等到自身超时。
+     * 实测该写法在 java21 后端约 1/3 概率假红（同输入时好时坏），放宽到数十次 × 百毫秒即稳定。
+     */
     private void invokeTargetUntilComplete(McpDiagnosticsE2eSupport.Client client, String taskId) throws Exception {
-        for (int attempt = 0; attempt < 10; attempt++) {
-            Thread.sleep(100L);
+        long startedAt = System.currentTimeMillis();
+        for (int attempt = 0; attempt < ARTHAS_TRIGGER_ATTEMPTS; attempt++) {
             watchTarget(TARGET_VALUE);
             String status = client.call("arthas_task_status", "{\"taskId\":\"" + taskId + "\"}");
             if (status.contains("SUCCEEDED")) return;
-            if (status.contains("FAILED") || status.contains("TIMED_OUT")) {
-                throw new IllegalStateException("Arthas 任务启动失败：" + status);
+            if (status.contains("FAILED") || status.contains("CANCELLED") || status.contains("TIMED_OUT")) {
+                throw new IllegalStateException(
+                    "Arthas 任务启动失败：第 " + (attempt + 1) + " 次触发，" + (System.currentTimeMillis() - startedAt) + "ms，" + status
+                        + " 任务输出：" + client.call("arthas_task_output", "{\"taskId\":\"" + taskId + "\"}")
+                );
             }
+            Thread.sleep(ARTHAS_TRIGGER_INTERVAL_MILLIS);
         }
     }
 

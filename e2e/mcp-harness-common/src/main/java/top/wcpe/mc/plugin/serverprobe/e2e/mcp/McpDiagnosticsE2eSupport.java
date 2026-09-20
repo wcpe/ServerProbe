@@ -175,7 +175,12 @@ public final class McpDiagnosticsE2eSupport {
                 status = call("arthas_task_status", "{\"taskId\":\"" + json(taskId) + "\"}");
                 if (status.contains("SUCCEEDED")) return call("arthas_task_output", "{\"taskId\":\"" + json(taskId) + "\"}");
                 if (status.contains("FAILED") || status.contains("CANCELLED") || status.contains("TIMED_OUT")) {
-                    throw new IllegalStateException("Arthas " + operation + " 执行失败：" + limit(status));
+                    // 终态失败时一并取回任务输出：输出非空说明命令已捕获到目标调用（卡在完成通知），
+                    // 输出为空则说明调用根本没落到增强后的方法上——两者根因完全不同，必须能分辨
+                    throw new IllegalStateException(
+                        "Arthas " + operation + " 执行失败：" + limit(status)
+                            + " 任务输出：" + limit(call("arthas_task_output", "{\"taskId\":\"" + json(taskId) + "\"}"))
+                    );
                 }
             }
             call("arthas_task_cancel", "{\"taskId\":\"" + json(taskId) + "\"}");
