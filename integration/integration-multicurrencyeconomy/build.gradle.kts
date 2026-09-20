@@ -19,7 +19,7 @@ dependencies {
     compileOnly("ink.ptms.core:v12004:12004:universal")
     compileOnly("top.wcpe.mc.plugin.multicurrencyeconomy:multicurrencyeconomy-api:1.2.0")
     testImplementation(project(":project:core"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
     testImplementation("top.wcpe.mc.plugin.multicurrencyeconomy:multicurrencyeconomy-api:1.2.0")
 }
 

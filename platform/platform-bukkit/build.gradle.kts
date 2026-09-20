@@ -29,7 +29,7 @@ dependencies {
     testImplementation(project(":api"))
     // Folia region 与 Incision 单测直接使用 core 的纯逻辑辅助类。
     testImplementation(project(":project:core"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
 }
 
 tasks.test {
