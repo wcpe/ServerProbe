@@ -63,5 +63,5 @@
   - 玩家加入时的高频区块包会把单页 100 条查询挤出白名单记录，直连场景验收查询必须按白名单包类型过滤；
   - Folia 1.21.4 运行时为 Mojang 映射，入站自定义载荷类名为 `bukkit.ServerboundCustomPayloadPacket`（Spigot/Paper 1.20 为 `bukkit.PacketPlayInCustomPayload`）；
   - Folia 上验收轮询必须运行在独立线程，不得占用全局 region 调度器线程（会冻结全局 tick 并饿死探针调度任务）。
-- 单测：`SqlitePacketForensicsStoreTest`、`IpMaskerTest`、`PacketTrafficAggregatorTest`、`PacketCapturePolicyTest`、`ReflectiveNettyForensicsTest`、`NetworkForensicsWebQueryTest`、`BukkitNetworkForensicsE2eContractTest` 等全绿；逐条证据见 `.tmp/acceptance-phase-M5-2026-08-28.md`。
+- 单测：`SqlitePacketForensicsStoreTest`、`IpMaskerTest`、`PacketTrafficAggregatorTest`、`PacketCapturePolicyTest`、`ReflectiveNettyForensicsTest`、`NetworkForensicsWebQueryTest`、`BukkitNetworkForensicsE2eContractTest` 等全绿。
 

@@ -67,7 +67,7 @@
 ## 7. 验收记录（2026-08-28）
 
 - 七组真机结果文件全部 PASS（`build/mc-testkit/results/`）：`mcp-diagnostics-paper-java21`（Arthas 4.3.2 真实 watch/trace/redefine/retransform/revert）、`mcp-diagnostics-java8`（瘦 agent + Arthas 3.1.1 真实 `sc`；正式 jar 打包策略未变）、`mcp-diagnostics-folia`、`mcp-diagnostics-bungee`、`mcp-diagnostics-velocity`、`mcp-diagnostics-spigot`、`mcp-diagnostics-velocity-java25`（Velocity 4.1.0 + JDK25）。
-- JDK25 真机证据（`run-proxy/velocity-mcp-java25.log`）：代理进程确认为 `C:\Users\Admin\.jdks\ms-25.0.4.1\bin\java.exe`；MCP 启动于 `127.0.0.1:19882/mcp` 并打印空密钥醒目中文 WARN；Arthas 横幅 `Current arthas version: 4.3.2`；真实 JSON-RPC 执行 `version`（返回 4.3.2）与 `sc`（命中 Velocity 验收类）。
+- JDK25 真机证据（`run-proxy/velocity-mcp-java25.log`）：代理进程确认为 JDK 25.0.4.1 运行时的 `java.exe`；MCP 启动于 `127.0.0.1:19882/mcp` 并打印空密钥醒目中文 WARN；Arthas 横幅 `Current arthas version: 4.3.2`；真实 JSON-RPC 执行 `version`（返回 4.3.2）与 `sc`（命中 Velocity 验收类）。
 - 默认关闭验证：MCP 默认不监听；Arthas 上游 Telnet/HTTP/MCP 端口未监听。
 - 无 premain 的动态 attach 失败降级与 `arthas_retry_attach` 由 diagnostics-arthas 单测与降级逻辑覆盖；真机 E2E 主路径为 `-javaagent` premain（§6 风险条款认定 premain 为确定路径）。
-- 单测：`McpHttpServerTest`、`McpJsonRpcDispatcherTest`、`McpAuditTrailTest`、`McpArtifactWorkspaceTest`、`ArthasTaskManagerTest`、`ArthasRuntimeExtractorTest`、`ArthasIsolatedClassLoaderTest`、`ArthasInstrumentationAccessTest`、`NativeMcpToolProviderTest`、`McpIocContractTest` 等全绿；逐条证据见 `.tmp/acceptance-phase-M5-2026-08-28.md`。
+- 单测：`McpHttpServerTest`、`McpJsonRpcDispatcherTest`、`McpAuditTrailTest`、`McpArtifactWorkspaceTest`、`ArthasTaskManagerTest`、`ArthasRuntimeExtractorTest`、`ArthasIsolatedClassLoaderTest`、`ArthasInstrumentationAccessTest`、`NativeMcpToolProviderTest`、`McpIocContractTest` 等全绿。

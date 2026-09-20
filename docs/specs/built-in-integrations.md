@@ -13,7 +13,7 @@ FR-09 已证明业务桥协议可独立验收，但其 Bukkit Provider 仍混在
 - MultiCurrencyEconomy 通过 Bukkit `ServicesManager` 在启用期/插件启用事件后发现服务；写操作只在异步执行器运行，并保留调用方提供的确定性幂等键。
 - AllinInventorySync 通过其公开 API 完成读取、写入、事件与失败回执适配；不反射访问内部 Manager。
 - 两个 Provider 独立注册、独立卸载、独立报告可用状态；任一外部插件不存在、未就绪、重载或故障时不得拖垮另一集成或 ServerProbe 主体。
-- 真实验收必须注入并运行 `D:\Projects\MultiCurrencyEconomy` 与 `D:\Projects\AllinInventorySync` 构建出的真实插件，不以假实现替代。
+- 真实验收必须注入并运行 `MultiCurrencyEconomy` 与 `AllinInventorySync` 各自工程构建出的真实插件，不以假实现替代。
 - 范围内：迁移现有经济/背包 Provider、服务生命周期、FR-09 业务命令与业务事件 E2E。
 - 不做：让 MCE/AIS 反向依赖 ServerProbe、增加第三个业务集成、把集成拆成服主需另装的插件。
 
@@ -54,5 +54,5 @@ FR-09 已证明业务桥协议可独立验收，但其 Bukkit Provider 仍混在
 
 - 四组 mc-testkit 真实场景全部 PASS：`integrations-both`（真实 MCE 1.2.0 + AIS 2.1.0-SNAPSHOT 注入）、`integrations-mce-only`、`integrations-ais-only`、`integrations-none`；结果文件位于 `build/mc-testkit/results/`。
 - 运行期强制 HTTP/HTTPS 代理 `127.0.0.1:9` 断网；TabooLib 运行时来自 616 项离线闭包，日志无仓库下载。
-- 全量单测、IoC 门禁与发行 jar 外部 API 未打包检查通过；逐条证据见 `.tmp/acceptance-phase-M5-2026-08-28.md`。
+- 全量单测、IoC 门禁与发行 jar 外部 API 未打包检查通过。
 

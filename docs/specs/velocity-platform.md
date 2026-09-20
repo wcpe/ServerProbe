@@ -53,4 +53,3 @@
 
 - 三组真机矩阵全部 PASS（`build/mc-testkit/results/`）：`velocity-matrix-v31`（3.1.1，legacy forwarding，Paper 1.18.1——唯一允许 legacy 的版本）、`velocity-matrix-v35`（3.5.1，modern forwarding，Paper 1.20.1）、`velocity-matrix-v41`（4.1.0，modern forwarding，JDK25）。
 - 同一发布 jar 注入代理，双真实 Paper 后端 + 两名协议玩家；切服路由、后端 RTT/可达性、玩家 ping 与 FR-11 网络取证均经真实协议验证。
-- 逐条证据见 `.tmp/acceptance-phase-M5-2026-08-28.md`。
