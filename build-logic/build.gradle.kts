@@ -7,7 +7,7 @@ group = "top.wcpe.mc.plugin.serverprobe.buildlogic"
 dependencies {
     // 外部插件以 marker 坐标引入（group = 插件 id，artifact = 插件 id + ".gradle.plugin"），
     // 使 precompiled script plugins 可以在编译期引用其类型与 DSL。
-    implementation("org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin:2.1.0")
+    implementation("org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin:2.4.20")
     implementation("io.izzel.taboolib:io.izzel.taboolib.gradle.plugin:2.0.37-fix")
     implementation("top.wcpe.taboolib.ioc:top.wcpe.taboolib.ioc.gradle.plugin:0.0.6")
     implementation("io.gitlab.arturbosch.detekt:io.gitlab.arturbosch.detekt.gradle.plugin:1.23.7")
