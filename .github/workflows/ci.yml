@@ -85,8 +85,13 @@ jobs:
       - name: 配置 Gradle(含缓存)
         uses: gradle/actions/setup-gradle@v4
 
+      # Windows runner 预装了独立 Gradle(chocolatey 的 gradle 9.x)，`./gradlew` 在默认 shell 下
+      # 可能解析到 PATH 里的 gradle 命令而非仓库 wrapper，导致 -D 参数被当成任务名使构建失败
+      # （实测报错：Task '.gradle.java.installations.fromEnv=...' not found）。
+      # 故显式用 gradlew.bat 并指定 cmd shell，确保走仓库自带的 Gradle 版本。
       - name: 构建 + 单元测试 + detekt 静态检查
-        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+        shell: cmd
+        run: gradlew.bat build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
 
   # 覆盖率统计：只产出报告、不设门槛(JaCoCo 已在 serverprobe.base 约定插件中统一应用)。
   # 目的：先积累几个月的真实基线数据，再据此讨论阈值；避免凭空定一个数把 PR 卡住或催生凑数测试。
