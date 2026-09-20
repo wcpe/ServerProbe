@@ -70,7 +70,7 @@ dependencies {
     taboo(project(":integration:integration-allininventorysync"))
     taboo(project(":diagnostics:diagnostics-arthas"))
     // FR11 SQLite 驱动随发行 Jar 内置，禁止运行期联网下载。
-    taboo("org.xerial:sqlite-jdbc:3.53.2.1")
+    taboo("org.xerial:sqlite-jdbc:3.53.4.0")
     // 启动期 agent 的字节码插桩依赖 ASM。用 taboo(...) 而非 compileOnly:
     // taboo 既加入编译类路径(agent 纯 Java 需编译期可见 ASM),又把 ASM 的 class 实打实合并进二合一 jar,
     // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。

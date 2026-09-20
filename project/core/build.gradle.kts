@@ -15,7 +15,7 @@ dependencies {
     compileOnly(project(":api"))
     compileOnly(fileTree("libs"))
     // SQLite 驱动由 plugin 模块随发行 Jar 内置；core 仅保留编译期类型可见性。
-    compileOnly("org.xerial:sqlite-jdbc:3.53.2.1")
+    compileOnly("org.xerial:sqlite-jdbc:3.53.4.0")
     // IOC 注解(仅编译期);运行期由 plugin 的 autoTakeover 统一扫描纳管(A 策略)
     compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
 
@@ -24,7 +24,7 @@ dependencies {
     testImplementation("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
     // 仅用于验证反射 Netty 处理器的真实透传行为，不参与发行包。
     testImplementation("io.netty:netty-transport:4.2.18.Final")
-    testImplementation("org.xerial:sqlite-jdbc:3.53.2.1")
+    testImplementation("org.xerial:sqlite-jdbc:3.53.4.0")
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
     // JUnit 5.12+ 要求测试运行期显式具备 Platform launcher，否则 Gradle 报
     // "Could not start Gradle Test Executor / Failed to load JUnit Platform"。
