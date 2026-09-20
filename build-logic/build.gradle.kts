@@ -11,7 +11,7 @@ dependencies {
     implementation("io.izzel.taboolib:io.izzel.taboolib.gradle.plugin:2.0.37-fix")
     implementation("top.wcpe.taboolib.ioc:top.wcpe.taboolib.ioc.gradle.plugin:0.0.6")
     implementation("io.gitlab.arturbosch.detekt:io.gitlab.arturbosch.detekt.gradle.plugin:1.23.7")
-    implementation("top.wcpe.mc-testkit:top.wcpe.mc-testkit.gradle.plugin:0.8.0")
+    implementation("top.wcpe.mc-testkit:top.wcpe.mc-testkit.gradle.plugin:0.10.0")
 }
 
 // build-logic 自身的编译目标：21（mc-testkit 等插件构件以 Java 21 目标发布，consumer 必须 ≥21

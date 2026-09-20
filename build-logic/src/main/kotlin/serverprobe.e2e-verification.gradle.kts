@@ -131,6 +131,8 @@ mcTestkit.apply {
     backend("matrix-paper-1-16-5") {
         platform = paper
         version = "1.16.5"
+        // 1.16.5 的 patcher 拒绝 Java 17+（实测 Unsupported Java detected），锁定 Java 8 起服
+        javaVersion = 8
         port = 25612
     }
     backend("matrix-paper-1-17-1") {
@@ -158,6 +160,13 @@ mcTestkit.apply {
         version = "1.21.1"
         port = 25617
     }
+    // MC 26.x 纪元版本（新版本号方案，要求 Java 25+）：验证 mc-testkit 对新版本号的下载与起服
+    backend("matrix-paper-26-2") {
+        platform = paper
+        version = "26.2"
+        javaVersion = 25
+        port = 25622
+    }
     backend("matrix-spigot-1-8-8") {
         platform = spigot
         version = "1.8.8"
@@ -166,6 +175,8 @@ mcTestkit.apply {
     backend("matrix-spigot-1-16-5") {
         platform = spigot
         version = "1.16.5"
+        // 同 paper-1-16-5：锁定 Java 8
+        javaVersion = 8
         port = 25619
     }
     backend("paper-network-velocity") {
@@ -329,6 +340,7 @@ mcTestkit.apply {
     scenario("matrix-paper-1-19-4") { backend = "matrix-paper-1-19-4" }
     scenario("matrix-paper-1-20-4") { backend = "matrix-paper-1-20-4" }
     scenario("matrix-paper-1-21-1") { backend = "matrix-paper-1-21-1" }
+    scenario("matrix-paper-26-2") { backend = "matrix-paper-26-2" }
     scenario("matrix-spigot-1-8-8") { backend = "matrix-spigot-1-8-8" }
     scenario("matrix-spigot-1-16-5") { backend = "matrix-spigot-1-16-5" }
     scenario("network-forensics-bukkit") {
@@ -433,15 +445,21 @@ mcTestkit.apply {
 
 // ── e2e 场景配置注入统一工具：模板文件 + 占位符替换，禁止在脚本内嵌 YAML 字符串 ──
 
-/** 读取 e2e/templates/configs/<scenario>/ 下的配置模板，替换占位符后写入 mc-testkit 运行目录。 */
+/**
+ * 读取 `e2e/templates/configs/<scenario>/` 下的配置模板，替换占位符后写入**目标后端运行目录**。
+ *
+ * 目录一律由 mc-testkit 的公开契约给出（`mcTestkit.backendRunDirectory`），本脚本不自行拼路径：
+ * 布局属 mc-testkit 内部实现，自行拼写在布局调整后会静默失配（曾把配置写进已废弃的共享 run 目录）。
+ */
 private fun Project.installE2eConfig(
+    targetRunDirectory: File,
     scenario: String,
     targetRelativePath: String,
     replacements: Map<String, String> = emptyMap(),
 ) {
     val template = rootProject.layout.projectDirectory.file("e2e/templates/configs/$scenario/$targetRelativePath").asFile
     check(template.isFile) { "e2e 配置模板缺失：${template.relativeTo(rootProject.layout.projectDirectory.asFile)}" }
-    val target = e2eRunDirectory.get().file(targetRelativePath).asFile
+    val target = File(targetRunDirectory, targetRelativePath)
     target.parentFile.mkdirs()
     var content = template.readText()
     replacements.forEach { (key, value) -> content = content.replace(key, value) }
@@ -460,10 +478,11 @@ tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
     dependsOn(":e2e:harness:jar")
 }
 
-// 清理共享 run/libraries 中的离线闭包残留：FR10 集成场景会把 TabooLib 运行库注入标准
-// libraries/（mc-testkit 仅扫描该目录），而 RunLayout 将其列为保留缓存、场景间不清除，
-// 残留库会被后续 spigot 等场景的 classpath 扫描到并破坏启动（如 org.bukkit.Registry 冲突）。
-// 非集成场景 prepare 前先清空，避免污染；集成场景自身仍注入标准目录。
+// 清理运行库目录中 FR10 离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
+// 在场景间不清除（mc-testkit 保留它以免重复下载）。残留闭包会被后续在同一运行目录起服的场景经
+// 服务端自身的运行库加载读到（TabooLib 的 taboolib.file-libs 默认即指向 libraries/），
+// 曾破坏 spigot 等场景的启动（如 org.bukkit.Registry 冲突）。
+// 非集成场景 prepare 前先清空，避免污染；集成场景自身仍注入该目录。
 val cleanupIntegrationsLibraries by tasks.registering {
     group = "verification"
     description = "清理共享 run/libraries 中 FR10 离线闭包残留，防止污染其他场景"
@@ -494,11 +513,14 @@ val prepareBridgeFixture by tasks.registering {
     description = "为 FR9 回环 Worker fixture 生成一次性本机桥配置"
     dependsOn("prepareE2eBridgeFixture")
     outputs.upToDateWhen { false }
+    // 配置期只取 Provider，任务动作执行期才解析（配置缓存友好）
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
         val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
         installE2eConfig(
+            runDirectory.get().asFile,
             "bridge-fixture",
             "plugins/ServerProbe/config.yml",
             mapOf("__PORT__" to port.toString(), "__TOKEN__" to token),
@@ -712,6 +734,13 @@ private data class IntegrationsPluginSet(
     val ais: Boolean,
 )
 
+/**
+ * 为 FR10 组合准备真实外部插件与离线闭包。
+ *
+ * ⚠️ 本函数的注入链仍指向 mc-testkit 的遗留共享运行目录（`build/mc-testkit/run`），而 mc-testkit
+ * 0.10.1 起单后端运行目录已隔离为 `run-<后端名>`，故离线闭包与外部插件不会到达实际运行目录。
+ * FR10 场景需按 `mcTestkit.backendRunDirectory("paper-integrations")` 迁移后再跑（本次未验）。
+ */
 private fun Project.prepareIntegrationsRuntime(
     taskName: String,
     e2eTaskName: String,
@@ -722,7 +751,8 @@ private fun Project.prepareIntegrationsRuntime(
     dependsOn("prepareE2e$e2eTaskName", prepareOfflineTabooRuntime)
     outputs.upToDateWhen { false }
     doLast {
-        // 离线闭包注入标准 libraries/（mc-testkit ServerLauncher 仅扫描该目录加载 TabooLib 模块）。
+        // 离线闭包注入 TabooLib 的运行库目录 libraries/（其 taboolib.file-libs 默认指向该目录，
+        // 运行期由 TabooLib 自身加载；mc-testkit 的启动器不扫描该目录）。
         // 非集成场景 prepare 前会经 cleanupIntegrationsLibraries 清空此处残留，避免污染。
         copyOfflineRuntimeLibraries(
             File(offlineTabooRuntimeDirectory.get().asFile, "libraries"),
@@ -738,7 +768,7 @@ private fun Project.prepareIntegrationsRuntime(
         if (plugins.ais) {
             copyE2ePlugin(requiredE2eJar("SERVERPROBE_E2E_AIS_JAR"), pluginsDirectory)
         }
-        writeIntegrationsConfigurations()
+        writeIntegrationsConfigurations(e2eRunDirectory.get().asFile)
     }
 }
 
@@ -756,7 +786,7 @@ private fun Project.requiredE2eJar(name: String): File {
 }
 
 /** 只写入可公开的 H2 测试配置与随机回环凭据；不落盘任何真实地址或密钥。 */
-private fun Project.writeIntegrationsConfigurations() {
+private fun Project.writeIntegrationsConfigurations(targetRunDirectory: File) {
     val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
     val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
     val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
@@ -766,7 +796,7 @@ private fun Project.writeIntegrationsConfigurations() {
         "plugins/MultiCurrencyEconomy/config.yml",
         "plugins/AllinInventorySync/config.yml",
     ).forEach { relative ->
-        installE2eConfig("integrations", relative, mapOf("__PORT__" to port.toString(), "__TOKEN__" to token))
+        installE2eConfig(targetRunDirectory, "integrations", relative, mapOf("__PORT__" to port.toString(), "__TOKEN__" to token))
     }
 }
 
@@ -809,8 +839,9 @@ val prepareFoliaObservedRegionsConfiguration by tasks.registering {
     description = "为 FR12 Folia 场景写入快速采样与 region 过期配置"
     dependsOn("prepareE2eFoliaObservedRegions")
     outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("folia")
     doLast {
-        installE2eConfig("folia-observed-regions", "plugins/ServerProbe/config.yml")
+        installE2eConfig(runDirectory.get().asFile, "folia-observed-regions", "plugins/ServerProbe/config.yml")
     }
 }
 
@@ -823,17 +854,23 @@ val prepareMcpDiagnosticsConfiguration by tasks.registering {
     description = "在 Paper 启动前写入 FR14 MCP 场景配置"
     dependsOn("prepareE2eMcpDiagnosticsPaper")
     outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("paper-mcp")
     doLast {
-        installE2eConfig("mcp-diagnostics", "plugins/ServerProbe/config.yml")
+        installE2eConfig(runDirectory.get().asFile, "mcp-diagnostics", "plugins/ServerProbe/config.yml")
     }
 }
 
 wireE2eDependency("e2eMcpDiagnosticsPaper", prepareMcpDiagnosticsConfiguration)
 
-/** 直接后端场景在 mc-testkit 铺设完运行目录后才注入专属验收桩，避免污染 Java8 场景。 */
+/**
+ * 直接后端场景在 mc-testkit 铺设完运行目录后才注入专属验收桩，避免污染 Java8 场景。
+ *
+ * 注入落点取自 mc-testkit 的公开契约（`mcTestkit.backendRunDirectory`），不自行拼路径。
+ */
 private fun Project.prepareDirectHarness(
     name: String,
     prepareTask: String,
+    backendName: String,
     harnessProjectPath: String,
     harnessJarName: String,
 ) = tasks.register(name) {
@@ -841,28 +878,33 @@ private fun Project.prepareDirectHarness(
     dependsOn(prepareTask, "$harnessProjectPath:jar")
     inputs.file(rootProject.layout.projectDirectory.file("e2e/${harnessProjectPath.removePrefix(":e2e:").replace(':', '/')}/build/libs/$harnessJarName"))
     outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory(backendName)
     doLast {
         val source = rootProject.layout.projectDirectory.file(
             "e2e/${harnessProjectPath.removePrefix(":e2e:").replace(':', '/')}/build/libs/$harnessJarName",
         ).asFile
         check(source.isFile) { "harness jar 未构建：${source.absolutePath}" }
-        val target = e2eRunDirectory.get().file("plugins/${source.name}").asFile
+        val target = File(runDirectory.get().asFile, "plugins/${source.name}")
         target.parentFile.mkdirs()
         source.copyTo(target, overwrite = true)
     }
 }
 
 val prepareMcpPaperJava21Harness = prepareDirectHarness(
-    "prepareMcpPaperJava21Harness", "prepareE2eMcpDiagnosticsPaperJava21", ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
+    "prepareMcpPaperJava21Harness", "prepareE2eMcpDiagnosticsPaperJava21", "paper-mcp-java21",
+    ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
 )
 val prepareMcpFoliaHarness = prepareDirectHarness(
-    "prepareMcpFoliaHarness", "prepareE2eMcpDiagnosticsFolia", ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
+    "prepareMcpFoliaHarness", "prepareE2eMcpDiagnosticsFolia", "folia-mcp",
+    ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
 )
 val prepareMcpJava8Harness = prepareDirectHarness(
-    "prepareMcpJava8Harness", "prepareE2eMcpDiagnosticsJava8", ":e2e:harness-mcp-java8", "mc-testkit-mcp-java8-harness-1.0.0-SNAPSHOT.jar",
+    "prepareMcpJava8Harness", "prepareE2eMcpDiagnosticsJava8", "paper-mcp-java8",
+    ":e2e:harness-mcp-java8", "mc-testkit-mcp-java8-harness-1.0.0-SNAPSHOT.jar",
 )
 val prepareMcpSpigotHarness = prepareDirectHarness(
-    "prepareMcpSpigotHarness", "prepareE2eMcpDiagnosticsSpigot", ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
+    "prepareMcpSpigotHarness", "prepareE2eMcpDiagnosticsSpigot", "spigot-mcp",
+    ":e2e:harness-mcp-bukkit", "mc-testkit-mcp-bukkit-harness-1.0.0-SNAPSHOT.jar",
 )
 
 wireE2eDependency("e2eMcpDiagnosticsPaperJava21", prepareMcpPaperJava21Harness)
