@@ -12,7 +12,7 @@
 - 记录时间、方向、玩家 UUID/名称、完整 IP、包类型、通道、原始长度、SHA-256 与可选载荷。
 - 默认开启取证；元数据与包类型始终记录，完整载荷只记录白名单包类型；Plugin Message 还必须命中独立通道白名单，默认空。
 - 单包载荷默认最多 64 KiB，可配置；截断仍保存原始长度与完整原始包 SHA-256。
-- SQLite JDBC 固定 `3.53.2.1`，作为发行 jar 内嵌闭包随包分发（ADR-0019 的发行形态演进 + ADR-0027：不再依赖 TabooLib 在线下载）；数据库文件为通用库 `serverprobe-store.sqlite`（旧 `network-forensics.sqlite` 启动时自动迁移）；驱动加载失败时仅关闭数据库取证，聚合指标继续工作并打印中文 WARN。
+- SQLite JDBC 由 `gradle.properties` 的 `sqlite.jdbc.version` 集中管理（当前 3.53.4.0），作为发行 jar 内嵌闭包随包分发（ADR-0019 的发行形态演进 + ADR-0027：不再依赖 TabooLib 在线下载，ADR-0027 同时约定驱动升级走版本变量、随发行版本整体发布）；数据库文件为通用库 `serverprobe-store.sqlite`（旧 `network-forensics.sqlite` 启动时自动迁移）；驱动加载失败时仅关闭数据库取证，聚合指标继续工作并打印中文 WARN。
 - 默认保留 60 天、数据库上限 4 GiB，可配置；任一限制超出时按最早记录优先删除。
 - Prometheus 只暴露聚合速率、包类型计数和脱敏 IP 前缀：IPv4 `/24`、IPv6 `/64`，每采样周期 Top 100，其余合并为 `other`。
 - Web 与 FR-08 只读 API 可查询完整 IP、包类型和白名单载荷；必须给出时间范围，可按方向、包类型、玩家 UUID/名称、IP 过滤，最多 100 条/页。
