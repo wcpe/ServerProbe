@@ -323,6 +323,11 @@ mcTestkit.apply {
         backend = "paper-mcp-proxy"
         via = "velocity-mcp-java25"
     }
+    // 单后端 + bot 的场景必须用 e2e<Key>WithBot 跑（或先跑 launch<Key>Bot 再跑 e2e<Key>）：
+    // mc-testkit 的直连任务 e2e<Key> 只 dependsOn(prepare)，对 launch<Key>Bot 仅 mustRunAfter 排序——
+    // bot 不在它的任务图里，直接跑 e2e<Key> 不会起机器人，场景会以「未等到 bot 入服 / 未查询到真实
+    // 协议记录」超时失败（现象是 mc-testkit 日志里根本没有 bot 启动行、服务端也没有玩家入服记录）。
+    // 经代理（e2e<Key>Via<Proxy>）与集群（e2e<Key>Cluster）任务不受此限：它们自身就会起 bot。
     scenario("folia-observed-regions") {
         backend = "folia"
         bot {
@@ -737,7 +742,7 @@ private data class IntegrationsPluginSet(
 /**
  * 为 FR10 组合准备真实外部插件与离线闭包。
  *
- * ⚠️ 本函数的注入链仍指向 mc-testkit 的遗留共享运行目录（`build/mc-testkit/run`），而 mc-testkit
+ * 本函数的注入链仍指向 mc-testkit 的遗留共享运行目录（`build/mc-testkit/run`），而 mc-testkit
  * 现已把单后端运行目录隔离为 `run-<后端名>`，故离线闭包与外部插件不会到达实际运行目录。
  * FR10 场景需按 `mcTestkit.backendRunDirectory("paper-integrations")` 迁移后再跑（本次未验）。
  */
