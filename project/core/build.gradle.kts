@@ -25,7 +25,11 @@ dependencies {
     // 仅用于验证反射 Netty 处理器的真实透传行为，不参与发行包。
     testImplementation("io.netty:netty-transport:4.2.18.Final")
     testImplementation("org.xerial:sqlite-jdbc:3.53.2.1")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
+    // JUnit 5.12+ 要求测试运行期显式具备 Platform launcher，否则 Gradle 报
+    // "Could not start Gradle Test Executor / Failed to load JUnit Platform"。
+    // 版本由 junit-jupiter 传递的 junit-bom 管理，无需在此写死。
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {

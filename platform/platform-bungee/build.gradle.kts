@@ -20,7 +20,11 @@ dependencies {
     // BungeeCord 服务端 API(ProxyServer / ServerInfo 等),代理端采集 totalOnline 与各子服在线
     compileOnly("net.md-5:bungeecord-api:1.20-R0.2")
     testImplementation("net.md-5:bungeecord-api:1.20-R0.2")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
+    // JUnit 5.12+ 要求测试运行期显式具备 Platform launcher，否则 Gradle 报
+    // "Could not start Gradle Test Executor / Failed to load JUnit Platform"。
+    // 版本由 junit-jupiter 传递的 junit-bom 管理，无需在此写死。
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.test {
