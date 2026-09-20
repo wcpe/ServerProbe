@@ -15,6 +15,7 @@
  */
 
 import io.izzel.taboolib.gradle.*
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.plugins.JavaPluginExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -34,6 +35,22 @@ configure<TabooLibExtension> {
         repoTabooLib = "https://maven.wcpe.top/repository/maven-tabooproject-release"
     }
     version { taboolib = "6.3.0-wcpe.1" }
+}
+
+// IoC 静态分析只把"本项目模块"作为依赖输入,排除第三方库。
+// 分析任务默认把 dependencyArtifacts(全部依赖 jar)纳入扫描,于是第三方库内部的装配关系会被
+// 当成本项目待满足的依赖:platform-velocity 经 velocity-api 传递引入的 com.google.inject(guice)
+// 会报 missing-bean: com.google.inject.Injector 并中断构建。这类依赖由第三方库自行解决,
+// 不该纳入本项目的装配校验;而跨模块依赖(如 core 的 ProbeRegistry)仍须保留,否则会漏报真实缺陷。
+tasks.withType<top.wcpe.taboolib.ioc.gradle.analysis.AnalyzeTaboolibIocBeansTask>().configureEach {
+    dependencyArtifacts.setFrom(
+        provider {
+            configurations.getByName("compileClasspath")
+                .incoming.artifacts.artifacts
+                .filter { it.id.componentIdentifier is ProjectComponentIdentifier }
+                .map { it.file }
+        },
+    )
 }
 
 // 依赖仓库统一在 settings.gradle.kts 的 dependencyResolutionManagement(PREFER_SETTINGS)集中声明,
