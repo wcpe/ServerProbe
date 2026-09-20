@@ -43,3 +43,13 @@ updates:
       # 迁移完成后移除本规则。
       - dependency-name: "gradle-wrapper"
         update-types: ["version-update:semver-major"]
+
+      # Kotlin 插件主版本：架构规则锁定 Kotlin 2.1.0 / TabooLib 6.3.0（architecture-invariants
+      # §4「技术栈锁定」，更换须走新 ADR）；且 CodeQL 当前不支持 2.4.20（实测报
+      # KotlinVersionTooRecentError）。升级随 Kotlin 技术栈演进一并决策。
+      - dependency-name: "org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin"
+        update-types: ["version-update:semver-major"]
+
+      # detekt 版本被静态检查规则固定（static-analysis §1：版本固定 1.23.7，存量问题由
+      # 基线冻结、规则配置与其绑定）。升级须同步改规则并重建基线，属人工决策。
+      - dependency-name: "io.gitlab.arturbosch.detekt:io.gitlab.arturbosch.detekt.gradle.plugin"
