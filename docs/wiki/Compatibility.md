@@ -35,6 +35,7 @@ ServerProbe 的核心设计目标（G3）：**单 jar 覆盖 Bukkit 系 1.8–1.
 |---|---|
 | Paper 1.20.1 + JDK 21 | 指标、命令、Prometheus、Web、开放接口/集成/取证/诊断 E2E |
 | Paper 1.21.11 + JDK 21 | Incision 采集、降级与性能 |
+| Paper 26.2 + JDK 25 | 加载、只读 API 门面快照与启动画像（MC 新版本号方案） |
 | Spigot 1.8.8 + Java 8 | 加载、JVM、TPS/MSPT、玩家与世界指标 |
 | Spigot 1.20.1 | 网络取证、MCP 诊断 |
 | Folia 1.21.4 + JDK 21 | 加载、指标、已观测 region 明细、网络取证、MCP 诊断 |
@@ -42,4 +43,4 @@ ServerProbe 的核心设计目标（G3）：**单 jar 覆盖 Bukkit 系 1.8–1.
 | BungeeCord 1.19-R0.1 #1700 + Java 8 | 加载、`/probe proxy`、Prometheus |
 | Velocity 3.1.1 / 3.5.1 / 4.1.0（JDK25） | 加载、指标、后端 RTT/可达性、切服路由、玩家 ping、网络取证、MCP 诊断 |
 
-多版本矩阵（Paper 1.8.8–1.21.1 + Spigot 1.8.8/1.16.5，Java 8/17/21）十场景真机全部 PASS。
+多版本矩阵共 **11 个场景**（Paper 1.8.8 / 1.12.2 / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.4 / 1.21.1 / 26.2，Spigot 1.8.8 / 1.16.5）于 2026-09-20 全量复跑**全部 PASS**，结果文件见 `build/mc-testkit/results/`。各场景起服 JVM：1.8.8–1.16.5 用 Java 8、1.17.1–1.19.4 用 Java 17、1.20.4 与 1.21.1 用 Java 21、26.2 用 Java 25（1.16.5 两处由 mc-testkit 的 `backend { javaVersion }` 强制锁定 Java 8）。
