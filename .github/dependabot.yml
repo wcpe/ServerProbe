@@ -36,3 +36,10 @@ updates:
       # （ADR-3 锁定）硬冲突，解析期即失败。只忽略主版本，5.x 内的小版本仍会提示。
       - dependency-name: "org.junit.jupiter:junit-jupiter"
         update-types: ["version-update:semver-major"]
+
+      # Gradle 主版本升级：不是版本号 bump，需专项迁移——Gradle 9 要求显式声明
+      # JUnit Platform launcher（已就位），且当前构建仍在用对 9.0 已弃用的 API；
+      # 还须验证 TabooLib 与 mc-testkit 插件在 Gradle 9 下的兼容性。
+      # 迁移完成后移除本规则。
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
