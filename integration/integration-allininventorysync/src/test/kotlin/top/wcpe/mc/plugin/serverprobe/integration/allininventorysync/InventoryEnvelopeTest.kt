@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.allininventorysync.api.model.BasicAttrsDto
@@ -222,6 +223,23 @@ class InventoryEnvelopeTest {
         assertEquals(0.25f, a.xpProgress)
         assertEquals(130, a.xpTotal)
         assertEquals("CREATIVE", a.gameMode)
+    }
+
+    /**
+     * 基础属性解码——缺必需字段必须拒绝,而非静默回退默认。
+     *
+     * 复现:contract 要求的 foodLevel/gameMode 等必需字段缺失时,当前实现经 `?: attrs.getInt(...)` /
+     * `ifBlank { "SURVIVAL" }` 静默取 0 / SURVIVAL,把"字段缺失"变成"玩家确实饥饿 0 点、生存模式"，
+     * 一次误读即可把在线玩家写死。此处要求缺失必需字段时抛异常并点名缺失字段。
+     */
+    @Test
+    fun `decodeBasicAttrs 缺必需字段必须拒绝而非静默回退默认`() {
+        val missing = MapJsonObject(mapOf("dataVersion" to 15, "basicAttrs" to mapOf("health" to 18.0)))
+        val error = assertThrows(IllegalArgumentException::class.java) { InventoryEnvelope.decodeBasicAttrs(missing) }
+        assertTrue(
+            error.message!!.contains("foodLevel") || error.message!!.contains("gameMode"),
+            "错误信息应点名缺失字段:${error.message}"
+        )
     }
 
     /**

@@ -88,20 +88,53 @@ object InventoryEnvelope {
      *
      * 容器契约(JianManager FR-126/127 前端与审计既定):`{dataVersion, basicAttrs:{health,foodLevel,...}}`
      * 嵌套结构、数值字段为 JSON 数值;兼容扁平直发(无 basicAttrs 层)与字符串承载数值。
-     * 数值逐项先按字符串解析、再按数值节点兜底,均取不到回退默认——曾因只读容器顶层 + 仅按字符串解析,
-     * 契约 payload 全字段回退默认(血量 0.0)把在线玩家写死。
+     *
+     * **缺字段/类型不符一律拒绝**:六项属性均为必需字段(见 [REQUIRED_ATTR_KEYS]),缺失或不可解析时抛
+     * [IllegalArgumentException] 并点名,不再回退默认值——回退默认值等于凭空把玩家写成
+     * 血量 0.0 / 生存模式,一次误读即可写坏在线玩家。
      */
     fun decodeBasicAttrs(container: JsonObject): Any {
         val attrs = container.getObject("basicAttrs") ?: container
+        val missing = REQUIRED_ATTR_KEYS.filterNot { attrs.contains(it) }
+        require(missing.isEmpty()) {
+            "基础属性缺少必需字段:${missing.joinToString(",")}(拒绝写入,以免回退默认值把玩家属性写坏)"
+        }
         return basicAttrs(
-            health = attrs.getString("health").toDoubleOrNull() ?: attrs.getDouble("health"),
-            foodLevel = attrs.getString("foodLevel").toIntOrNull() ?: attrs.getInt("foodLevel"),
-            xpLevel = attrs.getString("xpLevel").toIntOrNull() ?: attrs.getInt("xpLevel"),
-            xpProgress = attrs.getString("xpProgress").toFloatOrNull() ?: attrs.getDouble("xpProgress").toFloat(),
-            xpTotal = attrs.getString("xpTotal").toIntOrNull() ?: attrs.getInt("xpTotal"),
-            gameMode = attrs.getString("gameMode").ifBlank { "SURVIVAL" },
+            health = attrs.requiredDouble("health"),
+            foodLevel = attrs.requiredInt("foodLevel"),
+            xpLevel = attrs.requiredInt("xpLevel"),
+            xpProgress = attrs.requiredDouble("xpProgress").toFloat(),
+            xpTotal = attrs.requiredInt("xpTotal"),
+            gameMode = attrs.requiredText("gameMode"),
         )
     }
+
+    /** 六项基础属性均为必需字段:缺一即拒绝写入(不再静默回退默认值)。 */
+    private val REQUIRED_ATTR_KEYS = listOf("health", "foodLevel", "xpLevel", "xpProgress", "xpTotal", "gameMode")
+
+    /** 取数值型必需字段:兼容字符串与数值两种承载;不可解析即拒绝。 */
+    private fun JsonObject.requiredDouble(key: String): Double {
+        val text = getString(key)
+        if (text.isNotBlank()) return text.toDoubleOrNull() ?: rejectAttr(key, text)
+        return getDouble(key, Double.NaN).takeIf { !it.isNaN() } ?: rejectAttr(key, null)
+    }
+
+    /** 取整型必需字段:兼容字符串与数值两种承载;不可解析即拒绝。 */
+    private fun JsonObject.requiredInt(key: String): Int {
+        val text = getString(key)
+        if (text.isNotBlank()) return text.toIntOrNull() ?: rejectAttr(key, text)
+        return getInt(key, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE } ?: rejectAttr(key, null)
+    }
+
+    /** 取文本型必需字段:空白即拒绝。 */
+    private fun JsonObject.requiredText(key: String): String {
+        val text = getString(key)
+        return text.takeIf(String::isNotBlank) ?: rejectAttr(key, text)
+    }
+
+    /** 抛出具名拒绝:指明缺失/不可解析的字段与原始值,便于调用方定位。 */
+    private fun rejectAttr(key: String, raw: Any?): Nothing =
+        throw IllegalArgumentException("基础属性字段缺失或不可解析:$key(原始值=$raw),拒绝写入")
 
     fun notReady(): BridgeCommandResult = BridgeCommandResult.fail("背包插件(AllinInventorySync)未就绪")
 
