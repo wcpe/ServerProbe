@@ -28,6 +28,17 @@ val pluginJarFileProvider = project.layout.projectDirectory.file(pluginJarPath)
 val pluginJarFile: File = pluginJarFileProvider.asFile
 val e2eRunDirectory = project.layout.buildDirectory.dir("mc-testkit/run")
 
+// ── 代理侧离线运行库闭包（治本：代理不再每场景联网取依赖）──
+// 代理运行目录每场景整目录重建，而 TabooLib 在代理上启动时同样会解析并下载运行库
+// （jar-relocator / asm / reflex …，本机代理日志实证）。每个代理场景都重下一遍，在 CI 上足以把
+// 「MCP 就绪」这类带窗口的等待拖挂（实测：全量 e2e 的 mcp-diagnostics-velocity 即因此超时）。
+// 做法：把闭包预置到跨场景稳定的目录，并把 TabooLib 的运行库目录（系统属性 `taboolib.file-libs`，
+// 见其 PrimitiveSettings）指过去 —— 命中即不再发起下载。该属性吃绝对路径，已实测。
+val proxyRuntimeClosureLibraries = project.layout.buildDirectory
+    .dir("mc-testkit/proxy-runtime-closure")
+    .map { it.dir("libraries") }
+val proxyTaboolibLibrariesArg = "-Dtaboolib.file-libs=" + proxyRuntimeClosureLibraries.get().asFile.absolutePath
+
 // ── mc-testkit 拓扑声明 ──
 // harness 产物由收编后的子项目任务构建（原 9 个 Exec 调子 gradlew 的 hack 已删除）：
 //   :e2e:harness:jar、:e2e:harness-network-*:jar、:e2e:harness-velocity-matrix:jar、:e2e:harness-mcp-*:jar
@@ -218,6 +229,8 @@ mcTestkit.apply {
     proxy("bungee-network") {
         platform = bungeecord
         port = 25579
+        // 指向预置闭包：TabooLib 命中即不再联网下载运行库（理由见文件上方 proxyRuntimeClosureLibraries）
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("spigot-network")
         templateDirectory("e2e/templates/network-bungee")
         plugin("plugin/build/libs/$pluginJarName")
@@ -226,6 +239,7 @@ mcTestkit.apply {
     proxy("velocity-network") {
         platform = velocity
         port = 25580
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-network-velocity")
         templateDirectory("e2e/templates/network-velocity")
         plugin("plugin/build/libs/$pluginJarName")
@@ -234,6 +248,7 @@ mcTestkit.apply {
     proxy("bungee-mcp") {
         platform = bungeecord
         port = 25605
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-mcp-proxy")
         templateDirectory("e2e/templates/mcp-bungee")
         env("SERVERPROBE_MCP_PORT", "19878")
@@ -244,6 +259,7 @@ mcTestkit.apply {
         platform = velocity
         version = "3.1.1"
         port = 25606
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-mcp-proxy")
         templateDirectory("e2e/templates/mcp-velocity")
         env("SERVERPROBE_MCP_PORT", "19879")
@@ -255,6 +271,7 @@ mcTestkit.apply {
         version = "4.1.0"
         javaVersion = 25
         port = 25608
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-mcp-proxy")
         templateDirectory("e2e/templates/mcp-velocity-java25")
         env("SERVERPROBE_MCP_PORT", "19882")
@@ -266,6 +283,7 @@ mcTestkit.apply {
         platform = velocity
         version = "3.1.1"
         port = 25584
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-velocity-matrix-v31-a", "paper-velocity-matrix-v31-b")
         plugin("plugin/build/libs/$pluginJarName")
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
@@ -274,6 +292,7 @@ mcTestkit.apply {
         platform = velocity
         version = "3.5.1"
         port = 25587
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-velocity-matrix-v35-a", "paper-velocity-matrix-v35-b")
         plugin("plugin/build/libs/$pluginJarName")
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
@@ -283,6 +302,7 @@ mcTestkit.apply {
         version = "4.1.0"
         javaVersion = 25
         port = 25590
+        jvmArg(proxyTaboolibLibrariesArg)
         routesTo("paper-velocity-matrix-v41-a", "paper-velocity-matrix-v41-b")
         plugin("plugin/build/libs/$pluginJarName")
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
@@ -487,6 +507,30 @@ tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
     dependsOn(":e2e:harness:jar", ":e2e:harness-network-bukkit:jar")
 }
 
+// ── 代理侧离线运行库闭包 ──
+// 预置到跨场景稳定目录（各代理经 jvmArg 把 TabooLib 的运行库目录指过来，见文件上方的
+// proxyRuntimeClosureLibraries 说明），使代理不再每个场景联网下载依赖。
+// 挂在所有 prepareE2e* 上：代理场景没有单独的准备任务，staging 就在各场景任务体内，
+// 故须在其之前就位；对纯后端场景而言只是一次约 2MB 的拷贝，代价可忽略。
+val prepareProxyRuntimeClosure by tasks.registering {
+    group = "verification"
+    description = "预置代理侧 TabooLib 离线运行库闭包（避免每个代理场景重复联网下载依赖）"
+    outputs.dir(proxyRuntimeClosureLibraries)
+    outputs.upToDateWhen { false }
+    // 动作只捕获 File（配置缓存友好）
+    val libraries = proxyRuntimeClosureLibraries.get().asFile
+    val gradleUserHome = gradle.gradleUserHomeDir
+    doLast {
+        libraries.mkdirs()
+        copyRequiredTabooLibModules(libraries, gradleUserHome)
+        copyReflexClosure(libraries, gradleUserHome)
+    }
+}
+
+tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
+    dependsOn(prepareProxyRuntimeClosure)
+}
+
 // 清理运行库目录中 FR10 离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
 // 在场景间不清除（mc-testkit 保留它以免重复下载）。残留闭包会被后续在同一运行目录起服的场景经
 // 服务端自身的运行库加载读到（TabooLib 的 taboolib.file-libs 默认即指向 libraries/），
@@ -594,8 +638,8 @@ val prepareOfflineTabooRuntime by tasks.registering {
 
         val libraries = File(output, "libraries")
         copyOfflineRuntimeLibraries(offlineTabooRuntimeLibrarySource(), libraries)
-        copyRequiredTabooLibModules(libraries)
-        copyReflexClosure(libraries)
+        copyRequiredTabooLibModules(libraries, gradle.gradleUserHomeDir)
+        copyReflexClosure(libraries, gradle.gradleUserHomeDir)
         copyMceRuntimeClosure(libraries)
         writeOfflineRuntimeManifest(output)
     }
@@ -652,14 +696,19 @@ private val offlineTabooLibModules = listOf(
     "platform-velocity", "platform-velocity-impl",
 )
 
-/** 从 Gradle 本地缓存复制统一版本（wcpe.1）的 TabooLib 全套模块到标准 libraries 路径。 */
-private fun Project.copyRequiredTabooLibModules(libraries: File) {
-    // 先清掉 run/libraries 源带来的多版本残留，只保留 wcpe.1 一套。
+/**
+ * 从 Gradle 本地缓存复制统一版本（wcpe.1）的 TabooLib 全套模块到标准 libraries 路径。
+ *
+ * 缓存根由调用方显式传入（不读 `gradle.gradleUserHomeDir`）：任务动作可只捕获 `File`，
+ * 兼容 Gradle 配置缓存；离线运行时包与代理侧闭包共用本函数。
+ */
+private fun copyRequiredTabooLibModules(libraries: File, gradleUserHome: File) {
+    // 先清掉源带来的多版本残留，只保留 wcpe.1 一套。
     File(libraries, "io/izzel/taboolib").takeIf(File::isDirectory)?.deleteRecursively()
     offlineTabooLibModules.forEach { module ->
         val artifactName = "$module-$OFFLINE_TABOOLIB_VERSION.jar"
         val cacheRoot = File(
-            gradle.gradleUserHomeDir,
+            gradleUserHome,
             "caches/modules-2/files-2.1/io.izzel.taboolib/$module/$OFFLINE_TABOOLIB_VERSION",
         )
         val artifact = cacheRoot.walkTopDown()
@@ -690,13 +739,13 @@ private fun copyMceRuntimeClosure(libraries: File) {
  * 统一收集与 TabooLib 6.3.0-wcpe.1 配套的 reflex（reflex + analyser，版本 1.2.5-wcpe.1），
  * 只放一套。jar 来自 mc-testkit 持久缓存（首次由 wcpe.top 仓库下载后缓存）。
  */
-private fun copyReflexClosure(libraries: File) {
+private fun copyReflexClosure(libraries: File, gradleUserHome: File) {
     val reflexVersion = "1.2.5-wcpe.1"
-    // 先清掉 run/libraries 源带来的多版本残留，只保留 wcpe.1 配套的 reflex 一套。
+    // 先清掉源带来的多版本残留，只保留 wcpe.1 配套的 reflex 一套。
     File(libraries, "org/tabooproject/reflex").takeIf(File::isDirectory)?.deleteRecursively()
     listOf("reflex", "analyser").forEach { artifactName ->
         val cacheDir = File(
-            gradle.gradleUserHomeDir,
+            gradleUserHome,
             "caches/mc-testkit-jars/reflex/$reflexVersion",
         )
         val jar = File(cacheDir, "$artifactName-$reflexVersion.jar")

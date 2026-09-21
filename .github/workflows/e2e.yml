@@ -135,6 +135,19 @@ jobs:
           path: build/mc-testkit/results/
           if-no-files-found: error
 
+      # 运行日志是定位「MCP 就绪超时 / 服务端没起来」这类失败的唯一线索：
+      # 结果文件只给出结论，代理与后端为什么慢/没起来要看它们各自的日志。
+      # 运行目录较大（含世界与运行库），只取日志文件。
+      - name: 上传运行日志（失败时排障）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-runtime-logs
+          path: |
+            build/mc-testkit/run*/*.log
+            build/mc-testkit/run*/logs/*.log
+          if-no-files-found: warn
+
       - name: 断言结果文件全部 PASS
         if: always()
         env:
