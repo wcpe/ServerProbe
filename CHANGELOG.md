@@ -164,7 +164,7 @@ Paper 1.20.1（Windows、Java 17）以 `mcp.enabled=false` 启动后**全程不�
 
 ## [0.1.0] - 2026-06-20
 
-> 首个版本(本地 tag,未推送、无公开下载产物)。汇集启动剖析 + 运维指标 + 存储聚合 + 四通道呈现 + 告警 + 开放接口,以及可选启动期 premain agent 增强。`./gradlew build` 编译 + 单元测试 + detekt 全通过,并已在 **1.21.4 Paper 单端真机验证全通过**;其他端(1.8 / Folia / BungeeCord)构建通过、实验性未逐一真机。核心**零新增第三方依赖**,**仅可选启动 agent 引入唯一新依赖 ASM**(需手动 `-javaagent` 启用,relocate 隔离)。
+> 首个版本(tag 已于 2026-09-21 随 v0.5.0 发版流程补推,无公开下载产物)。汇集启动剖析 + 运维指标 + 存储聚合 + 四通道呈现 + 告警 + 开放接口,以及可选启动期 premain agent 增强。`./gradlew build` 编译 + 单元测试 + detekt 全通过,并已在 **1.21.4 Paper 单端真机验证全通过**;其他端(1.8 / Folia / BungeeCord)构建通过、实验性未逐一真机。核心**零新增第三方依赖**,**仅可选启动 agent 引入唯一新依赖 ASM**(需手动 `-javaagent` 启用,relocate 隔离)。
 
 ### 新增
 - 初始化项目骨架:`api` / `core`(`project:core`)/ `plugin` 三模块目录与基础构建配置(当前源码目录为空,从零开发)。
