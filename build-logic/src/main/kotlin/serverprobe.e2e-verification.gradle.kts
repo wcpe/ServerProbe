@@ -519,10 +519,9 @@ val prepareProxyRuntimeClosure by tasks.registering {
     outputs.upToDateWhen { false }
     // 动作只捕获 File（配置缓存友好）
     val libraries = proxyRuntimeClosureLibraries.get().asFile
-    val gradleUserHome = gradle.gradleUserHomeDir
     doLast {
         libraries.mkdirs()
-        copyRequiredTabooLibModules(libraries, gradleUserHome)
+        copyRequiredTabooLibModules(libraries)
         copyReflexClosure(libraries)
     }
 }
@@ -638,7 +637,7 @@ val prepareOfflineTabooRuntime by tasks.registering {
 
         val libraries = File(output, "libraries")
         copyOfflineRuntimeLibraries(offlineTabooRuntimeLibrarySource(), libraries)
-        copyRequiredTabooLibModules(libraries, gradle.gradleUserHomeDir)
+        copyRequiredTabooLibModules(libraries)
         copyReflexClosure(libraries)
         copyMceRuntimeClosure(libraries)
         writeOfflineRuntimeManifest(output)
@@ -697,28 +696,30 @@ private val offlineTabooLibModules = listOf(
 )
 
 /**
- * 从 Gradle 本地缓存复制统一版本（wcpe.1）的 TabooLib 全套模块到标准 libraries 路径。
+ * TabooLib 离线闭包的构建期解析（与 reflex / MCE 闭包同一套路）。
  *
- * 缓存根由调用方显式传入（不读 `gradle.gradleUserHomeDir`）：任务动作可只捕获 `File`，
- * 兼容 Gradle 配置缓存；离线运行时包与代理侧闭包共用本函数。
+ * 早先这里读的是 Gradle 模块缓存（`caches/modules-2/files-2.1/io.izzel.taboolib/...`），但成套 30 个模块
+ * **不是**构建依赖：只有插件跑过、把它运行期下过的模块留在缓存里的机器才凑得齐。全新检出与 CI 上
+ * 会缺（实测 CI 报「本机 Gradle 缓存缺少 TabooLib 离线模块：bukkit-hook」）。改为按坐标解析后，
+ * 来源是 settings 里已配置的 wcpe.top 仓库，任何机器结果一致。
  */
-private fun copyRequiredTabooLibModules(libraries: File, gradleUserHome: File) {
+private val offlineTabooLibClosures = offlineTabooLibModules.associateWith { module ->
+    configurations.detachedConfiguration(
+        dependencies.create("io.izzel.taboolib:$module:$OFFLINE_TABOOLIB_VERSION"),
+    ).apply { isTransitive = false }
+}
+
+/** 把统一版本（wcpe.1）的 TabooLib 全套模块复制到运行库目录，只保留一套。 */
+private fun copyRequiredTabooLibModules(libraries: File) {
     // 先清掉源带来的多版本残留，只保留 wcpe.1 一套。
     File(libraries, "io/izzel/taboolib").takeIf(File::isDirectory)?.deleteRecursively()
-    offlineTabooLibModules.forEach { module ->
-        val artifactName = "$module-$OFFLINE_TABOOLIB_VERSION.jar"
-        val cacheRoot = File(
-            gradleUserHome,
-            "caches/modules-2/files-2.1/io.izzel.taboolib/$module/$OFFLINE_TABOOLIB_VERSION",
-        )
-        val artifact = cacheRoot.walkTopDown()
-            .filter { it.isFile && it.name == artifactName }
-            .sortedBy { it.absolutePath }
-            .firstOrNull()
-            ?: error("本机 Gradle 缓存缺少 TabooLib 离线模块：io.izzel.taboolib:$module:$OFFLINE_TABOOLIB_VERSION")
-        val target = File(libraries, "io/izzel/taboolib/$module/$OFFLINE_TABOOLIB_VERSION/$artifactName")
+    offlineTabooLibClosures.forEach { (module, configuration) ->
+        val jar = configuration.resolve()
+            .singleOrNull { it.name.startsWith("$module-") }
+            ?: error("构建依赖缺少 TabooLib 离线模块：io.izzel.taboolib:$module:$OFFLINE_TABOOLIB_VERSION")
+        val target = File(libraries, "io/izzel/taboolib/$module/$OFFLINE_TABOOLIB_VERSION/${jar.name}")
         target.parentFile.mkdirs()
-        artifact.copyTo(target, overwrite = true)
+        jar.copyTo(target, overwrite = true)
     }
 }
 
