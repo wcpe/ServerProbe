@@ -76,7 +76,7 @@
 
 ## 8. 分支模型与发布渠道（现状 + 推荐路径）
 
-**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.2.0`；FR-10~FR-14 已完成验收、待下次正式发版登记。
+**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.5.0`；PRD 的 FR-01~FR-24 均已交付并登记。
 
 **推荐路径（开始协作 / 公开发布时启用）**：采用 GitHub Flow——
 
@@ -87,7 +87,7 @@
 - **CI**：已配置 `.github/workflows/ci.yml`（push / PR 跑 `./gradlew build` = 构建 + 测试 + detekt）。发布标签经 CI 自动出 Release；应在分支保护里把 CI 设为合并前门禁。
 
 **版本号当前权威来源 = 根 `gradle.properties` 的 `version` 字段**（Gradle 构建原生读取并注入各模块产物）。SDD 约定的根 `VERSION` 单一来源文件**本项目暂未引入**（避免与 `gradle.properties` 产生双源）；是否引入并接入构建，待维护者定夺。
-> 版本口径 = **`0.2.0`**（2026-08-24 正式发布，GitHub Release `v0.2.0`）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
+> 版本口径 = **`0.5.0`**（2026-09-21 正式发布，GitHub Release `v0.5.0`）。后续开发在 `gradle.properties` 上推进版本号，正式发版走 `sdd-release-version`（CHANGELOG 分段、打 tag）。
 
 ### 8.1 提交历史治理（摘要）
 
