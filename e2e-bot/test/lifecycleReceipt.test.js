@@ -20,9 +20,11 @@ test('协议机器人生命周期回执只记录阶段和时间', () => {
 })
 
 test('回执文件优先使用编排路径，缺失时回退到项目结果目录', () => {
-  assert.equal(resolveLifecycleReceiptFile('C:/receipt.jsonl', 'network-forensics', 'C:/workspace/e2e-bot'), 'C:/receipt.jsonl')
+  const botDirectory = path.join(os.tmpdir(), 'e2e-bot')
+  const orchestrated = path.join(os.tmpdir(), 'bot-receipt.jsonl')
+  assert.equal(resolveLifecycleReceiptFile(orchestrated, 'network-forensics', botDirectory), orchestrated)
   assert.equal(
-    resolveLifecycleReceiptFile(undefined, 'network-forensics', 'C:/workspace/e2e-bot'),
-    path.resolve('C:/workspace', 'build/mc-testkit/results/bot-network-forensics.receipt.jsonl')
+    resolveLifecycleReceiptFile(undefined, 'network-forensics', botDirectory),
+    path.resolve(os.tmpdir(), 'build/mc-testkit/results/bot-network-forensics.receipt.jsonl')
   )
 })
