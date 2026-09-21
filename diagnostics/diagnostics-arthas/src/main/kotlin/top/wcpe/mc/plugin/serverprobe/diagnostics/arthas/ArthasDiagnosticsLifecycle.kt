@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.diagnostics.arthas
 
 import taboolib.common.platform.function.getDataFolder
+import taboolib.common.platform.function.submitAsync
 import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasControlRegistration
 import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasControl
 import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasInstrumentationSnapshot
@@ -31,6 +32,9 @@ class ArthasDiagnosticsLifecycle {
     @Inject lateinit var control: ArthasControl
     private var instrumentationAccess: ArthasInstrumentationAccess? = null
     private var agentJar: Path? = null
+
+    /** 是否已随插件卸载；置位后拒绝一切加载（异步加载可能晚于卸载被调度）。 */
+    @Volatile private var destroyed = false
     @Volatile private var instrumentation = ArthasInstrumentationStatus(
         InstrumentationSource.UNAVAILABLE,
         null,
@@ -45,12 +49,21 @@ class ArthasDiagnosticsLifecycle {
      */
     private val runtime = LifecycleArthasRuntime(::startRuntime, ::stopRuntime) { tasks != null && instrumentation.instrumentation != null }
 
+    /**
+     * 启动期：始终注册启停能力（使 `mcp.enabled=false` 的实例也能被控制台按需加载），
+     * `mcp.enabled=true` 时**异步**自动加载。
+     *
+     * 加载含运行包解包与 Instrumentation 附加（必要时 spawn helper 子进程注入，等待上限 30s），
+     * 不得占用启用线程（= 服务器主线程）；[startRuntime] 幂等且 `@Synchronized`，异步与命令路径并发安全。
+     * 异步任务可能被调度到 [stop]（卸载）之后执行，故以 [destroyed] 拒绝"卸载后加载"，避免残留线程阻止 JVM 退出。
+     */
     @PostEnable fun start() {
         runtimeRegistration.register(runtime)
-        if (ProbeConfig.mcpEnabled()) startRuntime()
+        if (ProbeConfig.mcpEnabled()) submitAsync { startRuntime() }
     }
 
     @PreDestroy fun stop() {
+        destroyed = true
         stopRuntime()
         runtimeRegistration.unregister(runtime)
     }
@@ -71,6 +84,7 @@ class ArthasDiagnosticsLifecycle {
      */
     @Synchronized
     private fun startRuntime(): ArthasInstrumentationSnapshot {
+        if (destroyed) return unavailableDestroyed()
         if (tasks != null && instrumentation.instrumentation != null) return alreadyLoaded()
         // 上一次 attach 失败留下的控制器必须回收：其任务管理器持有非 daemon 线程，不释放会阻止 JVM 退出。
         if (tasks != null) stopRuntime()
@@ -132,6 +146,13 @@ class ArthasDiagnosticsLifecycle {
         false,
         InstrumentationSource.UNAVAILABLE.name,
         (extraction as? ArthasRuntimeExtraction.Failed)?.reason ?: "Arthas 运行包不可用",
+    )
+
+    /** 插件已卸载（异步加载被调度到卸载之后）时拒绝加载。 */
+    private fun unavailableDestroyed() = ArthasInstrumentationSnapshot(
+        false,
+        InstrumentationSource.UNAVAILABLE.name,
+        "插件已卸载，拒绝加载 Arthas 运行时",
     )
 
     /** 已加载时的幂等回执；`available=true` 使命令层按成功路径呈现"无需重复开启"。 */

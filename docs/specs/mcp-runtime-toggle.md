@@ -47,7 +47,7 @@ FR-24 提供两级运行期开关，使运维可以"平时零 Arthas 成本、�
 ### 3.3 Arthas 级开关（`ArthasDiagnosticsLifecycle`）
 
 - 改为实现 `ArthasRuntime`，拆出 `@Synchronized` 的 `startRuntime()` / `stopRuntime()`。
-- `@PostEnable`：**始终**把启停能力注册进 `ArthasRuntimeRegistry`，随后仅当 `mcpEnabled()` 为真时自动 `startRuntime()`（保持既有自动化语义与向后兼容）。
+- `@PostEnable`：**始终**把启停能力注册进 `ArthasRuntimeRegistry`，随后仅当 `mcpEnabled()` 为真时经 `submitAsync` **异步** `startRuntime()`（保持既有自动化语义与向后兼容；加载含解包与 Instrumentation 附加、必要时 spawn helper 子进程注入，等待上限 30s，不得占用启用线程）。卸载置位 `destroyed` 后拒绝加载，避免异步任务晚于 `@PreDestroy` 被调度而残留线程阻止 JVM 退出。
 - `@PreDestroy`：`stopRuntime()` 后从 registry 注销。
 - **重新启用必须重建 runner 与任务管理器**：`ArthasTaskManager.close()` 会连带关闭 runner，且其执行器与超时调度器被 `shutdownNow()` 后永久终止，复用会抛 `RejectedExecutionException`。卸载顺序沿用既有 `stop()`：先按引用注销当前已注册的控制器，再关闭任务管理器（其线程池非 daemon，泄漏会阻止 JVM 退出），最后关闭 runner 释放隔离 ClassLoader。
 - 二次加载可行性以真机实测为准（Java 8–16 路径的 `appendToBootstrapClassLoaderSearch` 不可撤销）。若实测不可重建，降级为卸载时保留 ClassLoader 以确保再次开启可用，代价与收益在 ADR-0028 的后果段已记录。
