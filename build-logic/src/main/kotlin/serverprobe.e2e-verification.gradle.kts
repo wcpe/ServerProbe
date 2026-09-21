@@ -478,9 +478,13 @@ private fun Project.wireE2eDependency(e2eTaskName: String, vararg prepare: Any) 
 
 // ── harness 产物接线：prepareE2e* 任务依赖收编后的子项目 jar 任务 ──
 // （原 9 个 Exec 调子 gradlew 的 hack 已删除，产物由子项目任务直接构建）
-
+//
+// network-bukkit harness 也要挂上：它在 dependencies { } 里被**全局注入**到每个后端
+// （各场景按 MC_TESTKIT_E2E_SCENARIO 自行判断是否生效），故所有场景的 prepare 都要求它存在；
+// 漏挂的后果是全新检出（CI / 新克隆）时 prepare 报「缺少必需的依赖注入」而本地因 jar 早已存在于
+// 磁盘上、问题被掩盖。
 tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
-    dependsOn(":e2e:harness:jar")
+    dependsOn(":e2e:harness:jar", ":e2e:harness-network-bukkit:jar")
 }
 
 // 清理运行库目录中 FR10 离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
