@@ -17,7 +17,7 @@
 - **网络取证**：Bukkit 系、BungeeCord 与 Velocity 全平台采集双向流量与包速率；本地 SQLite 保存重要包证据，Prometheus 只输出脱敏聚合，完整 IP/载荷仅经鉴权的 Web 面板与只读 API 可查。
 - **观测代理网络**：BungeeCord 与 Velocity 提供子服在线、RTT、可达性、玩家路由和玩家 ping。
 - **可选业务集成**：内置 MultiCurrencyEconomy 与 AllinInventorySync 对接模块；未安装对应插件时不加载、不影响探针。
-- **事故诊断控制面（可选，默认关闭）**：手动开启后外部 MCP 客户端经 JSON-RPC 读取状态、执行服务器命令、查看线程/死锁，并驱动内嵌 Arthas Core（Java 8–16 用 3.1.1，Java 17+ 用 4.3.2）进行 watch/trace/类重定义等深度诊断。
+- **事故诊断控制面（可选，默认关闭）**：手动开启后外部 MCP 客户端经 JSON-RPC 读取状态、执行服务器命令、查看线程/死锁，并驱动内嵌 Arthas Core（Java 8–16 用 3.1.1，Java 17+ 用 4.3.2）进行 watch/trace/类重定义等深度诊断；v0.5.0 起支持运行期开关——线上出问题时控制台 `/probe mcp on` / `arthas on`，处理完 `off`，不写回配置。
 - **多种查看方式**：游戏内 `/probe`、Prometheus `/metrics`、本地 JSON/JSONL、内置 Web 面板与告警。
 - **按需精确归因**：支持启动期 `-javaagent` 与 Bukkit/Paper 的 Incision 方法级归因；两者均为可选能力。
 
@@ -41,6 +41,7 @@
 | `/probe tps`、`/probe gc`、`/probe world` | 查看 TPS、GC 与世界指标；Folia 的 `/probe tps` 另含已观测 region 明细 |
 | `/probe ping`、`/probe proxy`、`/probe cpu` | 查看网络、代理与 CPU 归因 |
 | `/probe flamegraph`、`/probe http` | 查看启动火焰图与近期外呼（需启动 agent） |
+| `/probe mcp <on\|off\|status>`、`/probe mcp arthas <on\|off>` | 运行期起停 MCP 控制面与内嵌 Arthas（仅控制台/RCON；只作用于当前运行期，不写回配置） |
 
 根权限为 `serverprobe.command`；子命令权限为 `serverprobe.command.<子命令>`。
 
@@ -69,7 +70,7 @@ incision:
 
 ### MCP 诊断控制面（默认关闭）
 
-`mcp.enabled=true` 时开放 MCP Streamable HTTP（JSON-RPC 2.0）端点，供外部 MCP 客户端读取状态、执行服务器命令并调用内嵌 Arthas Core。安全边界：
+`mcp.enabled=true` 时开放 MCP Streamable HTTP（JSON-RPC 2.0）端点，供外部 MCP 客户端读取状态、执行服务器命令并调用内嵌 Arthas Core；v0.5.0 起亦可在运行期用 `/probe mcp` 开关（见 [ADR-0028](docs/adr/0028-mcp-runtime-toggle.md)）。安全边界：
 
 - 默认监听 `127.0.0.1:9942` 且不启用；不提供 TLS，也不强制密钥——但**开启该控制面即等于授予 JVM 完整控制权限**（类重定义、任意 JVM 内代码求值），请仅在明确授权的事故场景开启。
 - 监听非回环地址或使用空密钥时会打印醒目中文 WARN，审计不记录密钥与命令正文。
@@ -77,10 +78,13 @@ incision:
 
 ## 兼容性与验收
 
+以下为 **v0.5.0 已验收版本**的验收记录（验收矩阵随版本滚动更新，历史版本口径见 wiki 与 CHANGELOG）。
+
 | 环境 | 已验证范围 |
 |---|---|
 | Paper 1.20.1 + JDK 21 | 指标、命令、Prometheus、Web 面板、FR-08/FR-09/FR-10 自动化 E2E、网络取证、MCP 诊断 |
 | Paper 1.21.11 + JDK 21 | Incision 采集、降级与性能 |
+| Paper 26.2 + JDK 25 | 加载、只读 API 门面快照与启动画像（MC 新版本号方案） |
 | Spigot 1.8.8 + Java 8 | 加载、JVM、TPS/MSPT、玩家与世界指标 |
 | Spigot 1.20.1 | 网络取证、MCP 诊断（Arthas 3.1.1 路径见 Java 8 验收） |
 | Folia 1.21.4 + JDK 21 | 加载、JVM/玩家/世界指标；全局 TPS 按设计为 N/A；已观测 region 明细（详见 [`docs/specs/folia-observed-regions.md`](docs/specs/folia-observed-regions.md)）、网络取证与 MCP 诊断 |
@@ -88,7 +92,7 @@ incision:
 | BungeeCord #2088 + 两个 Paper 后端 | 在线数、RTT/可达性、切服路由与玩家 ping |
 | Velocity 3.1.1 / 3.5.1 / 4.1.0（JDK25） | 加载、指标、后端 RTT/可达性、切服路由、玩家 ping、网络取证（详见 [`docs/specs/velocity-platform.md`](docs/specs/velocity-platform.md)）；MCP 诊断 |
 
-完整验收与能力边界见 [PRD](docs/PRD.md) 和 [更新日志](CHANGELOG.md)。
+多版本矩阵共 **11 个场景**（Paper 1.8.8 / 1.12.2 / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.4 / 1.21.1 / 26.2，Spigot 1.8.8 / 1.16.5）于 2026-09-20 全量复跑**全部 PASS**（各场景起服 JVM：1.8.8–1.16.5 用 Java 8、1.17.1–1.19.4 用 Java 17、1.20.4 与 1.21.1 用 Java 21、26.2 用 Java 25）；FR-24 MCP 运行期两级开关于 Paper 1.20.1 完成全程不重启真机验收（端点/Arthas 二次加载、幂等与线程清理）。完整验收与能力边界见 [PRD](docs/PRD.md) 和 [更新日志](CHANGELOG.md)。
 
 开发时可额外运行 [E2E 验收](e2e/README.md)：
 
