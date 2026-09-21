@@ -43,7 +43,7 @@ jobs:
       # - 8：核心模块编译 toolchain（发行面向旧服务器，Java 8 字节码）
       # - 17：e2e/harness-mcp-* 明确声明 java.toolchain.languageVersion=17，
       #      settings.gradle.kts 未配 foojay toolchain resolver，缺 17 会直接解析失败
-      # - 21：Gradle 8.9 运行期与服务端启动（Paper/Spigot 1.20.1、Velocity 3.1.1）
+      # - 21：Gradle 9.7.1 运行期与服务端启动（Paper/Spigot 1.20.1、Velocity 3.1.1）
       - name: 安装 JDK 8、17 与 21
         uses: actions/setup-java@v4
         with:

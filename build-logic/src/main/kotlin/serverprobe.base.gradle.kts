@@ -101,7 +101,9 @@ tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configure
 // 避免每次本地构建都额外跑一遍报告生成。
 apply(plugin = "jacoco")
 configure<JacocoPluginExtension> {
-    // JaCoCo 需能解析 Java 8 字节码;版本随 Gradle 8.9 默认供给,不额外声明以避免与 detekt 依赖冲突。
+    // JaCoCo 需能解析 Java 8 字节码;显式固定 0.8.12(与 Gradle 9.7.1 默认供给一致)。
+    // 显式声明的意图:阻断 Gradle 升级静默带入更高 JaCoCo,导致与 detekt 的共享依赖冲突;
+    // 后续升级须先验证 detekt 兼容再同步改动。
     toolVersion = "0.8.12"
 }
 tasks.withType<JacocoReport>().configureEach {
