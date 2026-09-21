@@ -54,7 +54,7 @@ object AgentDataReader {
                 return@runCatching AgentStartupData.notAttached()
             }
             val parsedStacks = parseFoldedStacks(bridge.invokeString(GET_FOLDED_STACKS))
-            // 存储裁剪:均匀抽稀至 maxStackSamples 份(0=不限),热点统计仍用全量样本;
+            // 存储裁剪:线程内抽稀折叠栈(线程组不丢、主线程保留),0=不限;
             // 启动画像因此从 MB 级回落到 KB 级(4.64MB/份的 102% 是栈数据,真机已证)。
             val threadStacks = decimateStacks(parsedStacks, maxStackSamples)
             AgentStartupData(
@@ -64,7 +64,8 @@ object AgentDataReader {
                 loadTimings = parsePluginTimings(bridge.invokeString(GET_PLUGIN_LOAD_TIMINGS)),
                 enableTimings = parsePluginTimings(bridge.invokeString(GET_PLUGIN_ENABLE_TIMINGS)),
                 libraryTimings = parseLibraryTimings(bridge.invokeString(GET_LIBRARY_TIMINGS)),
-                hotspots = deriveMainThreadHotspots(threadStacks, hotspotTopN),
+                // 热点统计用**抽稀前**的全量样本:主线程热点不得因裁剪取错线程
+                hotspots = deriveMainThreadHotspots(parsedStacks, hotspotTopN),
                 timelineEvents = parseTimelineEvents(bridge.invokeString(GET_TIMELINE_EVENTS)),
                 threadStacks = threadStacks,
                 worldTimings = parseWorldTimings(bridge.invokeString(GET_WORLD_TIMINGS)),
@@ -260,28 +261,39 @@ object AgentDataReader {
     }
 
     /**
+     * 抽稀栈样本:在各线程**内部**按比例裁剪折叠栈,线程组一个不丢(主线程不会被整组丢弃)。
+     *
+     * 每线程至少保留 1 条(该线程有采样时),总量收敛到 [maxStackSamples] 量级;
+     * 组内已按命中降序,故保留的是各线程最热的若干条。maxStackSamples<=0 表示不限。纯函数便于单测。
+     */
+    internal fun decimateStacks(
+        stacks: List<ThreadStackProfile>,
+        maxStackSamples: Int,
+    ): List<ThreadStackProfile> {
+        if (maxStackSamples <= 0) return stacks
+        val total = stacks.sumOf { it.stacks.size }
+        if (total <= maxStackSamples) return stacks
+        return stacks.map { profile ->
+            val count = profile.stacks.size
+            val keep = maxOf(1, (count.toLong() * maxStackSamples / total).toInt())
+            if (keep >= count) {
+                profile
+            } else {
+                profile.toBuilder().stacks(profile.stacks.take(keep)).build()
+            }
+        }
+    }
+
+    /**
      * 从折叠栈派生主线程的扁平热点榜 Top-N(M5)。
      *
      * 选主线程画像(线程名以 [MAIN_THREAD_NAME] 开头者;无则取采样总数最多者),把其每条折叠栈的每一帧
      * 按命中次数累加(同一栈内同帧多次出现按多次计,与旧逐帧计数口径一致),按累计降序取前 [topN]。
      *
-     * @param threadStacks 多线程折叠栈。
+     * @param threadStacks 多线程折叠栈(调用方须传**抽稀前**的全量样本,避免热点取错线程)。
      * @param topN 取前若干;非正或无数据时返回空列表。
      * @return 主线程扁平热点榜(命中降序)。
      */
-    /** 均匀抽稀栈样本:保留首尾,中间按等距索引抽取;maxStackSamples<=0 表示不限。纯函数便于单测。 */
-    internal fun decimateStacks(
-        stacks: List<ThreadStackProfile>,
-        maxStackSamples: Int,
-    ): List<ThreadStackProfile> {
-        if (maxStackSamples <= 0 || stacks.size <= maxStackSamples) {
-            return stacks
-        }
-        val step = stacks.size.toDouble() / maxStackSamples
-        val indices = (0 until maxStackSamples).map { index -> (index * step).toInt() }.distinct()
-        return indices.map { stacks[it] }
-    }
-
     internal fun deriveMainThreadHotspots(threadStacks: List<ThreadStackProfile>, topN: Int): List<StackHotspot> {
         if (threadStacks.isEmpty() || topN <= 0) return emptyList()
         val main = threadStacks.firstOrNull { it.threadName.startsWith(MAIN_THREAD_NAME) }

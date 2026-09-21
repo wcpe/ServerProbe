@@ -137,6 +137,45 @@ class AgentDataReaderTest {
         assertEquals("x#m", hot[0].frame, "无 Server thread 时取最忙线程的帧")
     }
 
+    /**
+     * 抽稀必须在**线程内**抽稀栈样本,不得按线程组等距丢弃整个线程:
+     * 否则主线程("Server thread")可能被整组丢掉,火焰图直接失真。
+     */
+    @Test
+    fun `decimateStacks 不得丢弃主线程且不丢线程组`() {
+        // 19 个 worker + 1 个 Server thread(置于末尾),每个线程 2 条折叠栈,共 40 条样本
+        val workers = (0 until 19).map { index ->
+            ThreadStackProfile.builder()
+                .threadName("Worker-$index")
+                .stacks(
+                    listOf(
+                        FoldedStack.builder().frames(listOf("w$index.A#m", "w$index.B#n")).sampleCount(5L).build(),
+                        FoldedStack.builder().frames(listOf("w$index.C#o")).sampleCount(3L).build()
+                    )
+                )
+                .build()
+        }
+        val main = ThreadStackProfile.builder()
+            .threadName("Server thread")
+            .stacks(
+                listOf(
+                    FoldedStack.builder().frames(listOf("minecraft.Server#tick")).sampleCount(9L).build(),
+                    FoldedStack.builder().frames(listOf("minecraft.World#tick")).sampleCount(4L).build()
+                )
+            )
+            .build()
+        val threads = workers + main
+
+        val decimated = AgentDataReader.decimateStacks(threads, 10)
+
+        assertTrue(decimated.any { it.threadName.startsWith("Server thread") }, "主线程不得被抽稀丢弃")
+        assertEquals(threads.size, decimated.size, "抽稀不得丢弃整线程组(应在线程内抽稀栈样本)")
+        assertTrue(
+            decimated.sumOf { it.stacks.size } <= threads.sumOf { it.stacks.size },
+            "抽稀后样本总数不得增加"
+        )
+    }
+
     /** parseTimelineEvents 正常解析,字段不足/非数字应跳过。 */
     @Test
     fun `parseTimelineEvents 解析与容错`() {
