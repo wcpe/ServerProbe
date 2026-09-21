@@ -523,7 +523,7 @@ val prepareProxyRuntimeClosure by tasks.registering {
     doLast {
         libraries.mkdirs()
         copyRequiredTabooLibModules(libraries, gradleUserHome)
-        copyReflexClosure(libraries, gradleUserHome)
+        copyReflexClosure(libraries)
     }
 }
 
@@ -639,7 +639,7 @@ val prepareOfflineTabooRuntime by tasks.registering {
         val libraries = File(output, "libraries")
         copyOfflineRuntimeLibraries(offlineTabooRuntimeLibrarySource(), libraries)
         copyRequiredTabooLibModules(libraries, gradle.gradleUserHomeDir)
-        copyReflexClosure(libraries, gradle.gradleUserHomeDir)
+        copyReflexClosure(libraries)
         copyMceRuntimeClosure(libraries)
         writeOfflineRuntimeManifest(output)
     }
@@ -739,19 +739,31 @@ private fun copyMceRuntimeClosure(libraries: File) {
  * 统一收集与 TabooLib 6.3.0-wcpe.1 配套的 reflex（reflex + analyser，版本 1.2.5-wcpe.1），
  * 只放一套。jar 来自 mc-testkit 持久缓存（首次由 wcpe.top 仓库下载后缓存）。
  */
-private fun copyReflexClosure(libraries: File, gradleUserHome: File) {
-    val reflexVersion = "1.2.5-wcpe.1"
-    // 先清掉源带来的多版本残留，只保留 wcpe.1 配套的 reflex 一套。
+/** reflex 闭包版本（与 TabooLib 6.3.0-wcpe.1 配套）。 */
+private val REFLEX_CLOSURE_VERSION = "1.2.5-wcpe.1"
+
+/**
+ * reflex 闭包的构建期解析（来源为 settings 里已配置的 wcpe.top 仓库，与 MCE 闭包同一套路）。
+ *
+ * 早先这里读的是 mc-testkit 的 jar 持久缓存 `caches/mc-testkit-jars/reflex/...`（由插件运行期下载），
+ * 该缓存**只在跑过插件的机器上才存在**：本地因插件跑过而有、全新检出与 CI 上必然缺失——代理侧闭包
+ * 一挂到所有 prepareE2e* 上，就让 CI 的「第 1 批场景」整体失败（实测）。改为构建期解析后两者一致。
+ */
+private val reflexClosureArtifacts = listOf("reflex", "analyser").associateWith { artifactName ->
+    configurations.detachedConfiguration(
+        dependencies.create("org.tabooproject.reflex:$artifactName:$REFLEX_CLOSURE_VERSION"),
+    ).apply { isTransitive = false }
+}
+
+/** 把 reflex 闭包复制进运行库目录（只保留配套版本一套）。 */
+private fun copyReflexClosure(libraries: File) {
+    // 先清掉源带来的多版本残留
     File(libraries, "org/tabooproject/reflex").takeIf(File::isDirectory)?.deleteRecursively()
-    listOf("reflex", "analyser").forEach { artifactName ->
-        val cacheDir = File(
-            gradleUserHome,
-            "caches/mc-testkit-jars/reflex/$reflexVersion",
-        )
-        val jar = File(cacheDir, "$artifactName-$reflexVersion.jar")
-            .takeIf(File::isFile)
-            ?: error("缺少 reflex 离线闭包：org.tabooproject.reflex:$artifactName:$reflexVersion（请从 wcpe.top 仓库下载到 ${cacheDir.absolutePath}）")
-        val target = File(libraries, "org/tabooproject/reflex/$artifactName/$reflexVersion/${jar.name}")
+    reflexClosureArtifacts.forEach { (artifactName, configuration) ->
+        val jar = configuration.resolve()
+            .singleOrNull { it.name.startsWith("$artifactName-") }
+            ?: error("构建依赖缺少 reflex 闭包：org.tabooproject.reflex:$artifactName:$REFLEX_CLOSURE_VERSION")
+        val target = File(libraries, "org/tabooproject/reflex/$artifactName/$REFLEX_CLOSURE_VERSION/${jar.name}")
         target.parentFile.mkdirs()
         jar.copyTo(target, overwrite = true)
     }
