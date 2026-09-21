@@ -25,7 +25,7 @@ ServerProbe 是一个面向 Minecraft 服务器的**运维探针**，使用同�
 
 1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载最新 `ServerProbe-<版本>.jar`。
 2. 放入服务端 `plugins/` 目录（代理端同理）。
-3. 重启服务器，首次启动生成 `plugins/ServerProbe/config.yml`。
+3. 重启服务器，首次启动生成默认配置（Bukkit / BungeeCord：`plugins/ServerProbe/config.yml`；**Velocity：`plugins/serverprobe/config.yml`**，小写）。
 4. 游戏内执行 `/probe health` 查看概览。
 
 详细能力与验收标准见 [PRD](https://github.com/wcpe/ServerProbe/blob/master/docs/PRD.md) 与 [架构文档](https://github.com/wcpe/ServerProbe/blob/master/docs/ARCHITECTURE.md)。

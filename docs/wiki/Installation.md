@@ -8,8 +8,10 @@ ServerProbe 是**单 jar 多端**：同一个 jar 既能放进 Bukkit 系服务�
 
 1. 从 [GitHub Releases](https://github.com/wcpe/ServerProbe/releases) 下载最新 `ServerProbe-<版本>.jar`。
 2. 将 jar 放入服务端的 `plugins/` 目录（BungeeCord 放 `plugins/`、Velocity 放 `plugins/`）。
-3. 重启服务器。首次启动会生成 `plugins/ServerProbe/config.yml`。
+3. 重启服务器。首次启动会生成默认配置：Bukkit / BungeeCord 在 `plugins/ServerProbe/config.yml`，**Velocity 在 `plugins/serverprobe/config.yml`**（小写）。
 4. 游戏内执行 `/probe health` 验证，或按需启用 Prometheus 后访问 `/metrics`。
+
+> **数据目录大小写按平台不同**：Bukkit / BungeeCord 是 `plugins/ServerProbe/`，Velocity 是 `plugins/serverprobe/`（由平台元数据的 id 派生）。Linux 文件系统大小写敏感，放错位置或大小写写错会**静默**落到默认配置（如 MCP 端点不自启）；Windows 本地因文件系统不敏感看不出该差异。
 
 ### 兼容性
 
