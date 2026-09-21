@@ -18,7 +18,7 @@ FR-24 提供两级运行期开关，使运维可以"平时零 Arthas 成本、�
   - `/probe mcp off`：停端点。若 Arthas 运行时仍在加载状态，额外提示可一并卸载。
   - `/probe mcp arthas on`：解包 Arthas 闭包、获取 Instrumentation、注册诊断控制器。
   - `/probe mcp arthas off`：卸载 Arthas 运行时（注销控制器、释放任务线程、关闭隔离 ClassLoader）。
-- **仅控制台/RCON 可执行**：游戏内玩家即使持有权限节点也拒绝，并给出可 i18n 的拒绝提示。判定标准为"发送者不是玩家"，故 RCON 等非玩家发送者允许。
+- **仅控制台/RCON 可执行**：游戏内玩家即使持有权限节点也拒绝，并给出可 i18n 的拒绝提示。判定标准为**控制台类型白名单**（Bukkit `ConsoleCommandSender`/`RemoteConsoleCommandSender`、Bungee `ConsoleCommandSender`、Velocity `ConsoleCommandSource`，按底层发送者类型匹配），命令方块、实体执行者等非玩家发送者一律拒绝。
 - 权限节点 `serverprobe.command.mcp`，子命令 `arthas` 另有 `serverprobe.command.mcp.arthas`。
 - 幂等：重复 `on`（已运行）与重复 `off`（未运行）不得抛异常或产生副作用；对未运行状态执行 `off` 明确回报"未运行"。
 - 运行期开关**不写回 `config.yml`**，仅内存态；重启回到 `mcp.enabled` 声明的姿态。
@@ -54,7 +54,7 @@ FR-24 提供两级运行期开关，使运维可以"平时零 Arthas 成本、�
 
 ### 3.4 命令层
 
-`ProbeCommand` 新增单个 `mcp` 子命令，用 `dynamic` 接收参数串后在代码内分发（项目此前无带参子命令先例，不用未经项目验证的三级 `literal` 嵌套）。控制台判定用 `sender !is ProxyPlayer`——跨平台零平台依赖（`ProxyPlayer` 继承 `ProxyCommandSender`，三个平台的非玩家发送者均不实现它；RCON 的远程控制台发送者亦非玩家，故允许）。
+`ProbeCommand` 新增单个 `mcp` 子命令，用 `dynamic` 接收参数串后在代码内分发（项目此前无带参子命令先例，不用未经项目验证的三级 `literal` 嵌套）。控制台判定用**底层发送者类型白名单**（`isConsoleSender`：取 `ProxyCommandSender.origin` 按控制台类型匹配，跨平台零平台依赖）——**不得**用"非玩家即放行"：命令方块等非玩家发送者会连同放行，其 `isOp()` 在 1.16.5 上恒真，等于把 JVM 控制权交给红石信号。
 
 ## 4. 任务拆分
 
@@ -86,7 +86,7 @@ FR-24 提供两级运行期开关，使运维可以"平时零 Arthas 成本、�
 | # | 验收项 | 结果与证据 |
 |---|---|---|
 | 1 | 启动期不监听、不加载 | 日志 `MCP 控制面未开启(mcp.enabled=false)，已跳过`；`/probe mcp status` 报"端点: 未运行 / Arthas 运行时: 未加载" |
-| 2 | 仅控制台放行 | RCON（非玩家发送者）执行 `/probe mcp on` 成功；玩家拒绝逻辑为 `sender is ProxyPlayer`（跨平台判定，无玩家在线时以 RCON 路径确证放行分支） |
+| 2 | 仅控制台放行 | RCON（非玩家发送者）执行 `/probe mcp on` 成功；玩家拒绝逻辑为 `sender is ProxyPlayer`（跨平台判定，无玩家在线时以 RCON 路径确证放行分支）。**后续加固**：该判定已改为控制台类型白名单（命令方块等非玩家发送者不再放行），见 §3.4 |
 | 3 | 端点级开启后原生工具立即可用 | `mcp on` 后 `tools/list` 返回 **42 工具零重复**；`server_status` 无需 Arthas 即返回真实数据（3 个世界、平台 BUKKIT） |
 | 4 | Arthas 运行期加载 | `动态附加成功(SubprocessAttacher)：helper 子进程注入成功`；`arthas_execute version` → `4.3.2`；`arthas_execute thread --state RUNNABLE -n 3` 返回真实线程栈 |
 | 5 | Arthas 运行期卸载 | `as-server destroy completed`；`arthas_execute` 降级为"当前未注册 Arthas 诊断控制器"；`server_status` 不受影响（验证两级独立） |

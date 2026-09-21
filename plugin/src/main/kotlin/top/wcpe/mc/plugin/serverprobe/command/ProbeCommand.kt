@@ -1,7 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.command
 
 import taboolib.common.platform.ProxyCommandSender
-import taboolib.common.platform.ProxyPlayer
 import taboolib.common.platform.command.CommandBody
 import taboolib.common.platform.command.CommandHeader
 import taboolib.common.platform.command.mainCommand
@@ -350,8 +349,9 @@ object ProbeCommand {
      * 两级开关:端点级([mcpControlPlane])只起 HTTP 端点,原生工具立即可用;Arthas 级([arthasRuntime])才
      * 付出解包与 Instrumentation 附加代价。参数用 `dynamic` 收单串后在代码内分发(项目无三级 `literal` 先例)。
      *
-     * **仅控制台**:开启 MCP 等于授予 JVM 完整控制权,游戏内玩家即便持有权限也拒绝,防"游戏内管理员提权";
-     * 判定为"发送者不是玩家"([ProxyPlayer] 跨平台可用),故控制台与 RCON 等非玩家发送者照常放行。
+     * **仅控制台/RCON**:开启 MCP 等于授予 JVM 完整控制权,游戏内玩家即便持有权限也拒绝,防"游戏内管理员提权";
+     * 判定用**控制台类型白名单**(见 [McpCommandHandler.isConsoleSender]),命令方块等非玩家发送者不再被放行——
+     * 旧实现"非玩家即放行"在 1.16.5 上把命令方块也放进来[ProxyCommandSender.isOp]恒真,等于把控制权交给红石。
      */
     @CommandBody(permission = "serverprobe.command.mcp")
     val mcp = subCommand {
@@ -359,7 +359,7 @@ object ProbeCommand {
             suggestion<ProxyCommandSender>(uncheck = true) { _, _ -> MCP_ACTIONS }
             // 参数白名单在 execute 内统一校验：dynamic 的 restrict 无法表达"两段式"取值（arthas on/off）。
             execute<ProxyCommandSender> { sender, context, _ ->
-                if (sender is ProxyPlayer) {
+                if (!McpCommandHandler.isConsoleSender(sender)) {
                     sender.sendLang("command-mcp-console-only")
                     return@execute
                 }
