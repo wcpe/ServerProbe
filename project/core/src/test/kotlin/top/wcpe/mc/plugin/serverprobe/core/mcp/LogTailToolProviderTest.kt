@@ -196,6 +196,25 @@ class LogTailToolProviderTest {
         assertEquals(2, (result["lines"] as List<*>).size)
     }
 
+    /**
+     * 请求行数在工具上限内时不得被 JSON 写入器**静默截断**:
+     * 客户端解析到的编码结果要么含全部返回行,要么带显式截断标记(参考 `worldsTruncated` 口径)。
+     */
+    @Test
+    fun `请求 300 行不得静默截断`() {
+        write(*(0 until 300).map { "日志行-${it + 1}" }.toTypedArray())
+
+        val result = provider().call("log_tail", arguments(mapOf("lines" to 300)))
+
+        val lines = result["lines"] as List<*>
+        val encoded = McpJsonWriter.encode(result)
+        val encodedCount = Regex("\"lineNumber\"").findAll(encoded).count()
+        assertTrue(
+            encodedCount == lines.size || result["itemsTruncated"] == true,
+            "请求 300 行不得静默截断:返回 ${lines.size} 行、编码后 $encodedCount 条、标记=${result["itemsTruncated"]}"
+        )
+    }
+
     private fun arguments(values: Map<String, Any?>): JsonObject =
         object : JsonObject {
             override fun getRaw(key: String): Any? = values[key]

@@ -109,12 +109,23 @@ class LogTailToolProvider(
         const val LOG_TAIL = "log_tail"
         const val LOG_SEARCH = "log_search"
         const val DEFAULT_TAIL_LINES = 200
-        const val MAX_TAIL_LINES = 2000
+
+        /**
+         * 行数上限 = 响应写入器条目上限（[McpJsonWriter.MAX_ITEMS]）。
+         *
+         * 写入器对任意数组一律截断到该值且不产生标记，超过它的请求会"声称给了 N 行、实际静默少给"
+         * （log_search 更会让 `nextOffset` 越过被丢弃的命中行，后续分页再也取不回）。钳到同一上限即恒不触发截断。
+         */
+        const val MAX_TAIL_LINES = McpJsonWriter.MAX_ITEMS
+
         const val DEFAULT_SEARCH_LINES = 100
-        const val MAX_SEARCH_LINES = 1000
+
+        /** 单页命中行上限；理由同 [MAX_TAIL_LINES]。 */
+        const val MAX_SEARCH_LINES = McpJsonWriter.MAX_ITEMS
+
         val TOOLS = listOf(
             McpTool(LOG_TAIL, "读取服务端最新日志的末尾若干行，可按关键字过滤命中行", mapOf(
-                "lines" to mapOf("type" to "integer", "description" to "读取行数，默认 200，上限 2000"),
+                "lines" to mapOf("type" to "integer", "description" to "读取行数，默认 200，上限 256（单次响应条目上限）"),
                 "keyword" to mapOf("type" to "string", "description" to "可选关键字，大小写不敏感子串过滤"),
             ), usageExample = "{\"lines\":200}", workflow = "同步调用", outputFields = mapOf(
                 "file" to "日志文件绝对路径", "lines" to "行列表（lineNumber 从 1 计/text）", "truncated" to "是否截断",
@@ -122,7 +133,7 @@ class LogTailToolProvider(
             McpTool(LOG_SEARCH, "自字节偏移起检索日志命中行，返回下一页偏移用于游标分页", mapOf(
                 "keyword" to mapOf("type" to "string", "description" to "检索关键字，大小写不敏感子串匹配"),
                 "sinceOffset" to mapOf("type" to "integer", "description" to "起始字节偏移，默认 0"),
-                "maxLines" to mapOf("type" to "integer", "description" to "单页最多命中行数，默认 100，上限 1000"),
+                "maxLines" to mapOf("type" to "integer", "description" to "单页最多命中行数，默认 100，上限 256（单次响应条目上限）"),
             ), usageExample = "{\"keyword\":\"ERROR\",\"sinceOffset\":0}", workflow = "同步调用，按 nextOffset 游标分页；文件增长时以读取时快照为准，新增行请发起新查询",
                 outputFields = mapOf(
                     "file" to "日志文件绝对路径", "hits" to "命中行列表（offset 字节偏移/text）",
