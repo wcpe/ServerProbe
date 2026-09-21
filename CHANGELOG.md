@@ -17,8 +17,13 @@
 
 - **FR-24 MCP 控制面运行期两级开关**：新增控制台命令 `/probe mcp <on|off|status>` 运行期起停 MCP 端点、`/probe mcp arthas <on|off>` 运行期加载/卸载内嵌 Arthas 运行时。端点级开关起来后原生工具（状态/命令执行/线程转储/日志检索/插件与玩家诊断）立即可用、不付 Arthas 代价；Arthas 级开关才执行闭包解包与 Instrumentation 附加。**仅控制台/RCON 可执行**（开启 MCP 等于授予 JVM 完整控制权，游戏内即使持有权限节点也拒绝，防游戏内管理员提权）；开关只作用于当前运行期、不写回 `config.yml`，重启回到配置声明的姿态。`mcp.enabled` 的启动期语义保持不变（`true` 时仍自动开端点并加载 Arthas）。见 [ADR-0028](docs/adr/0028-mcp-runtime-toggle.md) 与 [spec](docs/specs/mcp-runtime-toggle.md)。
 - 新增 core 契约 `ArthasRuntime`（运行期启停）与装配点 `ArthasRuntimeRegistry`，与既有 `ArthasControl`（已加载运行时内的任务执行）职责分离；诊断模块经内部转发实现自注册，`core` 编译期不依赖任何 Arthas 类型（维持 ADR-0025 边界）。
-- **CI 质量门禁补齐**：新增字节码门禁（校验各业务模块与发行 jar 内 class 的 major version 不超过 52，保护“编译为 Java 8 字节码”这一关键不变量，此前完全无自动化保护）、OSV-Scanner 依赖漏洞扫描、Dependabot 周更新、CodeQL 代码扫描，以及 Windows runner 交叉验证 job（历史上出现过平台相关缺陷在 Windows 上被掩盖）。依赖扫描起步设为 continue-on-error 以先收集基线。
+- **CI 质量门禁补齐**：新增字节码门禁（校验各业务模块与发行 jar 内 class 的 major version 不超过 52，保护“编译为 Java 8 字节码”这一关键不变量，此前完全无自动化保护）、OSV-Scanner 依赖漏洞扫描、Dependabot 周更新、CodeQL 代码扫描，以及 Windows runner 交叉验证 job（历史上出现过平台相关缺陷在 Windows 上被掩盖）。依赖扫描起步设为 continue-on-error 以先收集基线；CI 与字节码门禁另支持手动触发。
 - **覆盖率统计**：在 `serverprobe.base` 约定插件中统一应用 JaCoCo，一处生效覆盖全部业务模块；CI 新增独立 coverage job 只产出报告、不设任何阈值（先积累真实基线再讨论阈值）。当前基线：行覆盖 50.4%、分支覆盖 36.1%。
+- **E2E 真机验收基建**：新增独立的 E2E 真机验收工作流（`.github/workflows/e2e.yml`），手动触发（`scope=all|batch1`）与推送 `v*` 标签时运行，在 ubuntu runner 上由 mc-testkit 拉起真实 Paper/Spigot/BungeeCord/Velocity 服务端并断言场景结果文件（以 `build/mc-testkit/results/<场景>.properties` 的 `status=PASS` 为判据——gradle 退出码不能证明服务端内的断言通过），覆盖 8 个无 bot、不依赖外部闭源插件的场景；依赖 bot 与真实业务插件的场景仍留本地验收。场景闭包（reflex、TabooLib）改为**构建期解析**并按需预置离线包，不再读本机 Gradle 模块缓存 / 插件缓存，干净机器与 CI 结果一致；引入 mc-testkit 0.10.0、改用其运行目录公开契约并固化 `javaVersion` 矩阵实测。同期消除两处偶发失败（Arthas `watch`/`trace` 与 Arthas 懒初始化赛跑、`ArthasTaskManager` 终态断言对线程池调度的时序依赖）、补上 `prepareE2e*` 缺失的 network-bukkit harness 构建依赖、恢复被误判为场景缺陷而移除的 Spigot 场景。
+
+### 变更
+
+- **构建与依赖维护**：Gradle wrapper 8.9 → 9.7.1；随发行 jar 内嵌的 SQLite JDBC 驱动 3.53.2.1 → 3.53.4.0（版本抽到 `gradle.properties` 的 `sqlite.jdbc.version` 集中管理）与 agent 插桩闭包 ASM 9.7.1 → 9.10.1（relocate 隔离）；构建期 Lombok 1.18.34 → 1.18.48；测试侧 JUnit 5.11.4 → 5.14.4（按 JUnit 5.12+ 要求显式声明 `junit-platform-launcher`，否则 Gradle Test Executor 起不来）与 netty-transport 4.2.17.Final → 4.2.18.Final。移除未使用的 KSP 插件声明；Dependabot 忽略规则收敛到需人工判断的坐标（NMS 版本锁定 / 私有 fork / 服务端 API / JUnit 与 Kotlin 插件主版本 / detekt），并移除曾加的 Gradle 主版本忽略以接收 wrapper 9.x。均为维护性升级，发行 jar 行为不变。
 
 ### 修复
 
