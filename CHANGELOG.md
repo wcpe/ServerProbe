@@ -11,6 +11,17 @@
 
 ## [未发布]
 
+### 修复
+
+- **`/probe mcp` 的“仅控制台”门可被命令方块绕过（安全）**：门原先只拒绝玩家（`ProxyPlayer`），一切非玩家发送者都被放行——命令方块 `CraftBlockCommandSender` 的 `isOp()` 在 1.16.5 上恒真，等于把 JVM 完整控制权（类重定义、任意代码求值）交给红石信号。改为**控制台类型白名单**（Bukkit 控制台/RCON、Bungee 控制台、Velocity 控制台，按底层发送者类型匹配），白名单外一律拒绝（失败关闭）。真机 e2e 新增“命令方块替身必须被拒绝”断言（修复前 FAIL、修复后 PASS）。
+- **背包基础属性写入缺字段静默回退默认值**（#14）：`decodeBasicAttrs` 对 `base`/`edited` 中缺失或类型不符的字段静默取 0.0/0/`SURVIVAL`，下游按净改动落盘即把在线玩家属性写坏（有事故先例）。现要求六项属性齐全且可解析（兼容嵌套/扁平与字符串/数值两种承载），缺失即拒绝并点名；`gameMode` 不再回退 `SURVIVAL`。
+- **JDK 9+ 上进程 CPU 指标恒为不可用**（#15）：`JmxSupport` 原先从 MXBean 实现类（JDK 9+ 位于未导出包 `com.sun.management.internal.*`）取方法并 `setAccessible`，被模块系统以 `InaccessibleObjectException` 拒绝后静默返回哨兵 -1.0（JDK 21 实机复现），`/probe health` 与 Prometheus `process_cpu_load` 均按“JDK 不提供”降级。改为经**导出接口** `com.sun.management.OperatingSystemMXBean` 取方法（不放开访问），异常兜底与 -1.0 语义保持不变。
+- **CPU 归因占比随运行时间单调衰减**（#16）：窗口滑动淘汰最旧一轮时只回退各插件计数、累计总样本数只增不减，占比被全生命周期分母稀释（默认窗口 60 轮，运行 1 小时后约压缩 60 倍）。现淘汰时同步回退分母，`/probe cpu`、Prometheus `serverprobe_plugin_cpu_percent`、MCP `plugin_cpu` 三处出口恢复“窗口内占比”口径。
+- **插件类归属把 JDK/服务端类误归给插件**（#13）：`PluginClassLoaderRegistry` 原按“能加载即归属”判定，而插件加载器是父委派——`java.*` 等服务端帧被稳定归给迭代顺序靠前的插件。现要求类由该加载器（或其子加载器）**定义**才算归属，`plugin_threads`/`plugin_cpu` 的归属数据从“按哈希顺序分配”的噪声恢复为真实归属。
+- **启动画像抽稀丢整线程组、主线程热点取错线程**（#17）：`decimateStacks` 原按等距下标抽取**线程组**（默认上限 10，线程数超限即整组丢弃，主线程常被丢），且热点榜用抽稀后数据计算、可能取到 worker 线程。现抽稀下沉到线程内折叠栈（每线程至少保留 1 条、线程组不丢），热点榜改用抽稀前全量样本。
+- **Arthas 运行时启动期在主线程同步加载**（#18）：`mcp.enabled=true` 时 `@PostEnable` 同步执行运行包解包与 Instrumentation 附加（attach helper 子进程等待最长 30s），违反“主线程禁止阻塞磁盘 IO / 外部进程”红线（命令路径早已异步化，启动路径漏修）。现改经 `submitAsync` 异步加载；卸载后置位标志拒绝加载，避免异步任务晚于卸载被调度而残留线程阻止 JVM 退出。
+- **MCP 日志工具输出被静默截断为 256 条**（#19）：`log_tail`/`log_search` 声称上限 2000/1000，但响应写入器对任意数组一律截断到 256 且不产生标记，超出部分静默消失；`log_search` 的 `nextOffset` 还会越过被丢弃的命中行，后续分页再也取不回。现把两者上限钳到与写入器一致（256）并同步工具描述与规格——钳到同一上限后恒不触发截断。
+
 ## [0.5.0] - 2026-09-21
 
 ### 新增
