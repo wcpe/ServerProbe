@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.jmx
 
 import java.lang.management.ManagementFactory
+import java.lang.reflect.Method
 
 /**
  * JMX CPU 指标读取支持(反射封装,容忍 JDK 差异)。
@@ -15,6 +16,10 @@ import java.lang.management.ManagementFactory
  * 扩展的环境下出现 `NoClassDefFoundError` / 链接错误,本类一律通过**反射**在 MXBean 实例上调用,
  * 任何异常、方法缺失或返回值非 [Double] 的情况都统一回退为 -1.0。
  *
+ * 反射取方法以**导出接口** `com.sun.management.OperatingSystemMXBean` 为准:JDK 9+ 的实现类位于
+ * 未导出包(如 `com.sun.management.internal.*`),对实现类方法放开访问会被模块系统以
+ * `InaccessibleObjectException` 拒绝,指标将恒为不可用;仅当该接口不可得时才回退实现类。
+ *
  * 约定:**返回 -1.0 表示当前 JDK 不提供该指标**;其余返回值落在 0.0–1.0 区间(占用率)。
  *
  * 本类为无副作用、无状态的纯反射工具,以 `object` 实现且不纳入 IOC 容器。
@@ -26,6 +31,11 @@ object JmxSupport {
 
     /** 操作系统 MXBean 实例;运行期具体类型通常为 `com.sun.management.OperatingSystemMXBean` 的实现。 */
     private val osBean = ManagementFactory.getOperatingSystemMXBean()
+
+    /** 扩展接口 `com.sun.management.OperatingSystemMXBean`;定制运行时可能不提供(解析失败为 null)。 */
+    private val extendedBeanClass: Class<*>? = runCatching {
+        Class.forName("com.sun.management.OperatingSystemMXBean")
+    }.getOrNull()
 
     /**
      * 读取当前 JVM 进程的 CPU 占用率。
@@ -55,6 +65,7 @@ object JmxSupport {
     /**
      * 反射调用 [osBean] 上指定的无参方法并取其 [Double] 返回值。
      *
+     * 方法优先从导出接口 [extendedBeanClass] 取(JPMS 下唯一可用的反射路径),取不到时才回退实现类;
      * 任何阶段失败(方法不存在、调用异常、返回值非 Double)均回退为 [UNAVAILABLE],
      * 以保证在不提供 `com.sun.management` 扩展的运行时上调用方仍能安全取数。
      *
@@ -63,9 +74,7 @@ object JmxSupport {
      */
     private fun invokeDoubleMethod(methodName: String): Double {
         return try {
-            val method = osBean.javaClass.getMethod(methodName)
-            // 扩展接口的实现类多为非 public,需放开访问以便反射调用
-            method.isAccessible = true
+            val method = methodFromExportedInterface(methodName) ?: methodFromImplementation(methodName)
             val result = method.invoke(osBean)
             (result as? Double) ?: UNAVAILABLE
         } catch (ignored: Throwable) {
@@ -73,4 +82,13 @@ object JmxSupport {
             UNAVAILABLE
         }
     }
+
+    /** 从导出接口取无参方法:接口 public 且所在包已导出,无需放开访问即可调用(JPMS 下唯一可行路径)。 */
+    private fun methodFromExportedInterface(methodName: String): Method? = runCatching {
+        extendedBeanClass?.getMethod(methodName)
+    }.getOrNull()
+
+    /** 兜底:直接从实现类取方法并放开访问,仅适用于不提供导出接口、也无模块限制的定制运行时。 */
+    private fun methodFromImplementation(methodName: String): Method =
+        osBean.javaClass.getMethod(methodName).also { it.isAccessible = true }
 }
