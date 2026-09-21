@@ -2,7 +2,7 @@
 
 > 部署、升级、备份恢复、回滚、排障的操作指南。运维方式变化时更新。
 >
-> 版本状态：`v0.2.0` 已正式发布；GitHub Release 附带构建 jar。Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 的真机口径见 `README.md`。
+> 版本状态：`v0.5.1` 已正式发布；GitHub Release 附带构建 jar。Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 的真机口径见 `README.md`。
 
 ---
 
@@ -169,4 +169,4 @@ incision:
 | `./gradlew taboolibBuildApi -PDeleteCode` | 构建**开发版本**(含 TabooLib 本体,供开发者使用,不可运行;`-PDeleteCode` 移除逻辑代码以减小体积) |
 | `./gradlew test` | 运行单元测试 |
 
-**版本号权威来源 = 根 `gradle.properties` 的 `version` 字段**(当前 `0.2.0`,Gradle 构建原生读取)。
+**版本号权威来源 = 根 `gradle.properties` 的 `version` 字段**(当前 `0.5.1`,Gradle 构建原生读取)。

@@ -76,7 +76,7 @@
 
 ## 8. 分支模型与发布渠道（现状 + 推荐路径）
 
-**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.5.0`；PRD 的 FR-01~FR-24 均已交付并登记。
+**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.5.1`；PRD 的 FR-01~FR-24 均已交付并登记。
 
 **推荐路径（开始协作 / 公开发布时启用）**：采用 GitHub Flow——
 

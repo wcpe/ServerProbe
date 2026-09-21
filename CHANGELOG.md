@@ -5,15 +5,20 @@
 本文件格式遵循 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本(SemVer)](https://semver.org/lang/zh-CN/)。
 
-> 最新版本 **0.5.0(2026-09-21)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
+> 最新版本 **0.5.1(2026-09-21)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
 
 ---
 
 ## [未发布]
 
+## [0.5.1] - 2026-09-21
+
+### 安全
+
+- **`/probe mcp` 的“仅控制台”门可被命令方块绕过**：门原先只拒绝玩家（`ProxyPlayer`），一切非玩家发送者都被放行——命令方块 `CraftBlockCommandSender` 的 `isOp()` 在 1.16.5 上恒真，等于把 JVM 完整控制权（类重定义、任意代码求值）交给红石信号。改为**控制台类型白名单**（Bukkit 控制台/RCON、Bungee 控制台、Velocity 控制台，按底层发送者类型匹配），白名单外一律拒绝（失败关闭）。真机 e2e 新增“命令方块替身必须被拒绝”断言（修复前 FAIL、修复后 PASS）。issue #20。
+
 ### 修复
 
-- **`/probe mcp` 的“仅控制台”门可被命令方块绕过（安全）**：门原先只拒绝玩家（`ProxyPlayer`），一切非玩家发送者都被放行——命令方块 `CraftBlockCommandSender` 的 `isOp()` 在 1.16.5 上恒真，等于把 JVM 完整控制权（类重定义、任意代码求值）交给红石信号。改为**控制台类型白名单**（Bukkit 控制台/RCON、Bungee 控制台、Velocity 控制台，按底层发送者类型匹配），白名单外一律拒绝（失败关闭）。真机 e2e 新增“命令方块替身必须被拒绝”断言（修复前 FAIL、修复后 PASS）。
 - **背包基础属性写入缺字段静默回退默认值**（#14）：`decodeBasicAttrs` 对 `base`/`edited` 中缺失或类型不符的字段静默取 0.0/0/`SURVIVAL`，下游按净改动落盘即把在线玩家属性写坏（有事故先例）。现要求六项属性齐全且可解析（兼容嵌套/扁平与字符串/数值两种承载），缺失即拒绝并点名；`gameMode` 不再回退 `SURVIVAL`。
 - **JDK 9+ 上进程 CPU 指标恒为不可用**（#15）：`JmxSupport` 原先从 MXBean 实现类（JDK 9+ 位于未导出包 `com.sun.management.internal.*`）取方法并 `setAccessible`，被模块系统以 `InaccessibleObjectException` 拒绝后静默返回哨兵 -1.0（JDK 21 实机复现），`/probe health` 与 Prometheus `process_cpu_load` 均按“JDK 不提供”降级。改为经**导出接口** `com.sun.management.OperatingSystemMXBean` 取方法（不放开访问），异常兜底与 -1.0 语义保持不变。
 - **CPU 归因占比随运行时间单调衰减**（#16）：窗口滑动淘汰最旧一轮时只回退各插件计数、累计总样本数只增不减，占比被全生命周期分母稀释（默认窗口 60 轮，运行 1 小时后约压缩 60 倍）。现淘汰时同步回退分母，`/probe cpu`、Prometheus `serverprobe_plugin_cpu_percent`、MCP `plugin_cpu` 三处出口恢复“窗口内占比”口径。
@@ -21,6 +26,20 @@
 - **启动画像抽稀丢整线程组、主线程热点取错线程**（#17）：`decimateStacks` 原按等距下标抽取**线程组**（默认上限 10，线程数超限即整组丢弃，主线程常被丢），且热点榜用抽稀后数据计算、可能取到 worker 线程。现抽稀下沉到线程内折叠栈（每线程至少保留 1 条、线程组不丢），热点榜改用抽稀前全量样本。
 - **Arthas 运行时启动期在主线程同步加载**（#18）：`mcp.enabled=true` 时 `@PostEnable` 同步执行运行包解包与 Instrumentation 附加（attach helper 子进程等待最长 30s），违反“主线程禁止阻塞磁盘 IO / 外部进程”红线（命令路径早已异步化，启动路径漏修）。现改经 `submitAsync` 异步加载；卸载后置位标志拒绝加载，避免异步任务晚于卸载被调度而残留线程阻止 JVM 退出。
 - **MCP 日志工具输出被静默截断为 256 条**（#19）：`log_tail`/`log_search` 声称上限 2000/1000，但响应写入器对任意数组一律截断到 256 且不产生标记，超出部分静默消失；`log_search` 的 `nextOffset` 还会越过被丢弃的命中行，后续分页再也取不回。现把两者上限钳到与写入器一致（256）并同步工具描述与规格——钳到同一上限后恒不触发截断。
+
+### 真机验收（0.5.1）
+
+本机复跑真机矩阵 **31 个场景全部 PASS**（唯一判据为 `build/mc-testkit/results/<场景>.properties` 的 `status=PASS`）：
+
+- **安全项由红转绿**：Paper 1.20.1（Java 21）`mcp-diagnostics-paper-java21` 新增的“命令方块替身必须被拒绝”断言修复前 FAIL、修复后 PASS。
+- **平台矩阵（11）**：Paper 1.8.8 / 1.12.2 / 1.16.5 / 1.17.1 / 1.18.2 / 1.19.4 / 1.20.4 / 1.21.1 / 26.2（MC 新版本号方案，JDK 25）；Spigot 1.8.8 / 1.16.5。
+- **MCP 诊断（8）**：Paper、Paper(Java 21)、Spigot、Folia、Java 8（Paper 1.16.5 + 瘦 agent）、BungeeCord（经代理）、Velocity（经代理）、Velocity(Java 25，经代理）。
+- **网络取证（5）**：Bukkit、Paper、Folia 直连与经代理的 BungeeCord / Velocity。
+- **其它（7）**：read-api、storage-spi、bridge-fixture、folia-observed-regions、velocity-matrix v3.1 / v3.5 / v4.1。
+- **JDK 21 实测** `JmxSupport.processCpuLoad()` 恢复真实取值（修复前恒为哨兵 -1.0）。
+- `./gradlew build`（构建 + 单元测试 + detekt；IoC 静态诊断无 error）全绿。
+
+未纳入本轮复跑：4 个 `integrations-*` 场景需三个真实业务插件构件（`SERVERPROBE_E2E_{CORELIB,MCE,AIS}_JAR`，本机缺 AllinInventorySync 构件）——按仓库既有口径它们属“本地验收”、不进 CI；缺陷 #14 的回归由单元测试覆盖。
 
 ## [0.5.0] - 2026-09-21
 
