@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.core.cpu.PluginClassLoaderRegistry
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
-import java.net.URL
 import java.net.URLClassLoader
 
 /**
@@ -38,10 +37,14 @@ class PluginScopedMcpToolProviderTest {
         provider.threadSource = { threads }
         return provider
     }
-    /** 造一个可解析本测试类的插件 ClassLoader(同 PluginClassLoaderRegistryTest 手法)。 */
+    /**
+     * 造一个**真正定义**本测试类的插件 ClassLoader(归属判定以定义加载器为准,见 PluginClassLoaderRegistry):
+     * URL 指向测试类所在目录、父为引导加载器,故本测试类的栈帧归属 TestPlugin,JDK/第三方帧不归属。
+     */
     private fun loaderFor(name: String): PluginClassLoaderRegistry {
         val registry = PluginClassLoaderRegistry()
-        registry.register(name, URLClassLoader(arrayOf<URL>(), javaClass.classLoader))
+        val testClasses = PluginScopedMcpToolProviderTest::class.java.protectionDomain.codeSource.location
+        registry.register(name, URLClassLoader(arrayOf(testClasses), null))
         return registry
     }
 

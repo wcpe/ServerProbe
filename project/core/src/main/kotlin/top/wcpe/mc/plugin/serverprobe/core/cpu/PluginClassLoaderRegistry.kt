@@ -7,8 +7,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 插件 ClassLoader 注册表(FR2.6)。
  *
  * 平台层(platform-bukkit)在初始化时把各插件的 ClassLoader 注册进来,
- * 供 [CpuAttributionSampler] 把线程栈帧归并到具体插件:对某栈帧的类名,尝试用
- * 已注册的插件 ClassLoader `loadClass`,命中即归属该插件。
+ * 供 [CpuAttributionSampler] 把线程栈帧归并到具体插件:对某栈帧的类名,用已注册的插件 ClassLoader
+ * 尝试 `loadClass`,并且**类必须由该加载器(或其子加载器)定义**才归属该插件——只验"能加载"会把
+ * 经父委派可见的 JDK/服务端类全归给迭代顺序靠前的插件(见 Issue #13)。
  *
  * 为控制开销(每帧遍历所有 CL 太重),维护 **类名 → 插件名 的解析缓存**:
  * 首次 miss 才遍历 CL,命中/确认失败后写缓存,后续帧直接查表。缓存按类名收敛,
@@ -49,11 +50,11 @@ class PluginClassLoaderRegistry {
     /**
      * 解析某类名归属的插件名。
      *
-     * 先查缓存;未命中则遍历已注册 ClassLoader 尝试 `loadClass(className, false)`
-     * (不初始化类,避免触发静态块),命中写缓存并返回,全部 miss 记"无归属"缓存返回 null。
+     * 先查缓存;未命中则遍历已注册 ClassLoader 尝试 `loadClass(className)`,并要求该类由该加载器
+     * (或其子加载器)定义(不初始化类,避免触发静态块);命中写缓存并返回,全部 miss 记"无归属"缓存返回 null。
      *
      * @param className 全限定类名。
-     * @return 归属插件名;无任何插件能加载该类时为 null。
+     * @return 归属插件名;无任何插件定义该类时为 null。
      */
     fun ownerOf(className: String): String? {
         classOwner[className]?.let { return it.takeIf(String::isNotEmpty) }
@@ -69,15 +70,19 @@ class PluginClassLoaderRegistry {
     }
 
     /**
-     * 尝试用给定 ClassLoader 加载类(不初始化)。
+     * 判定类是否归属于给定插件的 ClassLoader。
      *
-     * @param loader ClassLoader。
+     * 仅验"能加载"不够:插件加载器是**父委派**加载器,JDK/服务端类经父链全部可加载,会把每个栈帧
+     * 归给迭代顺序靠前的插件。故要求该类的**定义加载器**是给定加载器自身或其子加载器
+     * (Paper 为插件库创建的子加载器同样算归属),桩加载器(引导类加载器)定义的类一律不归属。
+     *
+     * @param loader 插件 ClassLoader。
      * @param className 全限定类名。
-     * @return 是否可加载。
+     * @return 类归属于该插件时为 true。
      */
     private fun tryLoad(loader: ClassLoader, className: String): Boolean = runCatching {
-        loader.loadClass(className)
-        true
+        val defined = loader.loadClass(className).classLoader ?: return@runCatching false
+        generateSequence(defined) { it.parent }.any { it === loader }
     }.getOrDefault(false)
 
     /**
