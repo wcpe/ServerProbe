@@ -1,6 +1,6 @@
 # 功能规格：MCP 区块/实体明细
 
-> 状态：草拟　·　关联 PRD：FR-17　·　分支：feature/fr17-world-detail
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-17
 
 ## 1. 背景与目标
 

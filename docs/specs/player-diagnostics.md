@@ -1,6 +1,6 @@
 # 功能规格：MCP 在线玩家诊断明细
 
-> 状态：草拟　·　关联 PRD：FR-20　·　分支：feature/fr20-player-diagnostics
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-20
 
 ## 1. 背景与目标
 

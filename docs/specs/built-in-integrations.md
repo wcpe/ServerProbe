@@ -1,6 +1,6 @@
 # 功能规格：内置 MultiCurrencyEconomy 与 AllinInventorySync 集成模块
 
-> 状态：已完成验收，待下次正式版本登记　·　关联 PRD：FR-10　·　分支：当前分支
+> 状态：已交付@v0.3.0　·　关联 PRD：FR-10
 
 ## 1. 背景与目标
 

@@ -65,7 +65,7 @@
 | FR-21 | MCP 运行期 CPU 火焰图：直接利用 `arthas_profiler` 产出（start/stop + 产物查看），不自研采样器（不推翻 ADR-8） | P2 | 已交付@v0.4.0（**Linux 真机产出火焰图 HTML**；Windows 因 async-profiler 平台限制降级） |
 | FR-22 | MCP GC/JFR 详诊：GC 事件明细与 JFR 采集入口（低优先，可经 Arthas vmoption/jfr 兜底） | P3 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，G1 收集器明细） |
 | FR-23 | MCP 工具描述增强：`tools/list` 为每个工具下发完整中文使用说明（参数含义、使用示例、异步工作流提示、输出字段说明），供外部 agent 正确调用；不改变工具名与参数键 | P2 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，42 工具零重复） |
-| FR-24 | MCP 控制面运行期两级开关：控制台 `/probe mcp on\|off\|status` 起停端点（原生工具立即可用）、`/probe mcp arthas on\|off` 单独加载/卸载 Arthas 运行时；仅控制台可执行，不写回配置 | P2 | 已交付@v0.4.0（Paper 1.20.1 Windows 真机，8 项验收 + 5 轮开关零泄漏；待下次发版登记） |
+| FR-24 | MCP 控制面运行期两级开关：控制台 `/probe mcp on\|off\|status` 起停端点（原生工具立即可用）、`/probe mcp arthas on\|off` 单独加载/卸载 Arthas 运行时；仅控制台可执行，不写回配置 | P2 | 已交付@v0.5.0（Paper 1.20.1 Windows 真机，8 项验收 + 5 轮开关零泄漏） |
 
 > 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
 > FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。

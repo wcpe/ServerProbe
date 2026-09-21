@@ -1,6 +1,6 @@
 # 功能规格：MCP GC/JFR 详诊
 
-> 状态：草拟　·　关联 PRD：FR-22　·　分支：feature/fr22-gc-jfr-detail
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-22
 
 ## 1. 背景与目标
 

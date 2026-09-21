@@ -1,6 +1,6 @@
 # 功能规格：MCP 工具描述增强
 
-> 状态：草拟　·　关联 PRD：FR-23　·　分支：feature/fr23-tool-descriptions
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-23
 
 ## 1. 背景与目标
 

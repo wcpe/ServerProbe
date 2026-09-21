@@ -1,6 +1,6 @@
 # 功能规格：MCP 插件维度诊断入口
 
-> 状态：草拟　·　关联 PRD：FR-15　·　分支：feature/fr15-plugin-scoped-diagnostics
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-15
 
 ## 1. 背景与目标
 

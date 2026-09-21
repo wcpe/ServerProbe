@@ -1,6 +1,6 @@
 # 功能规格：MCP 二进制产物安全回传
 
-> 状态：草拟　·　关联 PRD：FR-18　·　分支：feature/fr18-binary-artifact
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-18
 
 ## 1. 背景与目标
 

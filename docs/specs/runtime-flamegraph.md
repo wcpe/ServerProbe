@@ -1,6 +1,6 @@
 # 功能规格：MCP 运行期 CPU 火焰图
 
-> 状态：草拟　·　关联 PRD：FR-21　·　分支：feature/fr21-runtime-flamegraph
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-21
 
 ## 1. 背景与目标
 

@@ -1,6 +1,6 @@
 # 功能规格：MCP 补丁前自动备份原始字节码
 
-> 状态：草拟　·　关联 PRD：FR-19　·　分支：feature/fr19-pre-patch-backup
+> 状态：已交付@v0.4.0　·　关联 PRD：FR-19
 
 ## 1. 背景与目标
 
