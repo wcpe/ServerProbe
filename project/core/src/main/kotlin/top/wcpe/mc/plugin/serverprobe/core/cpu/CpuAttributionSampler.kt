@@ -123,7 +123,8 @@ class CpuAttributionSampler {
         }
         if (round.isEmpty()) return
 
-        // 窗口滑动:本轮入窗,超窗淘汰最旧一轮,同步更新累计计数
+        // 窗口滑动:本轮入窗,超窗淘汰最旧一轮;淘汰必须**同步回退分母**(totalSamples),
+        // 否则分母是全生命周期累计、分子是窗口内计数,占比随运行时间单调衰减(见 Issue #16)
         synchronized(windowRounds) {
             windowRounds.addLast(round)
             if (windowRounds.size > ProbeConfig.cpuWindowRounds()) {
@@ -131,6 +132,7 @@ class CpuAttributionSampler {
                 oldest.forEach { (plugin, n) ->
                     pluginCounts.getOrPut(plugin) { AtomicLong(0) }.addAndGet(-n)
                 }
+                totalSamples.addAndGet(-oldest.values.sum())
             }
             var roundTotal = 0L
             round.forEach { (plugin, n) ->
