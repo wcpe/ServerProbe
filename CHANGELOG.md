@@ -5,15 +5,24 @@
 本文件格式遵循 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本(SemVer)](https://semver.org/lang/zh-CN/)。
 
-> 最新版本 **0.6.0(2026-09-22)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
+> 最新版本 **0.7.0(2026-09-22)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
 
 ---
 
-## [未发布]
+## [0.7.0] - 2026-09-22
 
 ### 新增
 
+- **FR-29 告警规则扩面与告警历史**：`AlertType` 新增 `GC_OLD_HIGH`（老年代 GC 次数速率，跨采集周期差分、与聚合器 GC 速率同口径；首采/计数回绕期间 N/A 不判定）与 `STARTUP_SLOW`（最近一次启动总时长超阈值即告警，数据源为内存画像、代理端无画像恒 N/A；绝对秒数阈值取代 wiki 曾宣称的"×1.5 倍数"——首启场景无基线集合可参照，绝对秒数语义更直接）。**告警历史落盘**：新增 `AlertHistoryChannel`（以既有 `AlertChannel` 广播链接入，零额外线程；事件 JSONL 按日落盘 `data/alerts/`，保留天数沿用 `history-file.retention-days`、当天文件绝不删，异步写不阻塞采集）；新增 `/probe alerts` 子命令（由新到旧至多 10 条，含时间/级别/动作/类型/值/阈值）。wiki 曾宣称的"Old GC 频繁/启动超基线"两条规则由本 FR 做成真（#27 纠偏后回填）。单测 6 条新增（差分/回绕/时间倒退/换算/引擎差分+防抖组合）。issue #25。规格见 [alert-extended](docs/specs/alert-extended.md)。
 - **FR-28 代理端 MCP 日志检索**：新增 `BungeeLogPathProvider` 与 `VelocityLogPathProvider`，补齐 FR-16 代理端欠条——MCP `log_tail`/`log_search` 此前在 BungeeCord/Velocity 恒返回"平台不支持"，而代理端无 TPS/世界指标、日志是其最主要排障线索。BungeeCord 日志为工作目录根下 `proxy.log`，Velocity 为 `logs/latest.log`（e2e 实测运行目录实证；3.1.1–4.x 共享源码无差异）；字符集取 `file.encoding`（Windows 低版本常为 GBK）；路径经 core 既有规范化前缀校验与文件缺失结构化降级。单测 4 条（两平台路径解析与字符集）。issue #24。规格见 [proxy-log-tail](docs/specs/proxy-log-tail.md)。
+
+## [0.6.0] - 2026-09-22
+
+### 新增
+
+- **FR-27 Grafana 看板与 Prometheus 告警规则随发行提供**：新增 `grafana/` 目录（随仓库/Release 分发，**不进发行 jar**）——`dashboard.json`（24 面板：总览四指标卡、JVM 内存/GC/线程死锁、TPS/MSPT/世界/ping 分布、运行期 CPU 归因 Top、启动画像（FR-25）、代理端与脱敏网络流量；数据源与实例变量化）+ `alerts.yml`（5 条规则模板，口径与探针内置 FR-05 告警一致：TPS<18/<15、MSPT p95>50ms、堆>90%、死锁≥1）。指标名以 API.md §5.4 为唯一真源（脚本校验 26 个引用指标全部在册）；`docs/OPERATIONS.md` 新增 §5.1「接 Grafana」。纯产物零代码变更。issue #23。规格见 [grafana-pack](docs/specs/grafana-pack.md)。
+- **FR-26 只读 API 暴露历史指标回读**：`ProbeReadApi` 新增 `historySnapshots(sinceMs, untilMs, limit)`——从历史后端（本地文件/第三方存储 SPI）按闭区间时间范围读取落盘快照，由新到旧至多 `limit` 条。实现委派既有 `MetricStore.readHistory`（零新增存储逻辑）；接口以 **default 方法**落地（默认空列表），既有第三方实现零改动、二进制兼容（与 `queryNetworkPackets` 同款范式）。Javadoc 明确"**可能读盘、调用方宜在异步上下文调用**"。issue #22。规格见 [readapi-history](docs/specs/readapi-history.md)。
+- **FR-25 启动画像指标进 Prometheus**：`/metrics` 新增启动画像区块——`serverprobe_startup_total_seconds`（端到端启动总耗时）、`serverprobe_startup_plugin_seconds{plugin}`（逐插件 onEnable 耗时，画像慢插件榜口径）、`serverprobe_startup_world_seconds{world}`（逐世界加载耗时），时间毫秒→秒换算。数据源为进程内最近一次启动画像的**内存值**（`StartupProfileHolder`），刻意不走落盘回退——`/metrics` 跑在请求线程上，读盘违反"请求线程禁止阻塞 IO"红线；画像未产出或代理端（无画像生产者）时整区块跳过、输出与既往版本逐字节一致。issue #21。规格见 [startup-metrics](docs/specs/startup-metrics.md)。
 
 ### 修复
 
@@ -22,12 +31,6 @@
 ### 文档
 
 - **文档与实现漂移修正（#27）**：`API.md` `/probe proxy` 由"子服 ping/路由规划中未实现"改为已交付（v0.3.0 起）、Web 面板"只读三页"改为四页（补唯一展示完整 IP/载荷的网络取证页及其敏感数据提示）、`ServerMetrics` 字段表补 `pingDistribution`/`observedRegions`/`observedRegionWorlds`（与 api 模型实查一致）、补 `web.*` 配置键指引；wiki `Data-Output.md` 告警规则由宣称的 6 类纠正为实际的 4 类（"Old GC 频繁/启动超基线"两项将由 FR-29 做成真后再回填），补 Grafana 告警模板指引；`built-in-integrations.md` 移除代码中不存在的 `BusinessProviderFactory` 表述，改为实际的 `@Service + @PlatformSide + @PostConstruct/@PreDestroy` 发现注册机制；**`config.yml` 补 6 个代码实际读取但此前未出现在默认配置的键**（`history-file.archive-days`、`agent-stack-max-samples`、`http-monitor.file-retention-days`/`file-archive-days`、`mcp.audit-max-file-mb`/`audit-retention-days`），键名经脚本与 `ProbeConfig` 常量逐一核对一致，注释含用途/取值/默认值/影响（config-files 规范）。
-
-### 新增
-
-- **FR-27 Grafana 看板与 Prometheus 告警规则随发行提供**：新增 `grafana/` 目录（随仓库/Release 分发，**不进发行 jar**）——`dashboard.json`（24 面板：总览四指标卡、JVM 内存/GC/线程死锁、TPS/MSPT/世界/ping 分布、运行期 CPU 归因 Top、启动画像（FR-25）、代理端与脱敏网络流量；数据源与实例变量化）+ `alerts.yml`（5 条规则模板，口径与探针内置 FR-05 告警一致：TPS<18/<15、MSPT p95>50ms、堆>90%、死锁≥1）。指标名以 API.md §5.4 为唯一真源（脚本校验 26 个引用指标全部在册）；`docs/OPERATIONS.md` 新增 §5.1「接 Grafana」。纯产物零代码变更。issue #23。规格见 [grafana-pack](docs/specs/grafana-pack.md)。
-- **FR-26 只读 API 暴露历史指标回读**：`ProbeReadApi` 新增 `historySnapshots(sinceMs, untilMs, limit)`——从历史后端（本地文件/第三方存储 SPI）按闭区间时间范围读取落盘快照，由新到旧至多 `limit` 条。实现委派既有 `MetricStore.readHistory`（零新增存储逻辑）；接口以 **default 方法**落地（默认空列表），既有第三方实现零改动、二进制兼容（与 `queryNetworkPackets` 同款范式）。Javadoc 明确"**可能读盘、调用方宜在异步上下文调用**"。issue #22。规格见 [readapi-history](docs/specs/readapi-history.md)。
-- **FR-25 启动画像指标进 Prometheus**：`/metrics` 新增启动画像区块——`serverprobe_startup_total_seconds`（端到端启动总耗时）、`serverprobe_startup_plugin_seconds{plugin}`（逐插件 onEnable 耗时，画像慢插件榜口径）、`serverprobe_startup_world_seconds{world}`（逐世界加载耗时），时间毫秒→秒换算。数据源为进程内最近一次启动画像的**内存值**（`StartupProfileHolder`），刻意不走落盘回退——`/metrics` 跑在请求线程上，读盘违反"请求线程禁止阻塞 IO"红线；画像未产出或代理端（无画像生产者）时整区块跳过、输出与既往版本逐字节一致。issue #21。规格见 [startup-metrics](docs/specs/startup-metrics.md)。
 
 ## [0.5.1] - 2026-09-21
 
