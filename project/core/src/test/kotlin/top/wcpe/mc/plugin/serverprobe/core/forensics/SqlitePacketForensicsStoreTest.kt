@@ -90,7 +90,15 @@ class SqlitePacketForensicsStoreTest {
             nowMs = { 10 },
         ).use { store ->
             repeat(10) { index -> store.enqueue(observation(index.toLong(), payloadSize = 64 * 1_024)) }
-            assertTrue(store.awaitIdle(), store.status().unavailableReason)
+            // 本用例 batchSize=1,10 条记录逐批提交且溢出批会连续执行 VACUUM + WAL checkpoint(TRUNCATE);
+            // 慢 runner(Windows CI,首次触盘 + 杀毒扫描)上实测可能超出 awaitIdle 默认 5 秒预算,
+            // 该默认值面向运行期,测试不适用——显式给足预算,并让失败信息可诊断(issue #39)。
+            val drained = store.awaitIdle(timeoutMillis = 60_000)
+            val status = store.status()
+            assertTrue(
+                drained,
+                "写入队列未在 60s 内排空：available=${status.available} dropped=${status.droppedRecords} 原因=${status.unavailableReason}",
+            )
 
             val page = store.query(NetworkPacketQuery.builder().sinceMs(0).untilMs(10).limit(100).build())
             assertTrue(page.records.isNotEmpty())
