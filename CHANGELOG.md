@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 文档
+
+- **文档与实现漂移修正（#27）**：`API.md` `/probe proxy` 由"子服 ping/路由规划中未实现"改为已交付（v0.3.0 起）、Web 面板"只读三页"改为四页（补唯一展示完整 IP/载荷的网络取证页及其敏感数据提示）、`ServerMetrics` 字段表补 `pingDistribution`/`observedRegions`/`observedRegionWorlds`（与 api 模型实查一致）、补 `web.*` 配置键指引；wiki `Data-Output.md` 告警规则由宣称的 6 类纠正为实际的 4 类（"Old GC 频繁/启动超基线"两项将由 FR-29 做成真后再回填），补 Grafana 告警模板指引；`built-in-integrations.md` 移除代码中不存在的 `BusinessProviderFactory` 表述，改为实际的 `@Service + @PlatformSide + @PostConstruct/@PreDestroy` 发现注册机制；**`config.yml` 补 6 个代码实际读取但此前未出现在默认配置的键**（`history-file.archive-days`、`agent-stack-max-samples`、`http-monitor.file-retention-days`/`file-archive-days`、`mcp.audit-max-file-mb`/`audit-retention-days`），键名经脚本与 `ProbeConfig` 常量逐一核对一致，注释含用途/取值/默认值/影响（config-files 规范）。
+
 ### 新增
 
 - **FR-27 Grafana 看板与 Prometheus 告警规则随发行提供**：新增 `grafana/` 目录（随仓库/Release 分发，**不进发行 jar**）——`dashboard.json`（24 面板：总览四指标卡、JVM 内存/GC/线程死锁、TPS/MSPT/世界/ping 分布、运行期 CPU 归因 Top、启动画像（FR-25）、代理端与脱敏网络流量；数据源与实例变量化）+ `alerts.yml`（5 条规则模板，口径与探针内置 FR-05 告警一致：TPS<18/<15、MSPT p95>50ms、堆>90%、死锁≥1）。指标名以 API.md §5.4 为唯一真源（脚本校验 26 个引用指标全部在册）；`docs/OPERATIONS.md` 新增 §5.1「接 Grafana」。纯产物零代码变更。issue #23。规格见 [grafana-pack](docs/specs/grafana-pack.md)。

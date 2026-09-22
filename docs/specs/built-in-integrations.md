@@ -21,7 +21,7 @@ FR-09 已证明业务桥协议可独立验收，但其 Bukkit Provider 仍混在
 
 - 依赖方向固定为 `api <- project:core <- integration:* <- plugin`；集成模块可以依赖 Bukkit API，但 `project:core` 不得引用 MCE/AIS 类型。
 - `plugin` 只负责把两个模块的编译输出合入发行 jar；外部 API 保持 `compileOnly`，不得被重复打包。
-- 每个模块提供一个 `BusinessProviderFactory`。工厂先用插件存在性与类存在性双重检查，再在外部插件就绪后创建 Provider；卸载事件撤销注册并释放监听器。
+- 每个模块的发现/注册：`@Service` + `@PlatformSide(BUKKIT)` 纳入 IOC，`@PostConstruct` 时经"插件存在性与服务就绪性"双重检查创建 Provider 并注册到 `BusinessHost`；`PluginEnable/DisableEvent` 刷新就绪状态；`@PreDestroy`/插件卸载事件撤销注册并释放监听器。
 - MCE 操作沿用公开 Service 契约：查询建议异步，所有写操作强制异步；结果按 `success/errorCode` 映射为 FR-09 回执，不以异常表达业务失败。
 - 真实插件路径只作为 mc-testkit 的本机输入，公共 DSL、配置和仓库文档不写死绝对路径。
 - 架构决策在规格获批后写入 ADR-0018。
