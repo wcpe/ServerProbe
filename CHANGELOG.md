@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **`historySnapshots` 排序契约与实现不符（code review 发现，0.6.0 未发布前修正）**：公开 API 承诺"由新到旧"，但底层 `MetricStore.readHistory`（本地文件实现）按时间升序遍历并随收随截，实际返回**由旧到新且保留最旧的 limit 条**——第三方按文档消费会拿最旧数据当"最新趋势"。修复：`MetricStore` 新增带排序语义的 `readHistoryLatestFirst` default 方法（默认反转兜底，既有第三方实现零改动），本地文件实现**覆盖**该方法（从最新日期文件倒序遍历、单文件内取尾部命中行，兑现"保留最新的 limit 条"），公开 API 改委派该方法。同步修正测试错位：委派层测试改用真实 `ProbeReadApiImpl` 实例（此前用测试内复刻桩，生产实现零覆盖）。
+
 ### 文档
 
 - **文档与实现漂移修正（#27）**：`API.md` `/probe proxy` 由"子服 ping/路由规划中未实现"改为已交付（v0.3.0 起）、Web 面板"只读三页"改为四页（补唯一展示完整 IP/载荷的网络取证页及其敏感数据提示）、`ServerMetrics` 字段表补 `pingDistribution`/`observedRegions`/`observedRegionWorlds`（与 api 模型实查一致）、补 `web.*` 配置键指引；wiki `Data-Output.md` 告警规则由宣称的 6 类纠正为实际的 4 类（"Old GC 频繁/启动超基线"两项将由 FR-29 做成真后再回填），补 Grafana 告警模板指引；`built-in-integrations.md` 移除代码中不存在的 `BusinessProviderFactory` 表述，改为实际的 `@Service + @PlatformSide + @PostConstruct/@PreDestroy` 发现注册机制；**`config.yml` 补 6 个代码实际读取但此前未出现在默认配置的键**（`history-file.archive-days`、`agent-stack-max-samples`、`http-monitor.file-retention-days`/`file-archive-days`、`mcp.audit-max-file-mb`/`audit-retention-days`），键名经脚本与 `ProbeConfig` 常量逐一核对一致，注释含用途/取值/默认值/影响（config-files 规范）。

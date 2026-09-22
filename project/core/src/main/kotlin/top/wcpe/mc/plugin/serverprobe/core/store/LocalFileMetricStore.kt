@@ -157,7 +157,7 @@ class LocalFileMetricStore : MetricStore {
      * @param sinceMs 范围下界(epoch 毫秒,含)。
      * @param untilMs 范围上界(epoch 毫秒,含)。
      * @param limit 期望返回的最大条数;非正时返回空列表。
-     * @return 范围内历史快照列表(按文件→行的自然顺序,大体由旧到新);无数据时为空列表。
+     * @return 范围内历史快照列表(按文件→行的自然时间顺序,**由旧到新**;累计达 limit 即止,故保留的是范围内较旧的条;上层公开 API 负责反转为"由新到旧");无数据时为空列表。
      */
     override fun readHistory(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> {
         if (limit <= 0) {
@@ -172,6 +172,41 @@ class LocalFileMetricStore : MetricStore {
                 break
             }
         }
+        return result
+    }
+
+    /**
+     * FR-26 覆盖:按"由新到旧、保留范围内最新的 [limit] 条"语义读取。
+     *
+     * 本地文件按自然日分桶、文件与行内均为时间升序,基准 [readHistory] 的"随收随截"只能留下
+     * 范围内**较旧**的条;本实现从**最新日期的文件倒序**遍历,单文件内先完整收集命中行再取尾部
+     * (单文件为单日数据,行数与采集周期同量级,内存可控),累计达 limit 即止——不读比所需更早的文件。
+     *
+     * 读盘方法,调用方须在异步上下文调用(同基准方法)。
+     */
+    override fun readHistoryLatestFirst(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> {
+        if (limit <= 0) {
+            return emptyList()
+        }
+        val serverId = InstanceId.resolve(ProbeConfig.configuredServerName())
+        val files = MetricHistoryFile.resolveRange(dataRoot(), serverId, sinceMs, untilMs)
+        val result = ArrayList<MetricSnapshot>()
+        for (file in files.asReversed()) {
+            val dayHits = ArrayList<MetricSnapshot>()
+            readSnapshotLines(file, sinceMs, untilMs, Int.MAX_VALUE, dayHits)
+            // 单文件内取最新的(尾部)部分,保持时间升序插入到结果头部
+            val tail = if (dayHits.size > limit) dayHits.subList(dayHits.size - limit, dayHits.size) else dayHits
+            result.addAll(0, tail)
+            if (result.size >= limit) {
+                // 头部拼接后总量可能超限:去掉最旧的多余条
+                while (result.size > limit) {
+                    result.removeAt(0)
+                }
+                break
+            }
+        }
+        // 结果当前为时间升序(旧→新):反转为公开契约的"由新到旧"
+        result.reverse()
         return result
     }
 
