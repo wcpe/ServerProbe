@@ -67,6 +67,28 @@ public interface MetricStore {
     }
 
     /**
+     * 读取指定时间范围内的历史指标快照,并声明排序语义(FR-26,公开只读 API 的底层入口)。
+     *
+     * 与 {@link #readHistory(long, long, int)} 的唯一区别:实现应返回**由新到旧**排序、
+     * 保留范围内**最新的** {@code limit} 条(基准方法对条数的选择不作承诺)。
+     * 默认实现 = 调用基准方法后**就地反转**——对"升序随收随截"的本地实现这仍可能留下较旧的条,
+     * 因此内置本地实现**覆盖本方法**以正确兑现语义;第三方 DB/远程后端可直接以查询排序兑现,
+     * 也可沿用默认反转(数据量小时可接受)。
+     *
+     * 默认反转实现保持既有第三方实现零改动、向后兼容。
+     *
+     * @param sinceMs 时间范围下界(epoch 毫秒,含)。
+     * @param untilMs 时间范围上界(epoch 毫秒,含)。
+     * @param limit 期望返回的最大条数;非正时返回空列表。
+     * @return 范围内历史快照列表(由新到旧,保留最新的 limit 条);默认空。
+     */
+    default java.util.List<MetricSnapshot> readHistoryLatestFirst(long sinceMs, long untilMs, int limit) {
+        java.util.List<MetricSnapshot> ascending = readHistory(sinceMs, untilMs, limit);
+        java.util.Collections.reverse(ascending);
+        return ascending;
+    }
+
+    /**
      * 批量追加指标历史记录(M2 SPI 扩面,FR8)。
      *
      * **默认实现退化为逐条调用 {@link #appendHistory}**,使既有实现无需改动即可用;

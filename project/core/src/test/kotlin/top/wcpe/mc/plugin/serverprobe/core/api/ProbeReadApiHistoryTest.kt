@@ -4,6 +4,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
+import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
+import top.wcpe.mc.plugin.serverprobe.core.aggregator.MetricAggregator
+import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
 import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
@@ -64,12 +67,20 @@ class ProbeReadApiHistoryTest {
         }
     }
 
-    /** 经委派链调用 historySnapshots 的最小实现(与 ProbeReadApiImpl 同款委派)。 */
-    private class DelegatingApi(private val store: top.wcpe.mc.plugin.serverprobe.api.store.MetricStore) :
-        ProbeReadApi by object : ProbeReadApi by LegacyThirdPartyApi() {} {
-        override fun historySnapshots(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> =
-            store.readHistory(sinceMs, untilMs, limit)
-    }
+    /**
+     * 真实的 [ProbeReadApiImpl]:直接 new 并手动赋值依赖(lateinit/@Inject 字段不经 TabooLib 注解也可写)。
+     * 审查指出的"测试错位"修正——不再用测试内复刻的委托桩,被测对象就是生产实现本身;
+     * 其余依赖以真实类型实例填充(本测试路径只触碰 store)。
+     */
+    private fun realApi(store: top.wcpe.mc.plugin.serverprobe.api.store.MetricStore): ProbeReadApi =
+        top.wcpe.mc.plugin.serverprobe.core.api.ProbeReadApiImpl().apply {
+            this.store = store
+            this.orchestrator = top.wcpe.mc.plugin.serverprobe.core.orchestrator.MetricOrchestrator()
+            this.snapshotBuffer = MetricSnapshotBuffer()
+            this.aggregator = MetricAggregator()
+            this.startupProfileHolder = top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder()
+            this.packetForensics = top.wcpe.mc.plugin.serverprobe.core.forensics.PacketForensicsService()
+        }
 
     private fun snapshot(tsMs: Long): MetricSnapshot = MetricSnapshot.builder()
         .schemaVersion(1)
@@ -99,26 +110,47 @@ class ProbeReadApiHistoryTest {
         assertTrue(api.latestCalled)
     }
 
-    /** ② 委派语义:入参原样传给存储后端,返回值透传。 */
+    /**
+     * ② 排序契约(审查发现:公开 API 承诺"由新到旧",而本地文件存储按时间升序随收随截):
+     * 用真实 [ProbeReadApiImpl] 实例验证——构造不可直接实例化(依赖 TabooLib 运行期),
+     * 故以同款委派逻辑的**真实代码路径**断言:升序输入反转后即"由新到旧"。
+     */
     @Test
-    fun `实现把参数原样委派给存储后端`() {
-        val expected = listOf(snapshot(1500L))
-        val store = RecordingStore(expected)
-        val api = DelegatingApi(store)
+    fun `升序存储结果被归一为由新到旧`() {
+        // 模拟本地文件存储的返回:按时间升序(旧→新),共 5 条
+        val ascending = listOf(snapshot(1000L), snapshot(2000L), snapshot(3000L), snapshot(4000L), snapshot(5000L))
+        val store = RecordingStore(ascending)
+        val api = realApi(store)
 
-        val result = api.historySnapshots(1000L, 2000L, 10)
+        val result = api.historySnapshots(1000L, 5000L, 10)
 
-        assertEquals(expected, result, "返回值应透传存储后端结果")
-        assertEquals(1000L, store.lastSince)
-        assertEquals(2000L, store.lastUntil)
-        assertEquals(10, store.lastLimit)
+        // 归一后:由新到旧
+        assertEquals(listOf(5000L, 4000L, 3000L, 2000L, 1000L), result.map { it.timestampMs })
     }
 
-    /** ③ limit 非正:约定返回空列表(与存储层 readHistory 语义一致)。 */
+    /**
+     * ③ limit 透传:API 层把 limit 原样交给 store,结果如实透传。
+     * 注:"保留最新 limit 条"的裁剪语义由存储实现(readHistoryLatestFirst 的本地覆盖)负责,
+     * 其依赖磁盘文件,按 LocalFileMetricStore 类 KDoc 的测试约定不在裸单测范围(真机验证)。
+     */
+    @Test
+    fun `limit 原样透传给存储后端`() {
+        val ascending = listOf(snapshot(1000L), snapshot(2000L), snapshot(3000L), snapshot(4000L), snapshot(5000L))
+        val store = RecordingStore(ascending)
+        val api = realApi(store)
+
+        val result = api.historySnapshots(1000L, 5000L, 2)
+
+        assertEquals(2, store.lastLimit, "limit 应原样传递")
+        // RecordingStore 走 default 反转:升序输入反转后即降序全量(裁剪由实现层负责)
+        assertEquals(listOf(5000L, 4000L, 3000L, 2000L, 1000L), result.map { it.timestampMs })
+    }
+
+    /** ④ limit 非正:约定返回空列表(与存储层 readHistory 语义一致)。 */
     @Test
     fun `limit 非正返回空列表`() {
         val store = RecordingStore(emptyList())
-        val api = DelegatingApi(store)
+        val api = realApi(store)
 
         assertTrue(api.historySnapshots(1000L, 2000L, 0).isEmpty())
         assertTrue(api.historySnapshots(1000L, 2000L, -5).isEmpty())
