@@ -4,6 +4,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
+import top.wcpe.mc.plugin.serverprobe.core.startup.SlowPluginRanking
 
 /**
  * Prometheus 文本格式化器(FR4.2,exposition format 0.0.4)。
@@ -39,6 +40,9 @@ object PrometheusTextFormatter {
     /** 毫秒 → 秒换算因子。 */
     private const val MILLIS_PER_SECOND = 1000.0
 
+    /** 启动画像逐插件榜单条数的默认值;与 `ProbeConfig.startupTopN()` 的配置默认保持一致。 */
+    private const val DEFAULT_STARTUP_TOP_N = 5
+
     /**
      * 将指标快照渲染为 Prometheus exposition 文本。
      *
@@ -47,6 +51,9 @@ object PrometheusTextFormatter {
      *
      * @param snapshot 待渲染的指标快照;为 null(探针尚无任何采样)时返回空字符串。
      * @param cpuMetrics 运行期 CPU 归因(FR2.6);为 null/空(未启用或无样本)时不导出对应序列。
+     * @param startupProfile 最近一次启动画像(FR-25);为 null/空快照(未产出、代理端)时整段跳过。
+     * @param startupTopN 启动画像逐插件序列的榜单条数;调用方应传 `ProbeConfig.startupTopN()`,
+     *   默认值与配置默认一致。**与 `/probe startup` 同源同截**是 FR-25 的验收判据,故不得在此另行聚合。
      * @return Prometheus 文本;snapshot 为 null 时为空串。
      */
     fun format(
@@ -54,6 +61,7 @@ object PrometheusTextFormatter {
         cpuMetrics: List<PluginCpuMetric>? = null,
         traffic: PacketTrafficReport? = null,
         startupProfile: StartupProfile? = null,
+        startupTopN: Int = DEFAULT_STARTUP_TOP_N,
     ): String {
         if (snapshot == null) {
             return ""
@@ -70,7 +78,7 @@ object PrometheusTextFormatter {
         snapshot.proxy?.let { appendProxy(writer, it) }
         appendCpu(writer, cpuMetrics)
         appendTraffic(writer, traffic)
-        appendStartup(writer, startupProfile)
+        appendStartup(writer, startupProfile, startupTopN)
         return sb.toString()
     }
 
@@ -266,14 +274,17 @@ object PrometheusTextFormatter {
      *
      * 涵盖:端到端启动总耗时(gauge,ms→s)、逐插件 onEnable 耗时(gauge,label plugin)、
      * 逐世界加载耗时(gauge,label world)。画像为 null(尚未产出或代理端无画像)时整区块跳过。
-     * 插件/世界明细为画像既有口径(慢插件/慢世界榜),不在此处另行聚合历史。
+     *
+     * 逐插件序列**与 `/probe startup` 同源同截**:来源经 [SlowPluginRanking] 择优(agent/Incision 实测
+     * 优于日志解析近似),并同样截断到前 [startupTopN] 条——真机验收曾发现两处出口取值不一致,
+     * 且未截断的近似榜会把每个插件都写成 label。逐世界序列仍取画像既有口径。
      */
-    private fun appendStartup(writer: MetricWriter, profile: StartupProfile?) {
+    private fun appendStartup(writer: MetricWriter, profile: StartupProfile?, startupTopN: Int) {
         if (profile == null) {
             return
         }
         writer.gauge("startup_total_seconds", profile.totalMs / MILLIS_PER_SECOND)
-        profile.pluginTimings?.forEach { timing ->
+        SlowPluginRanking.top(profile, startupTopN).forEach { timing ->
             writer.gauge("startup_plugin_seconds", timing.enableMs / MILLIS_PER_SECOND, listOf("plugin" to timing.name))
         }
         profile.worldTimings?.forEach { timing ->
@@ -460,6 +471,5 @@ object PrometheusTextFormatter {
 
             /** Prometheus 指标类型:单调累计值。 */
             private const val TYPE_COUNTER = "counter"
-        }
-    }
+        }    }
 }
