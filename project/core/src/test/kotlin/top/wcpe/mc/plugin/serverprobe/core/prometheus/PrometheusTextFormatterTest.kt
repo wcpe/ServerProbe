@@ -248,7 +248,99 @@ class PrometheusTextFormatterTest {
         assertFalse(text.contains("payload"), "Prometheus 不得输出包载荷")
     }
 
+    /** FR-25 启动画像区块:总耗时 ms→s、逐插件/逐世界(label plugin/world)均正确导出。 */
+    @Test
+    fun `启动画像导出总耗时与逐插件逐世界耗时`() {
+        val text = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = startupProfile())
+
+        assertContainsLine(text, """serverprobe_startup_total_seconds{serverId="srv-1",platform="BUKKIT"} 45.2""")
+        assertTrue(text.contains("# TYPE serverprobe_startup_total_seconds gauge"), "应声明 startup_total_seconds 为 gauge")
+        assertContainsLine(
+            text,
+            """serverprobe_startup_plugin_seconds{serverId="srv-1",platform="BUKKIT",plugin="WorldEdit"} 12.5"""
+        )
+        assertContainsLine(
+            text,
+            """serverprobe_startup_plugin_seconds{serverId="srv-1",platform="BUKKIT",plugin="Vault"} 3"""
+        )
+        assertContainsLine(
+            text,
+            """serverprobe_startup_world_seconds{serverId="srv-1",platform="BUKKIT",world="world"} 8.75"""
+        )
+    }
+
+    /** FR-25 画像为 null(未产出/代理端)时启动区块整段跳过,输出与不带画像完全一致(零回归)。 */
+    @Test
+    fun `无启动画像时不导出启动区块`() {
+        val withProfile = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = startupProfile())
+        val withoutProfile = PrometheusTextFormatter.format(fullServerSnapshot())
+        val explicitNull = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = null)
+
+        assertFalse(withoutProfile.contains("startup_"), "无画像不应含任何启动指标")
+        assertFalse(explicitNull.contains("startup_"), "显式传 null 同样不导出")
+        assertEquals(withoutProfile, explicitNull, "默认参数与显式 null 输出一致")
+        assertTrue(withProfile.contains("startup_total_seconds"), "带画像时应导出启动指标")
+    }
+
+    /** FR-25 插件/世界明细为空列表时不产生空标签行,总耗时仍导出。 */
+    @Test
+    fun `启动画像明细为空时仅导出总耗时`() {
+        val profile = startupProfile().toBuilder()
+            .pluginTimings(emptyList())
+            .worldTimings(emptyList())
+            .build()
+        val text = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = profile)
+
+        assertContainsLine(text, """serverprobe_startup_total_seconds{serverId="srv-1",platform="BUKKIT"} 45.2""")
+        assertFalse(text.contains("startup_plugin_seconds"), "无插件明细不应导出该序列")
+        assertFalse(text.contains("startup_world_seconds"), "无世界明细不应导出该序列")
+    }
+
+    /** FR-25 label 值含特殊字符(插件/世界名)时按规范转义。 */
+    @Test
+    fun `启动画像 label 值按规范转义`() {
+        val profile = startupProfile().toBuilder()
+            .pluginTimings(
+                listOf(
+                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder()
+                        .name("weird\"plugin\\")
+                        .enableMs(1000)
+                        .build()
+                )
+            )
+            .build()
+        val text = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = profile)
+
+        assertTrue(
+            text.contains("""plugin="weird\"plugin\\""""),
+            "label 值应转义双引号与反斜杠,实际输出:\n$text"
+        )
+    }
+
     // —— 测试夹具 ——
+
+    /** FR-25 启动画像夹具:总时长 45200ms、两个插件、一个世界。 */
+    private fun startupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile =
+        top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile.builder()
+            .schemaVersion(4)
+            .serverId("srv-1")
+            .platform(ProbePlatform.BUKKIT)
+            .mcVersion("1.20.1")
+            .jvmStartTimeMs(0L)
+            .totalMs(45200L)
+            .pluginTimings(
+                listOf(
+                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name("WorldEdit").enableMs(12500).build(),
+                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name("Vault").enableMs(3000).build(),
+                )
+            )
+            .worldTimings(
+                listOf(
+                    top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming.builder().name("world").loadMs(8750).build(),
+                )
+            )
+            .createdAtMs(1000L)
+            .build()
 
     /** 基础 JVM 指标:各字段为可导出的正常值(max 非 -1、CPU 非 -1.0)。 */
     private fun baseJvm(): JvmMetrics = JvmMetrics.builder()
