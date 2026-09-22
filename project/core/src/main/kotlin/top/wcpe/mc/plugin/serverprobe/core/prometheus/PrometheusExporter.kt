@@ -5,6 +5,7 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
+import top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostEnable
@@ -50,6 +51,13 @@ class PrometheusExporter {
     @Inject
     lateinit var traffic: PacketTrafficService
 
+    /**
+     * 最近一次启动画像的内存持有者(FR-25);供 /metrics 导出启动区块。
+     * 刻意只读内存值不读盘(请求线程禁阻塞 IO);代理端无生产者时恒为 null,启动区块自然跳过。
+     */
+    @Inject(required = false)
+    var startupProfileHolder: StartupProfileHolder? = null
+
     /** 运行中的 HTTP 服务句柄;未开启或起服失败时为 null。 */
     @Volatile
     private var server: HttpServer? = null
@@ -85,6 +93,7 @@ class PrometheusExporter {
                     ProbeConfig.metricsAllowedIps(),
                     cpuSampler,
                     traffic,
+                    startupProfileProvider = { startupProfileHolder?.get() },
                 )
             )
             httpServer.start()

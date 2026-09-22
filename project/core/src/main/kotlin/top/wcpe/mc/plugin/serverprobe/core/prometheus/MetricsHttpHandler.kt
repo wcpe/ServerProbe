@@ -3,6 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
+import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.net.InetSocketAddress
@@ -24,6 +25,9 @@ import java.net.InetSocketAddress
  * @property readApi 只读数据出口,提供最新指标快照。
  * @property token 鉴权 token;空串表示不启用 token 鉴权(仅 IP 白名单)。
  * @property allowedIps 允许访问的来源 IP 白名单(恒非空,至少含本机)。
+ * @property startupProfileProvider 最近一次启动画像的内存取值函数(FR-25);为 null 或返回 null
+ *   (尚未产出画像/代理端无画像)时不导出启动区块。刻意走内存值,**不读盘**——本处理器跑在
+ *   HTTP 线程上,读盘违反"请求线程禁止阻塞 IO"红线。
  */
 class MetricsHttpHandler(
     private val readApi: ProbeReadApi,
@@ -31,6 +35,7 @@ class MetricsHttpHandler(
     private val allowedIps: List<String>,
     private val cpuSampler: top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler? = null,
     private val traffic: PacketTrafficService? = null,
+    private val startupProfileProvider: (() -> StartupProfile?)? = null,
 ) : HttpHandler {
 
     /**
@@ -51,6 +56,7 @@ class MetricsHttpHandler(
                 readApi.latestSnapshot(),
                 cpuSampler?.snapshot(CPU_SNAPSHOT_LIMIT),
                 traffic?.currentReport(),
+                startupProfileProvider?.invoke(),
             )
             respondMetrics(exchange, body)
         } catch (e: Exception) {

@@ -1,6 +1,6 @@
 # 功能规格：启动画像指标进 Prometheus
 
-> 状态：草拟　·　关联 PRD：FR-25　·　分支：feature/startup-metrics
+> 状态：开发中　·　关联 PRD：FR-25　·　分支：feature/startup-metrics
 
 ## 1. 背景与目标
 

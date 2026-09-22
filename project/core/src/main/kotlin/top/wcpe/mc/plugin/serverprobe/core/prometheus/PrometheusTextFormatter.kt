@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 
 /**
@@ -52,6 +53,7 @@ object PrometheusTextFormatter {
         snapshot: MetricSnapshot?,
         cpuMetrics: List<PluginCpuMetric>? = null,
         traffic: PacketTrafficReport? = null,
+        startupProfile: StartupProfile? = null,
     ): String {
         if (snapshot == null) {
             return ""
@@ -68,6 +70,7 @@ object PrometheusTextFormatter {
         snapshot.proxy?.let { appendProxy(writer, it) }
         appendCpu(writer, cpuMetrics)
         appendTraffic(writer, traffic)
+        appendStartup(writer, startupProfile)
         return sb.toString()
     }
 
@@ -255,6 +258,26 @@ object PrometheusTextFormatter {
             if (backend.pingMs >= 0) {
                 writer.gauge("proxy_backend_ping_ms", backend.pingMs.toDouble(), listOf("backend" to backend.name))
             }
+        }
+    }
+
+    /**
+     * 追加启动画像区块(FR-25,可选;数据源为进程内最近一次启动画像的内存值)。
+     *
+     * 涵盖:端到端启动总耗时(gauge,ms→s)、逐插件 onEnable 耗时(gauge,label plugin)、
+     * 逐世界加载耗时(gauge,label world)。画像为 null(尚未产出或代理端无画像)时整区块跳过。
+     * 插件/世界明细为画像既有口径(慢插件/慢世界榜),不在此处另行聚合历史。
+     */
+    private fun appendStartup(writer: MetricWriter, profile: StartupProfile?) {
+        if (profile == null) {
+            return
+        }
+        writer.gauge("startup_total_seconds", profile.totalMs / MILLIS_PER_SECOND)
+        profile.pluginTimings?.forEach { timing ->
+            writer.gauge("startup_plugin_seconds", timing.enableMs / MILLIS_PER_SECOND, listOf("plugin" to timing.name))
+        }
+        profile.worldTimings?.forEach { timing ->
+            writer.gauge("startup_world_seconds", timing.loadMs / MILLIS_PER_SECOND, listOf("world" to timing.name))
         }
     }
 
