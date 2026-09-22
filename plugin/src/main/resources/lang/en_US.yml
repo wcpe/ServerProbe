@@ -120,6 +120,7 @@ command-cpu-line: "§8  - §f{0}§7: §f{1} §7samples §8({2})"
 # flamegraph export
 command-flamegraph-agent-absent: "§eFlamegraph requires startup agent, add §7-javaagent:plugins/ServerProbe.jar §eto the start command"
 command-flamegraph-exported: "§aFlamegraph exported: §f{0}"
+command-flamegraph-failed: "§cFailed to export flamegraph, check server log"
 
 # http outbound monitor
 command-help-http: "§a/probe http §7- View recent outbound HTTP/TCP calls"

@@ -189,6 +189,7 @@ class BridgeClient {
         if (domain.isEmpty()) return
         val ws = client ?: return // 未连接:静默丢弃(至少一次投递,断连缺口由 catchup 补发)
         runCatching { ws.sendText(businessEventJson(domain, dedupKey, fields)) }
+            .onSuccess { sent -> if (!sent) ProbeLogger.warn("插件桥业务事件($domain/$dedupKey)因写锁忙/写超时被丢弃,下游以 dedupKey 幂等容忍缺口") }
             .onFailure { ProbeLogger.warn("插件桥上报业务事件失败(domain=$domain),已丢弃:${it.message}") }
     }
 
