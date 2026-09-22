@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **FR-28 代理端 MCP 日志检索**：新增 `BungeeLogPathProvider` 与 `VelocityLogPathProvider`，补齐 FR-16 代理端欠条——MCP `log_tail`/`log_search` 此前在 BungeeCord/Velocity 恒返回"平台不支持"，而代理端无 TPS/世界指标、日志是其最主要排障线索。BungeeCord 日志为工作目录根下 `proxy.log`，Velocity 为 `logs/latest.log`（e2e 实测运行目录实证；3.1.1–4.x 共享源码无差异）；字符集取 `file.encoding`（Windows 低版本常为 GBK）；路径经 core 既有规范化前缀校验与文件缺失结构化降级。单测 4 条（两平台路径解析与字符集）。issue #24。规格见 [proxy-log-tail](docs/specs/proxy-log-tail.md)。
+
 ### 修复
 
 - **`historySnapshots` 排序契约与实现不符（code review 发现，0.6.0 未发布前修正）**：公开 API 承诺"由新到旧"，但底层 `MetricStore.readHistory`（本地文件实现）按时间升序遍历并随收随截，实际返回**由旧到新且保留最旧的 limit 条**——第三方按文档消费会拿最旧数据当"最新趋势"。修复：`MetricStore` 新增带排序语义的 `readHistoryLatestFirst` default 方法（默认反转兜底，既有第三方实现零改动），本地文件实现**覆盖**该方法（从最新日期文件倒序遍历、单文件内取尾部命中行，兑现"保留最新的 limit 条"），公开 API 改委派该方法。同步修正测试错位：委派层测试改用真实 `ProbeReadApiImpl` 实例（此前用测试内复刻桩，生产实现零覆盖）。
