@@ -4,6 +4,8 @@ import taboolib.common.platform.ProxyCommandSender
 import taboolib.module.lang.sendLang
 import top.wcpe.mc.plugin.serverprobe.core.alert.channel.AlertEventRecord
 import top.wcpe.mc.plugin.serverprobe.core.alert.channel.AlertHistoryChannel
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -60,7 +62,15 @@ internal object AlertsCommandHandler {
         else -> "7"
     }
 
-    /** 观测值/阈值展示:整数省小数,非整数保留一位。internal 供单测。 */
-    internal fun formatNumber(value: Double): String =
-        if (value == Math.floor(value) && !value.isInfinite()) value.toLong().toString() else "%.1f".format(value)
+    /**
+     * 观测值/阈值展示:整数省小数;非整数按至多 3 位小数四舍五入后去掉尾随零。
+     *
+     * 早前实现一律保留 1 位小数,把 Old GC 默认阈值 0.05 显示成 0.1(2 倍失真);
+     * 阈值正是运维据此调参的数字,必须如实呈现。internal 供单测。
+     */
+    internal fun formatNumber(value: Double): String = if (!value.isFinite()) {
+        value.toString()
+    } else {
+        BigDecimal.valueOf(value).setScale(3, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    }
 }
