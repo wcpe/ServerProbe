@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.net.InetSocketAddress
@@ -57,6 +58,7 @@ class MetricsHttpHandler(
                 cpuSampler?.snapshot(CPU_SNAPSHOT_LIMIT),
                 traffic?.currentReport(),
                 startupProfileProvider?.invoke(),
+                ProbeConfig.startupTopN(),
             )
             respondMetrics(exchange, body)
         } catch (e: Exception) {

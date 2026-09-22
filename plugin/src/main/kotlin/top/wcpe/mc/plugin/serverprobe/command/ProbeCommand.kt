@@ -26,6 +26,7 @@ import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasRuntime
 import top.wcpe.mc.plugin.serverprobe.core.mcp.McpControlPlane
+import top.wcpe.mc.plugin.serverprobe.core.startup.SlowPluginRanking
 import top.wcpe.taboolib.ioc.annotation.Inject
 import java.io.File
 
@@ -442,15 +443,9 @@ object ProbeCommand {
         sender.sendLang("command-startup-total", ProbeFormat.seconds(profile.totalMs))
 
         val topN = ProbeConfig.startupTopN()
-        // 慢插件榜择优:Incision 已生效时优先其精确 onEnable 实测,其次 agent,最后回退日志解析。
-        val slowSource = if (profile.incisionActive && !profile.incisionPluginEnableTimings.isNullOrEmpty()) {
-            profile.incisionPluginEnableTimings!!
-        } else if (profile.agentAttached && !profile.agentPluginEnableTimings.isNullOrEmpty()) {
-            profile.agentPluginEnableTimings!!
-        } else {
-            profile.pluginTimings
-        }
-        val slowPlugins = slowSource.sortedByDescending { it.enableMs }.take(topN)
+        // 慢插件榜口径与 /metrics 共用 SlowPluginRanking(择优 Incision > agent > 日志解析,并同样截断 Top-N):
+        // 两处出口同源同截,避免同一实例上面板与命令给出不同数字(真机验收发现的 FR-25 不一致)。
+        val slowPlugins = SlowPluginRanking.top(profile, topN)
         sender.sendLang("command-startup-plugins-title", topN)
         if (slowPlugins.isEmpty()) {
             sender.sendLang("command-startup-plugins-empty")

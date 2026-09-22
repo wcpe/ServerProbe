@@ -282,10 +282,45 @@ class PrometheusTextFormatterTest {
         assertTrue(withProfile.contains("startup_total_seconds"), "带画像时应导出启动指标")
     }
 
+    /**
+     * FR-25 真机验收修正:逐插件序列与 `/probe startup` **同源同截**。
+     *
+     * 挂 agent 时取实测精确值(而非日志解析近似值),并截断到榜单条数——两处出口取值必须能对上,
+     * 且未截断的近似榜会把每个插件都写成一条 label(基数随插件数增长)。
+     */
+    @Test
+    fun `启动画像逐插件序列取 agent 实测值并截断榜单条数`() {
+        val profile = startupProfile().toBuilder()
+            .agentAttached(true)
+            .agentPluginEnableTimings(
+                listOf(
+                    pluginTiming("WorldEdit", 9900),
+                    pluginTiming("Vault", 2100),
+                    pluginTiming("EssentialsX", 1500),
+                )
+            )
+            .build()
+
+        val text = PrometheusTextFormatter.format(fullServerSnapshot(), startupProfile = profile, startupTopN = 2)
+
+        assertContainsLine(
+            text,
+            """serverprobe_startup_plugin_seconds{serverId="srv-1",platform="BUKKIT",plugin="WorldEdit"} 9.9"""
+        )
+        assertContainsLine(
+            text,
+            """serverprobe_startup_plugin_seconds{serverId="srv-1",platform="BUKKIT",plugin="Vault"} 2.1"""
+        )
+        assertFalse(text.contains("""plugin="EssentialsX""""), "超出榜单条数的插件不应产生序列")
+        assertFalse(
+            text.contains("""serverprobe_startup_plugin_seconds{serverId="srv-1",platform="BUKKIT",plugin="WorldEdit"} 12.5"""),
+            "挂 agent 时应取实测值,不得回落到日志解析近似值",
+        )
+    }
+
     /** FR-25 插件/世界明细为空列表时不产生空标签行,总耗时仍导出。 */
     @Test
-    fun `启动画像明细为空时仅导出总耗时`() {
-        val profile = startupProfile().toBuilder()
+    fun `启动画像明细为空时仅导出总耗时`() {        val profile = startupProfile().toBuilder()
             .pluginTimings(emptyList())
             .worldTimings(emptyList())
             .build()
@@ -320,6 +355,10 @@ class PrometheusTextFormatterTest {
     // —— 测试夹具 ——
 
     /** FR-25 启动画像夹具:总时长 45200ms、两个插件、一个世界。 */
+    /** 构造插件耗时项(测试用)。 */
+    private fun pluginTiming(name: String, enableMs: Long): top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming =
+        top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name(name).enableMs(enableMs).build()
+
     private fun startupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile =
         top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile.builder()
             .schemaVersion(4)
