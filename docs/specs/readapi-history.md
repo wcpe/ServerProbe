@@ -1,6 +1,6 @@
 # 功能规格：只读 API 暴露历史指标回读（readHistory）
 
-> 状态：草拟　·　关联 PRD：FR-26　·　分支：feature/readapi-history
+> 状态：开发中　·　关联 PRD：FR-26　·　分支：feature/readapi-history
 
 ## 1. 背景与目标
 

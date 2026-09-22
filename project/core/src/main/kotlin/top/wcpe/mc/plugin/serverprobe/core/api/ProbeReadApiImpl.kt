@@ -79,6 +79,10 @@ class ProbeReadApiImpl : ProbeReadApi {
 
     override fun lastStartupComparisonSummary(): String? = startupProfileHolder.comparisonSummary
 
+    /** FR-26:历史指标回读,委派存储后端;**可能读盘**(接口 KDoc 约定调用方宜异步)。 */
+    override fun historySnapshots(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> =
+        store.readHistory(sinceMs, untilMs, limit)
+
     override fun queryNetworkPackets(query: NetworkPacketQuery): NetworkPacketPage = packetForensics.query(query)
 
     override fun networkForensicsStatus(): NetworkForensicsStatus = packetForensics.status()

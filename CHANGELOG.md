@@ -13,6 +13,7 @@
 
 ### 新增
 
+- **FR-26 只读 API 暴露历史指标回读**：`ProbeReadApi` 新增 `historySnapshots(sinceMs, untilMs, limit)`——从历史后端（本地文件/第三方存储 SPI）按闭区间时间范围读取落盘快照，由新到旧至多 `limit` 条。实现委派既有 `MetricStore.readHistory`（零新增存储逻辑）；接口以 **default 方法**落地（默认空列表），既有第三方实现零改动、二进制兼容（与 `queryNetworkPackets` 同款范式）。Javadoc 明确"**可能读盘、调用方宜在异步上下文调用**"。issue #22。规格见 [readapi-history](docs/specs/readapi-history.md)。
 - **FR-25 启动画像指标进 Prometheus**：`/metrics` 新增启动画像区块——`serverprobe_startup_total_seconds`（端到端启动总耗时）、`serverprobe_startup_plugin_seconds{plugin}`（逐插件 onEnable 耗时，画像慢插件榜口径）、`serverprobe_startup_world_seconds{world}`（逐世界加载耗时），时间毫秒→秒换算。数据源为进程内最近一次启动画像的**内存值**（`StartupProfileHolder`），刻意不走落盘回退——`/metrics` 跑在请求线程上，读盘违反"请求线程禁止阻塞 IO"红线；画像未产出或代理端（无画像生产者）时整区块跳过、输出与既往版本逐字节一致。issue #21。规格见 [startup-metrics](docs/specs/startup-metrics.md)。
 
 ## [0.5.1] - 2026-09-21
