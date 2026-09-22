@@ -1,6 +1,6 @@
 # 功能规格：代理端 MCP 日志检索（log_tail / log_search）
 
-> 状态：草拟　·　关联 PRD：FR-28（增强 FR-16）　·　分支：feature/proxy-log-tail
+> 状态：开发中　·　关联 PRD：FR-28（增强 FR-16）　·　分支：feature/proxy-log-tail
 
 ## 1. 背景与目标
 
@@ -40,5 +40,5 @@ FR-16 的 MCP 日志检索在代理端恒返回"平台不支持"——而 MCP �
 
 ## 6. 风险 / 待定
 
-- 代理端日志**轮转文件名/落点**需真机实测后才能定稿（本 spec 按 spec 惯例先登记，实现期以真机为准回填设计细节）。
+- ~~代理端日志**轮转文件名/落点**需真机实测后才能定稿~~ **已定（实现期实证回填）**：Velocity 日志落点为工作目录根下 `logs/latest.log`（本仓 e2e 实测运行目录 `run-proxy/logs/latest.log` 与 `run-paper-network-velocity/logs/latest.log` 实证；轮转 `latest.log.N.gz`）；BungeeCord 为工作目录根下 `proxy.log`（spec/log-tail 原文与 BungeeCord 官方日志布局一致；轮转 `proxy.log.N`/`proxy.log.N.gz`,真机验收时顺带核验）。
 - Windows 下日志共享读（服务端持写锁）沿用 FR-16 已验证的降级路径。
