@@ -28,9 +28,56 @@ object Fr8Consumer {
         return mapOf("profileAt" to profile.createdAtMs.toString(), "tps" to tick.tps1m.toString(), "mspt" to tick.msptAvg.toString())
     }
 
+    /**
+     * FR-26 历史回读证据：在**异步上下文**调用 `historySnapshots`（该 API 明示"可能读盘、宜异步"，
+     * 主线程调用不进 E2E），并与**落盘文件**逐条对照——由新到旧、条数上限、时间戳必须能在文件里找到。
+     *
+     * 与文件对照而非只查非空，是为了把"回读确实来自落盘"证死：只看非空无法区分内存回读与磁盘回读，
+     * 而本场景要验的正是落盘侧。
+     *
+     * @param metricsRoot 探针指标历史根目录（`plugins/ServerProbe/data/metrics`）。
+     * @param limit 回读条数上限。
+     * @return 证据键值；历史尚未落盘（采集周期未到）或回读为空时返回 null，由 harness 继续轮询。
+     */
+    fun readHistoryEvidence(metricsRoot: java.io.File, limit: Int): Map<String, String>? {
+        val api = ServerProbeApi.read() ?: return null
+        val latest = api.latestSnapshot() ?: return null
+        val persisted = api.historySnapshots(0L, System.currentTimeMillis(), limit)
+        if (persisted.isEmpty()) {
+            return null
+        }
+        val timestamps = persisted.map { it.timestampMs }
+        check(timestamps == timestamps.sortedDescending()) { "historySnapshots 未按由新到旧返回：$timestamps" }
+        check(persisted.size <= limit) { "historySnapshots 返回条数超出 limit：${persisted.size} > $limit" }
+        check(persisted.all { it.serverId == latest.serverId }) { "historySnapshots 混入了其它实例的快照" }
+        val onDisk = persistedTimestamps(metricsRoot, latest.serverId)
+        check(onDisk.isNotEmpty()) { "未找到落盘的指标历史文件：$metricsRoot" }
+        // 只落了一份时"由新到旧"是空校验：要求至少两份再判定，不足则按未就绪继续轮询（等下一个采集周期）。
+        if (onDisk.size < MIN_HISTORY_SNAPSHOTS) {
+            return null
+        }
+        check(timestamps.all(onDisk::contains)) { "回读时间戳不在落盘文件中：回读=$timestamps 落盘=$onDisk" }
+        return mapOf(
+            "historyCount" to persisted.size.toString(),
+            "historyNewestAt" to timestamps.first().toString(),
+            "historyFileSnapshots" to onDisk.size.toString(),
+            "historyMatched" to timestamps.count(onDisk::contains).toString(),
+        )
+    }
+
+    /** 读取该实例当天指标历史文件里的快照时间戳（由新到旧）；目录/文件缺失时返回空列表。 */
+    private fun persistedTimestamps(metricsRoot: java.io.File, serverId: String): List<Long> {
+        val directory = java.io.File(metricsRoot, serverId)
+        val file = directory.listFiles { candidate ->
+            candidate.isFile && candidate.name.startsWith("metrics-") && candidate.name.endsWith(".jsonl")
+        }?.maxByOrNull { it.name } ?: return emptyList()
+        return file.readLines()
+            .mapNotNull { line -> TIMESTAMP_PATTERN.find(line)?.groupValues?.get(1)?.toLongOrNull() }
+            .sortedDescending()
+    }
+
     /** 读取真实 Folia 已观测 region，要求区域明细和世界聚合均已形成。 */
-    fun readObservedRegionEvidence(): Map<String, String>? {
-        val server = ServerProbeApi.read()?.latestSnapshot()?.server ?: return null
+    fun readObservedRegionEvidence(): Map<String, String>? {        val server = ServerProbeApi.read()?.latestSnapshot()?.server ?: return null
         val regions = server.observedRegions.orEmpty()
         val worlds = server.observedRegionWorlds.orEmpty()
         val stableRegions = regions.filter {
@@ -141,6 +188,12 @@ object Fr8Consumer {
             registration.close()
         }
     }
+
+    /** 历史回读判定所需的最少落盘快照数:一份时"由新到旧"是空校验。 */
+    private const val MIN_HISTORY_SNAPSHOTS = 2
+
+    /** 指标历史 JSONL 行的时间戳取值;快照的顶层字段先于嵌套对象出现,取首个匹配即可。 */
+    private val TIMESTAMP_PATTERN = Regex("\"timestampMs\"\\s*:\\s*(\\d+)")
 
     private const val MIN_REGION_SAMPLES = 2L
     private const val REQUIRED_OBSERVED_WORLDS = 2
