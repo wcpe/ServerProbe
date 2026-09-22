@@ -162,6 +162,7 @@ Authorization: Bearer <token>
 
 - **JVM**:`heap_used_bytes`、`heap_committed_bytes`、`heap_max_bytes`、`nonheap_used_bytes`、`nonheap_committed_bytes`、`nonheap_max_bytes`、`memory_pool_used_bytes`/`memory_pool_max_bytes`(label `pool`)、`gc_count_total`/`gc_time_seconds_total`(label `gc`,counter)、`gc_young_count_total`/`gc_young_time_seconds_total`/`gc_old_count_total`/`gc_old_time_seconds_total`(counter)、`threads`/`threads_daemon`/`threads_peak`/`threads_deadlocked`、`classes_loaded`(gauge)/`classes_loaded_total`(counter)、`process_cpu_load`/`system_cpu_load`、`uptime_seconds`。
 - **服务器**(仅服务端):`tps`(label `window` = 1m/5m/15m)、`mspt_seconds`(label `quantile` = avg/p95/p99)、`players_online`、`players_max`、`server_uptime_seconds`、`world_loaded_chunks`/`world_entities`/`world_tile_entities`(label `world`)。
+- **启动画像**(FR-25,仅内存存在最近一次启动画像时导出;代理端无画像不导出):`startup_total_seconds`、`startup_plugin_seconds`(label `plugin`,画像慢插件榜口径)、`startup_world_seconds`(label `world`)。
 - **代理端**(仅代理端):`proxy_players_online`、`proxy_backend_players_online`(label `backend`)。
 
 > 端点仅暴露**最新快照**的瞬时值;历史趋势由 Prometheus 抓取时间序列自身承载。

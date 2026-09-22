@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **FR-25 启动画像指标进 Prometheus**：`/metrics` 新增启动画像区块——`serverprobe_startup_total_seconds`（端到端启动总耗时）、`serverprobe_startup_plugin_seconds{plugin}`（逐插件 onEnable 耗时，画像慢插件榜口径）、`serverprobe_startup_world_seconds{world}`（逐世界加载耗时），时间毫秒→秒换算。数据源为进程内最近一次启动画像的**内存值**（`StartupProfileHolder`），刻意不走落盘回退——`/metrics` 跑在请求线程上，读盘违反"请求线程禁止阻塞 IO"红线；画像未产出或代理端（无画像生产者）时整区块跳过、输出与既往版本逐字节一致。issue #21。规格见 [startup-metrics](docs/specs/startup-metrics.md)。
+
 ## [0.5.1] - 2026-09-21
 
 ### 安全

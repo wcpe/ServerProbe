@@ -55,4 +55,6 @@
 
 ## Prometheus 指标命名
 
-统一前缀 `serverprobe_`，涵盖 JVM / 服务器 / 世界维度；取证相关指标只输出聚合速率与脱敏 IP Top100（IPv4 掩 /24、IPv6 掩 /64）。
+统一前缀 `serverprobe_`，涵盖 JVM / 服务器 / 世界 / 启动画像维度；取证相关指标只输出聚合速率与脱敏 IP Top100（IPv4 掩 /24、IPv6 掩 /64）。
+
+启动画像维度（FR-25）：`startup_total_seconds`（端到端启动总耗时）、`startup_plugin_seconds{plugin}`（逐插件 onEnable 耗时）、`startup_world_seconds{world}`（逐世界加载耗时）。数据为进程内最近一次启动的内存画像，代理端无启动画像、不输出该组指标；启动历史趋势请经 Web 面板历史页或落盘文件回看。
