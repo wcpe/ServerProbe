@@ -9,6 +9,13 @@
 
 ---
 
+## [未发布]
+
+### 修复
+
+- **FR-29 告警历史从未落盘（真机验收推翻发布说明）**：`AlertHistoryChannel` 交付时漏了自注册——`AlertChannelRegistry` 不做类型扫描，各通道须在 `@PostConstruct` 里 `registry.register(this)`，日志 / Webhook / 游戏内三通道都有、唯独它没有；编译 + 单测 + CI 全绿，但真机上事件永远到不了历史通道，`data/alerts/` 永不生成、`/probe alerts` 恒回"暂无告警历史"。修复：补齐 `@Inject AlertChannelRegistry` 与 `@PostConstruct register()`，并新增 `AlertHistoryChannelTest`（锁定"每个内置通道都有自注册入口" + 注入真实注册中心后确实进入广播清单），用例经"摘掉注解即红、恢复即绿"验证有效性。
+- **FR-29 Old GC 频繁规则恒不触发（真机验收推翻）**：差分基准 `previousSnapshot` 原在逐条规则判定内前移，首条规则判完基准即被写成当前快照，其后每条速率类规则的时间差恒为 0 → 差分恒 N/A。生产规则序里 `gc-old-high` 排第 6，真机上老年代 GC 速率持续约 0.48 次/秒（阈值 0.05）达 12 个采集周期仍静默不触发；单测漏网是因它把差分规则放在列表首条。修复：基准在整轮判定期间恒为上一次采集快照、全部规则判定完才整体前移；`AlertEngineTest` 新增"差分规则排在首条之后仍按真实差分触发"回归用例（旧行为下转红）。
+
 ## [0.7.0] - 2026-09-22
 
 ### 新增
