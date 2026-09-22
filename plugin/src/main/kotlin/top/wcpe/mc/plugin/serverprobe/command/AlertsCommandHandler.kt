@@ -53,14 +53,14 @@ internal object AlertsCommandHandler {
         }
     }
 
-    /** 告警级别颜色:WARN=黄、CRITICAL=红、其余=灰。 */
-    private fun levelColor(level: String): String = when (level) {
+    /** 告警级别颜色:WARN=黄、CRITICAL=红、其余=灰。internal 供单测。 */
+    internal fun levelColor(level: String): String = when (level) {
         "WARN" -> "e"
         "CRITICAL" -> "c"
         else -> "7"
     }
 
-    /** 观测值/阈值展示:整数省小数,非整数保留一位。 */
-    private fun formatNumber(value: Double): String =
+    /** 观测值/阈值展示:整数省小数,非整数保留一位。internal 供单测。 */
+    internal fun formatNumber(value: Double): String =
         if (value == Math.floor(value) && !value.isInfinite()) value.toLong().toString() else "%.1f".format(value)
 }

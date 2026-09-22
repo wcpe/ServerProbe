@@ -21,7 +21,7 @@
 
 ## 2. 必测的高风险区（逐项穷举判据）
 
-1. **跨 ClassLoader 启动 agent 通道**（最高危，真机才暴露）：`ProbeAgentBridge` 只放 bootstrap CL 且为零反向依赖最小桥接类；premain 顶层 `catch(Throwable)` 绝不崩 JVM；插桩字节码经 ASM `CheckClassAdapter` 校验合法；`FrameSafeClassWriter` 覆盖 `getCommonSuperClass`（防帧计算 `ClassNotFoundException` 致 hook 静默失效）。**任一改动须 1.21.4 Paper 真机复验** `Done` 正常、无 `IllegalAccessError`/`NoClassDefFound`、hook 实际生效。
+1. **跨 ClassLoader 启动 agent 通道**（最高危，真机才暴露）：`ProbeAgentBridge` 只放 bootstrap CL 且为零反向依赖最小桥接类；premain 顶层 `catch(Throwable)` 绝不崩 JVM；插桩字节码合法性由 `FrameSafeClassWriter`（COMPUTE_FRAMES + `getCommonSuperClass` 兜底）+ transform 失败返回原始字节码保证，**非法字节码属"启动即炸"级故障，任何插桩改动须多版本真机矩阵复验**；`FrameSafeClassWriter` 覆盖 `getCommonSuperClass`（防帧计算 `ClassNotFoundException` 致 hook 静默失效）。**任一改动须 1.21.4 Paper 真机复验** `Done` 正常、无 `IllegalAccessError`/`NoClassDefFound`、hook 实际生效。
 2. **并发与共享缓冲**：环形缓冲（`RingBuffer`/`MetricSnapshotBuffer`）、HTTP 外呼有界缓冲（`HttpCallStore`）、跨线程栈采样——穷举定容溢出、并发读写、启动窗口关闭后不再追加（防运行期内存泄漏）。
 3. **多版本 / 多平台兼容**：TPS/MSPT 在 Paper / 低版本 NMS / 自采样 / Folia(全局 N/A) 各路径降级正确；`@PlatformSide` + `@PostConstruct` 平台门控（错误平台不得 collect，防 `NoClassDefFoundError`）；`com.sun.management` 在不同 JDK 的差异容错。
 4. **原子落盘与滚动清理**：`AtomicJsonWriter`（临时文件 + rename）；JSONL 按日滚动 + 保留天数 + 体积上限双闸清理**绝不删当天文件**；`schemaVersion` 向后兼容读旧格式。
