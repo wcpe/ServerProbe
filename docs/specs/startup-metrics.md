@@ -27,6 +27,7 @@
 - `core/prometheus/PrometheusTextFormatter` 新增 `appendStartup(profile)` 段函数，沿用既有"null/缺失整行跳过""gauge 语义、无 `_total` 后缀"约定；label 值经既有转义处理。
 - `MetricsHttpHandler` 增加画像来源参数（`StartupProfileHolder` 或等价只读来源，可空注入以保代理端兼容），拼装进现有输出流。
 - 指标命名/单位/label 规范与 `docs/API.md` §5.4 一致；`serverprobe_` 前缀由导出器统一处理。
+- 逐插件序列**与 `/probe startup` 的慢插件榜同源同截**（真机验收修正）：来源经 core 的 `SlowPluginRanking` 择优——Incision 精确 > agent 实测 > 日志解析近似——并按 `startup.top-n` 截断。两处出口若各自取源，同一实例上面板会与命令给出不同数字（挂 agent 时前者是日志解析近似值），且未截断的近似榜会把每个插件都写成一条 label。
 - 无新 ADR（不改架构决策，仅扩呈现出口）；`api` 契约模块不动（Holder 非 `api` 模块类型，实现层注入）。
 
 ## 4. 任务拆分
