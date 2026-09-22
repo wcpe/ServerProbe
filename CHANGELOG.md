@@ -5,7 +5,7 @@
 本文件格式遵循 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/),
 版本号遵循 [语义化版本(SemVer)](https://semver.org/lang/zh-CN/)。
 
-> 最新版本 **0.5.1(2026-09-21)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
+> 最新版本 **0.6.0(2026-09-22)** 已正式发布；推送版本标签后由 GitHub Actions 构建并附加发行 jar。
 
 ---
 

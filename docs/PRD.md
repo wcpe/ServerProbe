@@ -66,9 +66,9 @@
 | FR-22 | MCP GC/JFR 详诊：GC 事件明细与 JFR 采集入口（低优先，可经 Arthas vmoption/jfr 兜底） | P3 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，G1 收集器明细） |
 | FR-23 | MCP 工具描述增强：`tools/list` 为每个工具下发完整中文使用说明（参数含义、使用示例、异步工作流提示、输出字段说明），供外部 agent 正确调用；不改变工具名与参数键 | P2 | 已交付@v0.4.0（Paper 1.20.1 Windows/Linux 真机，42 工具零重复） |
 | FR-24 | MCP 控制面运行期两级开关：控制台 `/probe mcp on\|off\|status` 起停端点（原生工具立即可用）、`/probe mcp arthas on\|off` 单独加载/卸载 Arthas 运行时；仅控制台可执行，不写回配置 | P2 | 已交付@v0.5.0（Paper 1.20.1 Windows 真机，8 项验收 + 5 轮开关零泄漏） |
-| FR-25 | 启动画像指标进 Prometheus：`startup_total_seconds` 与逐插件/逐世界耗时序列（内存画像直出，不读盘；代理端无此概念不输出） | P2 | 计划（0.6.0） |
-| FR-26 | 只读 API 暴露历史指标回读：`ProbeReadApi.historySnapshots(since, until, limit)`（default 方法保向后兼容；可能读盘、宜异步） | P2 | 计划（0.6.0） |
-| FR-27 | Grafana 看板与 Prometheus 告警规则随发行提供：导入即用 dashboard + 4 条规则模板（纯产物，不改代码；依赖 FR-25） | P3 | 计划（0.6.0，后于 FR-25） |
+| FR-25 | 启动画像指标进 Prometheus：`startup_total_seconds` 与逐插件/逐世界耗时序列（内存画像直出，不读盘；代理端无此概念不输出） | P2 | 已交付@v0.6.0 |
+| FR-26 | 只读 API 暴露历史指标回读：`ProbeReadApi.historySnapshots(since, until, limit)`（default 方法保向后兼容；可能读盘、宜异步） | P2 | 已交付@v0.6.0 |
+| FR-27 | Grafana 看板与 Prometheus 告警规则随发行提供：导入即用 dashboard + 告警规则模板（纯产物，不改代码；依赖 FR-25） | P3 | 已交付@v0.6.0 |
 | FR-28 | 代理端 MCP 日志检索：BungeeCord `proxy.log` 与 Velocity `logs/` 的 `LogPathProvider` 实现，补齐 FR-16 代理端欠条 | P2 | 计划（0.7.0） |
 | FR-29 | 告警规则扩面与告警历史：新增 GC 频繁 / 启动超基线规则（把 wiki 宣称做成真），告警事件 JSONL 落盘 + `/probe alerts` 查询 | P2 | 计划（0.7.0） |
 
