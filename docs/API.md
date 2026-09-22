@@ -50,6 +50,7 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 | `aggregated(windowSize: Int): AggregatedMetrics` | 对最近 `windowSize` 份快照的跨快照聚合 | **恒非空**。`windowSize` 非正按无数据处理;窗口内无快照时 `windowSampleCount == 0`;单项不可计算(无 TPS 样本、速率差分样本不足)时该字段为 null。内存操作,不读盘。 |
 | `lastStartupProfile(): StartupProfile?` | 最近一次启动画像 | 无历史记录时为 null。 |
 | `historyStartupProfiles(limit: Int): List<StartupProfile>` | 历史归档启动画像(由新到旧,至多 `limit` 份) | **可能读盘**(本地文件后端遍历归档目录逐份反序列化),**宜异步调用**;`limit` 非正、无可用后端或无归档时为空列表。 |
+| `historySnapshots(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot>` | 历史归档指标快照(FR-26,闭区间时间范围,由新到旧,至多 `limit` 条) | **可能读盘**(本地文件后端定位日期范围内历史文件逐行解析),**宜异步调用**;默认实现空列表保兼容;`limit` 非正或无数据时为空列表。与 `recentSnapshotsSince` 区别:本方法读落盘历史(可超出内存缓冲跨度),后者仅筛内存缓冲、不读盘。 |
 | `lastStartupComparisonSummary(): String?` | 最近一次启动相对上一次的对比摘要(单行人类可读) | 由启动监听器在就绪时算出并写入内存;首次启动或无上一份画像时为 null。 |
 
 ### 3.3 返回的数据模型(关键字段)

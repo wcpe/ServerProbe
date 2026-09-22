@@ -86,6 +86,28 @@ public interface ProbeReadApi {
     String lastStartupComparisonSummary();
 
     /**
+     * 读取指定时间范围内的**历史归档**指标快照(FR-26)。
+     *
+     * 从历史后端(本地文件或第三方存储 SPI)读取 {@link MetricSnapshot#getTimestampMs()} 落在
+     * {@code [sinceMs, untilMs]}(闭区间)内的快照,由新到旧返回至多 {@code limit} 条。
+     * 与 {@link #recentSnapshotsSince(long)} 的区别:本方法读的是**落盘历史**(可回看超出内存缓冲的跨度),
+     * 后者仅筛内存近期缓冲(轻量、不读盘)。
+     *
+     * **可能读盘**(本地文件后端会定位日期范围内的历史文件并逐行解析),因此**调用方宜在异步上下文调用**,
+     * 避免阻塞主线程(规范 R7)。返回条数受存储层既有上限约束。
+     *
+     * 默认返回空列表,以保持既有第三方实现本接口时的二进制与源码兼容(与 {@link #queryNetworkPackets} 同款范式)。
+     *
+     * @param sinceMs 时间范围下界(epoch 毫秒,含)。
+     * @param untilMs 时间范围上界(epoch 毫秒,含)。
+     * @param limit 期望返回的最大条数;非正时返回空列表。
+     * @return 范围内历史快照列表(由新到旧);无数据或后端不支持时为空列表。
+     */
+    default java.util.List<MetricSnapshot> historySnapshots(long sinceMs, long untilMs, int limit) {
+        return java.util.Collections.emptyList();
+    }
+
+    /**
      * 查询网络包取证记录(FR11)。
      *
      * 查询必须提供有限时间范围且每页最多 100 条；实现可读 SQLite，调用方应在异步上下文调用。
