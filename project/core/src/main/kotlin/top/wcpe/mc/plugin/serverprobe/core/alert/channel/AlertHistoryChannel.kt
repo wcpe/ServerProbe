@@ -1,10 +1,13 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert.channel
 
 import top.wcpe.mc.plugin.serverprobe.core.alert.AlertChannel
+import top.wcpe.mc.plugin.serverprobe.core.alert.AlertChannelRegistry
 import top.wcpe.mc.plugin.serverprobe.core.alert.AlertEvent
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
+import top.wcpe.taboolib.ioc.annotation.Inject
+import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +23,9 @@ import java.time.format.DateTimeFormatter
  * ## 设计
  * - 以 [AlertChannel] 实现接入既有广播链:事件由编排采集线程经 [AlertEngine] 广播到达,天然串行,
  *   无并发写问题(与"独立 writer + 钩子"方案相比,零额外线程、零生命周期耦合,随引擎启停)。
+ * - **生命周期**:作为 IOC [Service] 由容器实例化并注入 [registry];[register] 在依赖注入完成后
+ *   ([PostConstruct])自注册到 [AlertChannelRegistry]——不注册则事件永远到不了本通道(注册是各通道
+ *   自身的责任,注册中心不做类型扫描)。
  * - 落盘路径 `data/alerts/alerts-<yyyyMMdd>.jsonl`(按自然日分桶,与指标历史同款风格);
  *   行内容仅含事件本身(ts/type/level/action/value/threshold/serverId),不含命令正文等敏感数据。
  * - **异步写**:publish 在编排线程被调用,写盘转 TabooLib `submitAsync` 异步执行,不阻塞采集(R7)。
@@ -28,10 +34,20 @@ import java.time.format.DateTimeFormatter
  * - 总开关:`alert.enabled=false` 时引擎不广播任何事件,本通道自然无写入(无需独立开关)。
  *
  * 测试说明:JSON 行解析依赖运行期 Json 后端,与 LocalFileMetricStore 同款不在裸单测范围;
- * 路径/清理纯逻辑见 [AlertHistoryFile] 的单测。
+ * 自注册入口与注册结果见 `AlertHistoryChannelTest`。
  */
 @Service
 class AlertHistoryChannel : AlertChannel {
+
+    /** 告警通道注册中心,用于在初始化完成后自注册;不注册则 [publish] 永不被调用。 */
+    @Inject
+    lateinit var registry: AlertChannelRegistry
+
+    /** 依赖注入完成后自注册;无独立开关,由 `alert.enabled` 总开关决定引擎是否广播。 */
+    @PostConstruct
+    fun register() {
+        registry.register(this)
+    }
 
     /** 日志根目录取值(测试可覆写);默认 `plugins/ServerProbe/data`。 */
     internal var dataRoot: () -> Path = { Paths.get("plugins", "ServerProbe", "data") }
