@@ -62,7 +62,7 @@ class LocalFileMetricStore : MetricStore {
     override fun lastStartupProfile(): StartupProfile? {
         val text = AtomicJsonWriter.readText(latestProfilePath()) ?: return null
         return runCatching {
-            Json.decode<StartupProfile>(text)
+            Json.decodeLenient<StartupProfile>(text)
         }.getOrElse {
             ProbeLogger.warn("读取最近启动画像失败,将按无基线处理:${it.message}")
             null
@@ -274,7 +274,7 @@ class LocalFileMetricStore : MetricStore {
     private fun readProfileFile(file: File): StartupProfile? {
         val text = AtomicJsonWriter.readText(file.toPath()) ?: return null
         return runCatching {
-            Json.decode<StartupProfile>(text)
+            Json.decodeLenient<StartupProfile>(text)
         }.getOrElse {
             ProbeLogger.warn("读取启动画像归档失败,已跳过(${file.name}):${it.message}")
             null
