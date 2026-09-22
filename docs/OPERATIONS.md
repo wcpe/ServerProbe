@@ -2,7 +2,7 @@
 
 > 部署、升级、备份恢复、回滚、排障的操作指南。运维方式变化时更新。
 >
-> 版本状态：`v0.7.1` 已正式发布；GitHub Release 附带构建 jar。Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 的真机口径见 `README.md`。
+> 版本状态：`v0.7.2` 已正式发布；GitHub Release 附带构建 jar。Spigot 1.8.8、Paper 1.21.x、Folia 1.21.4 与 BungeeCord 的真机口径见 `README.md`。
 
 ---
 
