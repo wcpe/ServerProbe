@@ -7,6 +7,7 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.server.ServerLoadEvent
 import org.bukkit.plugin.java.JavaPlugin
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
+import java.io.File
 import java.lang.reflect.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CompletableFuture
@@ -127,16 +128,36 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         // 早期快照可能尚未携带 Tick 指标(readEvidence 内的严格校验会抛异常):
         // 按"未就绪"容错重试,异常终止轮询会错失后续就绪窗口。
         val evidence = runCatching { Fr8Consumer.readEvidence() }.getOrNull()
-        if (evidence != null) {
+        if (evidence == null) {
+            retryReadApi(remaining)
+            return
+        }
+        if (scenario != E2eScenario.READ_API) {
             pass("第三方插件已经公开门面读到运行快照与启动画像", evidence)
             return
         }
+        // FR-26:historySnapshots 明示"可能读盘、宜异步",主线程调用是该 API 的红线,故另起线程调用。
+        Thread({
+            val history = runCatching { Fr8Consumer.readHistoryEvidence(historyMetricsRoot(), HISTORY_READ_LIMIT) }.getOrNull()
+            if (history == null) {
+                retryReadApi(remaining)
+                return@Thread
+            }
+            pass("第三方插件已经公开门面读到运行快照、启动画像与落盘历史指标", evidence + history)
+        }, HISTORY_THREAD_NAME).apply { isDaemon = true; start() }
+    }
+
+    /** 读 API 未就绪时的轮询收尾：用尽次数则判失败，否则退回主线程继续下一轮。 */
+    private fun retryReadApi(remaining: Int) {
         if (remaining == 0) {
-            fail("读取 API 未在限定时间内提供快照和启动画像")
+            fail("读取 API 未在限定时间内提供快照、启动画像与落盘历史指标")
             return
         }
         runLater { checkReadApi(remaining - 1) }
     }
+
+    /** 探针指标历史根目录：harness 数据目录与插件数据目录同级（plugins/）。 */
+    private fun historyMetricsRoot(): File = File(dataFolder.parentFile, "ServerProbe/data/metrics")
 
     /** 等待两个真实协议 bot 入服，分散到不同 region 后验收公开快照。 */
     private fun awaitFoliaPlayers(remaining: Int) {
@@ -712,6 +733,12 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         private const val SERVER_THREAD_TIMEOUT_SECONDS = 15L
         private const val INTEGRATIONS_FAILURE_TRACE_LINES = 6
         private const val CHECK_DELAY_TICKS = 20L
+        /** FR-26 历史回读线程名:该 API 明示可能读盘、宜异步,主线程调用不进 E2E。 */
+        private const val HISTORY_THREAD_NAME = "serverprobe-e2e-history"
+
+        /** FR-26 历史回读条数上限:只验契约与"确实来自落盘",不追求全量。 */
+        private const val HISTORY_READ_LIMIT = 5
+
         private const val READ_API_ATTEMPTS = 20
         private const val MATRIX_READ_API_ATTEMPTS = 90
         private const val STORAGE_ATTEMPTS = 20
