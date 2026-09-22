@@ -33,12 +33,12 @@ FR-16 的 MCP 日志检索在代理端恒返回"平台不支持"——而 MCP �
 ## 5. 验收标准
 
 - 单测全绿（纯路径逻辑）。
-- 真机（BungeeCord）：MCP `log_tail`/`log_search` 返回真实 `proxy.log` 尾部与命中行，行号/游标分页正确。
+- 真机（BungeeCord）：MCP `log_tail`/`log_search` 返回真实日志尾部与命中行，行号/游标分页正确——**实测当前日志名为 `proxy.log.0`**（非明文 `proxy.log`，见 §6）。
 - 真机（Velocity 3.1.1 与 4.1.0 各一）：同上，`logs/` 最新日志可读。
 - 真机降级路径：日志文件不存在时返回结构化"平台未提供日志文件"，工具不报错。
 - 归属验证维度归入 FR-16 口径：Windows（GBK）与 Linux（UTF-8）各验一次字符集正确性。
 
 ## 6. 风险 / 待定
 
-- ~~代理端日志**轮转文件名/落点**需真机实测后才能定稿~~ **已定（实现期实证回填）**：Velocity 日志落点为工作目录根下 `logs/latest.log`（本仓 e2e 实测运行目录 `run-proxy/logs/latest.log` 与 `run-paper-network-velocity/logs/latest.log` 实证；轮转 `latest.log.N.gz`）；BungeeCord 为工作目录根下 `proxy.log`（spec/log-tail 原文与 BungeeCord 官方日志布局一致；轮转 `proxy.log.N`/`proxy.log.N.gz`,真机验收时顺带核验）。
+- ~~代理端日志**轮转文件名/落点**需真机实测后才能定稿~~ **已定（真机实证回填）**：Velocity 日志落点为工作目录根下 `logs/latest.log`（本仓 e2e 实测运行目录 `run-proxy/logs/latest.log` 与 `run-paper-network-velocity/logs/latest.log` 实证；轮转 `latest.log.N.gz`）；**BungeeCord 实测为非明文名**——BungeeCord #2088 + JDK 21 真机（工作目录全新铺设）下不存在 `proxy.log`，当前日志为带代次后缀的 `proxy.log.0`（同目录另有 `proxy.log.0.lck` 锁文件，重启后沿用同一文件追加），故实现改为"优先明文 `proxy.log`，否则取按修改时间最新的 `proxy.log.<纯数字>`"（按时间而非代次编号排序，避开 JDK `FileHandler` 代次语义差异，并天然排除 `.lck`/`.gz`）。原 `proxy.log` 的假设来自 spec/log-tail 原文，真机验收推翻。
 - Windows 下日志共享读（服务端持写锁）沿用 FR-16 已验证的降级路径。
