@@ -216,6 +216,31 @@ class AlertEngineTest {
             .jvm(jvm(0).toBuilder().gcOldCount(oldCount).build())
             .build()
 
+    /**
+     * 回归(真机验收推翻 FR-29):差分规则**不在首条**时也必须拿到真实差分。
+     *
+     * 生产规则序里 `gc-old-high` 排第 6(配置声明序),而差分基准若在逐条判定中被前移,
+     * 首条规则判完基准即变成当前快照,其后所有速率类规则时间差恒为 0 → 恒 N/A → 永不触发。
+     * 本用例把一条单快照规则置于差分规则之前,复现该序;差分基准被污染时本用例转红。
+     */
+    @Test
+    fun `差分规则排在首条之后仍按真实差分触发`() {
+        engine.configureForTest(
+            registry,
+            listOf(
+                AlertRule(AlertType.TPS_LOW, 0.0, 1, AlertLevel.WARN, enabled = true),
+                AlertRule(AlertType.GC_OLD_HIGH, 0.05, 2, AlertLevel.WARN, enabled = true),
+            ),
+        )
+        engine.evaluate(snapshotAt(1000L, oldCount = 5))
+        engine.evaluate(snapshotAt(2000L, oldCount = 8))
+        engine.evaluate(snapshotAt(3000L, oldCount = 10))
+
+        val gcEvents = channel.events.filter { it.rule.type == AlertType.GC_OLD_HIGH }
+        assertEquals(1, gcEvents.size, "差分规则排在首条之后时应照常触发,拿到不到差分即说明基准被同轮规则污染")
+        assertEquals(2.0, gcEvents.single().value, 1e-9, "事件值应为真实差分速率")
+    }
+
     /** 构造测试用 JVM 指标:仅死锁数有意义,其余占位。 */
     private fun jvm(deadlockedThreadCount: Int): JvmMetrics = JvmMetrics.builder()
         .heapUsedBytes(0)
