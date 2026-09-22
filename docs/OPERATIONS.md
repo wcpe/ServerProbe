@@ -159,6 +159,26 @@ incision:
 
 ---
 
+## 5.1 接 Grafana 看板与告警(FR-27)
+
+仓库 `grafana/` 目录随发行提供**导入即用**的看板与告警规则模板;指标名 / label / 单位的唯一真源是 [API.md §5.4](API.md),模板只引用不发明——指标演进时模板同步维护。
+
+**导入看板**
+
+1. 确认探针侧已开启 `/metrics`(`metrics.enabled=true`,默认仅本机 + token 可选,见 §1 与 config 注释)。
+2. Grafana → Dashboards → New → Import,选择仓库内 `grafana/dashboard.json`。
+3. 选择你的 Prometheus 数据源(面板经 `datasource` 变量切换),`serverId` 变量可筛选实例。
+4. 面板总览:TPS / MSPT p95 / 在线 / 堆占用率 → JVM(内存 / GC 速率 / 线程与死锁)→ TPS / MSPT / 世界与 ping 分布 → 运行期 CPU 归因(`cpu.enabled=true` 后有数据)→ 启动画像(FR-25,v0.6.0 起;代理端无此维度)→ 代理端与网络取证。
+
+**导入告警规则(可选,对接 Alertmanager)**
+
+1. 将 `grafana/alerts.yml` 放入 Prometheus 规则目录(`rule_files` 加载),重载 Prometheus。
+2. 5 条规则与探针内置告警(FR-05)口径一致:TPS < 18(WARN)/ < 15(CRITICAL)、MSPT p95 > 50ms、堆 > 90%、死锁 ≥ 1(CRITICAL,立即)。
+3. 阈值与 `for` 时长请按服调整:探针防抖为 `sustain-cycles × 采集周期`(默认 3 × 5s = 15s),模板取 2m 更稳。
+4. 与探针内置告警**相互独立**:内置告警走日志 / 游戏内 / Webhook 三通道(见 config `alert` 段),本模板走 Prometheus → Alertmanager 链路;按需二选一或并用。
+
+---
+
 ## 6. 构建与版本(运维相关)
 
 **构建命令**(在项目根目录执行)

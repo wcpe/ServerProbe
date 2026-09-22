@@ -1,0 +1,62 @@
+# ServerProbe Prometheus 告警规则模板（FR-27）
+#
+# 与探针内置告警（FR-05，config.yml alert.rules）口径对齐，二者独立运行：
+# - 探针内置告警：经 日志/游戏内/Webhook 三通道推送（见 config.yml alert 段）；
+# - 本模板：Prometheus 服务端评估，对接 Alertmanager 等外部通知链路。
+# 阈值默认值与探针 RuleSpec 一致（tps-warn 18 / tps-critical 15 / mspt-p95 50ms / heap 90% /
+# deadlock 0），请按服务器实际情况调整；for 时长对应探针防抖（sustain-cycles × 采集周期，
+# 默认采集周期 100 ticks ≈ 5 秒，3 周期 ≈ 15 秒，此处取 2m 更稳）。
+#
+# 使用：复制到 Prometheus 规则目录（rule_files 加载），或经 Alertmanager 路由分发。
+groups:
+  - name: serverprobe
+    rules:
+      # TPS（1 分钟）偏低 —— 对齐探针 tps-warn（< 18，WARN）
+      - alert: ServerProbeTpsLow
+        expr: serverprobe_tps{window="1m"} < 18
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TPS 偏低（{{ $labels.serverId }}）"
+          description: "1 分钟均值 TPS 为 {{ $value }}，低于 18 已持续 2 分钟。"
+
+      # TPS（1 分钟）过低 —— 对齐探针 tps-critical（< 15，CRITICAL）
+      - alert: ServerProbeTpsCritical
+        expr: serverprobe_tps{window="1m"} < 15
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TPS 过低（{{ $labels.serverId }}）"
+          description: "1 分钟均值 TPS 为 {{ $value }}，低于 15 已持续 2 分钟。"
+
+      # MSPT p95 过高 —— 对齐探针 mspt-p95（> 50ms，WARN）
+      - alert: ServerProbeMsptHigh
+        expr: serverprobe_mspt_seconds{quantile="p95"} > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MSPT p95 过高（{{ $labels.serverId }}）"
+          description: "MSPT p95 为 {{ $value }}s（{{ printf \"%.0f\" (mulf $value 1000) }}ms），超过 50ms 阈值。>50ms 即掉 tick。"
+
+      # 堆内存占用过高 —— 对齐探针 heap-usage（> 90%，WARN）
+      - alert: ServerProbeHeapUsageHigh
+        expr: 100 * serverprobe_heap_used_bytes / serverprobe_heap_max_bytes > 90
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "堆内存占用过高（{{ $labels.serverId }}）"
+          description: "堆使用率 {{ printf \"%.1f\" $value }}%，超过 90%。"
+
+      # 死锁线程存在 —— 对齐探针 deadlock（>= 1 即 CRITICAL，事件型）
+      - alert: ServerProbeDeadlockDetected
+        expr: serverprobe_threads_deadlocked >= 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "检测到死锁线程（{{ $labels.serverId }}）"
+          description: "JVM 检测到 {{ $value }} 个死锁线程，请立即排查（/probe health 或 MCP thread 工具）。"

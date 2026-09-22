@@ -1,6 +1,6 @@
 # 功能规格：Grafana 看板与 Prometheus 告警规则随发行提供
 
-> 状态：草拟　·　关联 PRD：FR-27（免 spec，按流程仍建档）　·　分支：feature/grafana-pack
+> 状态：开发中　·　关联 PRD：FR-27（免 spec，按流程仍建档）　·　分支：feature/grafana-pack
 
 ## 1. 背景与目标
 
