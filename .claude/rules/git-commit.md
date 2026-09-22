@@ -133,7 +133,18 @@ release commit 只包含版本号、CHANGELOG 定稿以及发布所必需的元�
 - 只有尚未共享的本地开发分支可以通过 rebase、squash、amend 等方式重排、拆分或压缩临时提交；一旦共享，改用追加提交或 revert。
 - 严禁对 `main` 或 `master` 执行 force push，包括 `git push --force` 与 `git push --force-with-lease`。
 
-## 6. 其他约束
+## 6. 变更工作流：一律经 PR 合入（强制）
+
+- **为什么**：CI 发版（`.github/workflows/ci.yml` 的 release job）用 `gh release create --generate-notes` 自动生成 Release 说明，其 "What's Changed" / "New Contributors" **只统计上一个 tag 到当前 tag 之间合并的 PR**；直推 `main` / `master` 的提交不会出现在任何 Release 说明中。为保证每次发版的变更清单完整、贡献者可见，**一切变更必须经 PR 合入主干，禁止直推**（含单人开发期与发版提交）。
+- **流程**：
+  1. 从最新 `master` 切短生命周期分支 `feature/*` / `fix/*` / `refactor/*` / `hotfix/*`（频繁提交见 §4，合并前整理见 §5.1）。
+  2. push 后创建 PR：**PR 标题即未来 Release 说明的条目**，沿用 Conventional Commits 中文标题（§1.1），并须准确概括 PR 内容——Release 说明只显示 PR 标题，不展开分支内提交。正文按 `.github/PULL_REQUEST_TEMPLATE.md` 填防漂移自检；修复对应 issue 时正文写 `关联 issue #N`，合并即自动关闭。
+  3. 合并沿用 §5.2：优先 rebase 后 fast-forward 等保留逻辑提交的方式；禁止 squash 把多意图 PR 压成单提交。合并后删除分支。
+  4. **先合并 PR、后打 `vX.Y.Z` tag，顺序不得颠倒**：tag 必须打在合并后的 `master` 上；先打 tag 再合并会让该 PR 落在生成区间之外、不进本次 Release 说明。
+- **单人开发期不豁免**：无需他人评审，建 PR 后可立即自行合并；CI 门禁照常生效。后续可在分支保护里强制"经 PR + CI 通过"，从机制上杜绝直推。
+- Dependabot 等机器人的 PR 天然满足本流程，合并即入 Release 说明。
+
+## 7. 其他约束
 
 - 禁止跳过 hooks（`--no-verify`）。禁止对已 push 的提交 `--amend`。
 - 提交前确认未包含凭据 / token / 大型二进制。

@@ -76,13 +76,13 @@
 
 ## 8. 分支模型与发布渠道（现状 + 推荐路径）
 
-**现状（单人开发）**：当前仓库**单 `master` 分支**，提交直推 `master`。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.5.1`；PRD 的 FR-01~FR-24 均已交付并登记。
+**现状（单人开发）**：当前仓库**单 `master` 主干**，自 `v0.5.1` 后一切变更**经 PR 合入**、禁止直推（动机与操作细则见 `.claude/rules/git-commit.md` §6——CI 发版 `--generate-notes` 只统计区间内合并的 PR，直推的提交进不了 Release 说明）。提交须中文 Conventional Commits、无 AI 署名、过验证门（见 `.claude/rules/git-commit.md`）。CI 已配置（`.github/workflows/ci.yml`，push / PR 跑 `./gradlew build`）。当前正式版本 `v0.5.1`；PRD 的 FR-01~FR-24 均已交付并登记。
 
 **推荐路径（开始协作 / 公开发布时启用）**：采用 GitHub Flow——
 
-- **主干**（`master`）：始终可发布；多人协作后改动经 PR 合入（PR 模板含防漂移自检，见 `.github/PULL_REQUEST_TEMPLATE.md`）。
+- **主干**（`master`）：始终可发布；**一切改动（含单人开发期）经 PR 合入**，禁止直推（见 `.claude/rules/git-commit.md` §6；PR 模板含防漂移自检，见 `.github/PULL_REQUEST_TEMPLATE.md`）。
 - **`feature/*`、`fix/*`、`refactor/*`、`hotfix/*`**：短生命周期分支，做完发 PR 回主干。
-- **稳定发布**：打 `vX.Y.Z` tag（`sdd-release-version` 技能）。
+- **稳定发布**：打 `vX.Y.Z` tag（`sdd-release-version` 技能）。**tag 必须打在合并后最新 `master` 上——先合并 PR、后打 tag**，否则该 PR 落在生成区间之外，不进 Release 说明（CI 用 `--generate-notes` 自动生成，只统计上一个 tag 至当前 tag 间合并的 PR）。
 - **回滚**优先 `git revert`，不重写已 push 历史（`sdd-rollback-change` 技能）。
 - **CI**：已配置 `.github/workflows/ci.yml`（push / PR 跑 `./gradlew build` = 构建 + 测试 + detekt）。发布标签经 CI 自动出 Release；应在分支保护里把 CI 设为合并前门禁。
 
@@ -130,7 +130,7 @@
 **每个工作项的标准循环**：
 
 1. **识别工作项**，选对应技能（路由见下表）。
-2. **（协作期）开分支**：`feature/*` / `fix/*` / `refactor/*` / `hotfix/*`（§8）；单人期可直推 `master`。
+2. **开分支**：`feature/*` / `fix/*` / `refactor/*` / `hotfix/*`（§8）；建 PR 后可立即自行合并，**禁止直推 `master`**（含单人期）。
 3. **按技能走**：读相关 PRD / ARCHITECTURE / ADR → 测试先行 → 实现（守不变量、简单优先）→ 过验证门 → `doc-sync` 同步文档。
 4. **提交 / 发 PR**：填防漂移自检 → 评审（协作期）→ 合入主干。
 5. **攒够一批 → 发版**（`sdd-release-version`：CHANGELOG 分段、定 SemVer、打 `vX.Y.Z`）。
