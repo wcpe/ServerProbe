@@ -1,6 +1,6 @@
 # 功能规格：告警规则扩面与告警历史落盘
 
-> 状态：草拟　·　关联 PRD：FR-29（增强 FR-05）　·　分支：feature/alert-extended
+> 状态：开发中　·　关联 PRD：FR-29（增强 FR-05）　·　分支：feature/alert-extended
 
 ## 1. 背景与目标
 

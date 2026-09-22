@@ -192,6 +192,30 @@ class AlertEngineTest {
         .server(null)
         .build()
 
+    /** FR-29 GC_OLD_HIGH:引擎跨快照差分 + 防抖组合——速率越线持续 2 周期触发一次。 */
+    @Test
+    fun `old GC 速率越线按防抖周期触发`() {
+        // 规则:速率 > 0.05 次/秒,持续 2 周期
+        engine.configureForTest(registry, listOf(AlertRule(AlertType.GC_OLD_HIGH, 0.05, 2, AlertLevel.WARN, enabled = true)))
+        // 第 1 次采集:无上一次快照 → 差分 N/A,不判定
+        engine.evaluate(snapshotAt(1000L, oldCount = 5))
+        assertTrue(channel.events.isEmpty(), "首采差分 N/A 不应触发")
+        // 第 2 次采集:1 秒内 +3 次 → 3.0 次/秒,越线(第 1 次累积)
+        engine.evaluate(snapshotAt(2000L, oldCount = 8))
+        assertTrue(channel.events.isEmpty(), "未达持续周期不应触发")
+        // 第 3 次采集:1 秒内 +2 次 → 2.0 次/秒,连续第 2 次越线 → 触发
+        engine.evaluate(snapshotAt(3000L, oldCount = 10))
+        assertEquals(1, channel.events.size, "连续 2 周期越线应触发一次")
+        assertEquals(2.0, channel.events.single().value, 1e-9, "事件值应为最新差分速率")
+    }
+
+    /** 构造指定时间戳与 Old GC 计数的快照(其余字段占位)。 */
+    private fun snapshotAt(tsMs: Long, oldCount: Long): MetricSnapshot =
+        serverSnapshot(tps1m = null).toBuilder()
+            .timestampMs(tsMs)
+            .jvm(jvm(0).toBuilder().gcOldCount(oldCount).build())
+            .build()
+
     /** 构造测试用 JVM 指标:仅死锁数有意义,其余占位。 */
     private fun jvm(deadlockedThreadCount: Int): JvmMetrics = JvmMetrics.builder()
         .heapUsedBytes(0)

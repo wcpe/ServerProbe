@@ -60,6 +60,48 @@ enum class AlertType {
     DEADLOCK {
         override fun extract(snapshot: MetricSnapshot): Double? = snapshot.jvm.deadlockedThreadCount.toDouble()
         override fun violated(value: Double, threshold: Double): Boolean = value > threshold
+    },
+
+    /**
+     * Old GC 频繁(FR-29):观测老年代 GC **次数速率**(次/秒),高于阈值即越线。
+     *
+     * 单快照只有单调累计计数,速率须跨快照差分——故本类型不实现 [extract](返回 null,普通单快照
+     * 路径恒 N/A),而实现 [extractDifferential]:由告警引擎以上一次采集快照计算
+     * `(count − prevCount) ÷ 秒`(与 [top.wcpe.mc.plugin.serverprobe.core.aggregator.MetricAggregator]
+     * 的 GC 速率同口径);无上一次快照(首采)或计数回绕(重启,差分为负)时为 null(N/A),
+     * 按引擎既有"数据缺失只清状态不误报"语义处理。
+     */
+    GC_OLD_HIGH {
+        override fun extract(snapshot: MetricSnapshot): Double? = null
+
+        override fun extractDifferential(current: MetricSnapshot, previous: MetricSnapshot): Double? {
+            val elapsedSeconds = (current.timestampMs - previous.timestampMs) / 1000.0
+            if (elapsedSeconds <= 0.0) return null
+            val delta = current.jvm.gcOldCount - previous.jvm.gcOldCount
+            if (delta < 0) return null
+            return delta / elapsedSeconds
+        }
+
+        override fun violated(value: Double, threshold: Double): Boolean = value > threshold
+    },
+
+    /**
+     * 启动超基线(FR-29):观测最近一次启动总耗时(秒),高于阈值即越线。
+     *
+     * 数据源为进程内最近一次启动画像(内存值,与 /probe startup 同源);无画像(代理端、首采前)
+     * 时为 null(N/A)——按引擎既有"数据缺失只清状态不误报"语义,不会在无画像平台误触发。
+     * 阈值单位为**秒**(如 60.0 = 启动超过 60 秒即告警),运维可直接按"本次开服耗时"理解。
+     *
+     * 注:wiki(Data-Output)曾宣称"启动超基线 ×1.5 倍数"口径,FR-29 落地采用**绝对秒数**——
+     * 倍数需要"历史基线集合"做参照,而首启/单启场景无基线可言;绝对秒数配 config 阈值即可表达
+     * "超基线"(把正常启动耗时上浮后填入),语义更直接。默认阈值实现期结合常见服状配置。
+     */
+    STARTUP_SLOW {
+        override fun extract(snapshot: MetricSnapshot): Double? = null
+
+        override fun extractStartup(totalMs: Long?): Double? = totalMs?.div(1000.0)
+
+        override fun violated(value: Double, threshold: Double): Boolean = value > threshold
     };
 
     /**
@@ -69,6 +111,26 @@ enum class AlertType {
      * @return 观测值;该项不可用(N/A,如代理端无服务器维度、Folia 无 TPS、堆无上限)时为 null。
      */
     abstract fun extract(snapshot: MetricSnapshot): Double?
+
+    /**
+     * 跨快照差分取值(仅速率类类型覆盖,如 [GC_OLD_HIGH])。
+     *
+     * 默认返回 null(普通单快照类型不走差分路径);引擎在持有上一次采集快照时优先调用本方法,
+     * 为 null 时回退 [extract]。
+     *
+     * @param current 当前采集快照。
+     * @param previous 上一次采集快照(引擎缓存);由调用方保证不为同一快照。
+     * @return 差分观测值;不可计算(首采、时间倒退、累计回绕)时为 null。
+     */
+    open fun extractDifferential(current: MetricSnapshot, previous: MetricSnapshot): Double? = null
+
+    /**
+     * 从启动画像总时长取值(仅 [STARTUP_SLOW] 覆盖,数据源在快照之外)。
+     *
+     * @param totalMs 最近一次启动画像的总时长(毫秒);无画像时为 null。
+     * @return 观测值(秒);无画像时为 null。
+     */
+    open fun extractStartup(totalMs: Long?): Double? = null
 
     /**
      * 判断观测值相对阈值是否越线(违规)。
