@@ -131,32 +131,37 @@ class AlertEngine {
      */
     fun evaluate(snapshot: MetricSnapshot) {
         if (rules.isEmpty()) return
+        // 差分基准在整轮判定期间恒为"上一次采集快照",全部规则判定完才整体前移。
+        // 若在逐条判定中前移,首条规则判完基准即变成当前快照,其后每条速率类规则的
+        // 时间差恒为 0 → 差分恒 N/A → 永不触发(FR-29 Old GC 频繁在生产规则序第 6 位,
+        // 曾因此在真机连续高 GC 速率下静默不触发)。
+        val previous = previousSnapshot
         for (holder in rules) {
-            runCatching { evaluateRule(holder, snapshot) }
+            runCatching { evaluateRule(holder, snapshot, previous) }
                 .onFailure { ProbeLogger.error("告警规则判定异常:${holder.rule.type}", it) }
         }
+        previousSnapshot = snapshot
     }
 
     /**
      * 判定单条规则并驱动其状态机。
      *
      * 取值顺序:速率类类型(如 FR-29 Old GC 频繁)优先走跨快照差分 [AlertType.extractDifferential]
-     * (引擎持有上一次采集快照时);数据源在快照之外的类型(如启动超基线)走 [AlertType.extractStartup];
-     * 其余走单快照 [AlertType.extract]。三者皆不可用时按"数据缺失"处理(清零计数、触发态仅清不发恢复)。
+     * (由调用方传入整轮共用的上一次采集快照);数据源在快照之外的类型(如启动超基线)走
+     * [AlertType.extractStartup];其余走单快照 [AlertType.extract]。三者皆不可用时按"数据缺失"处理
+     * (清零计数、触发态仅清不发恢复)。
      *
      * @param holder 规则及其运行状态。
      * @param snapshot 当前指标快照。
+     * @param previous 上一次采集快照;首采或引擎尚无历史时为 null(差分不可用)。
      */
-    private fun evaluateRule(holder: RuleHolder, snapshot: MetricSnapshot) {
+    private fun evaluateRule(holder: RuleHolder, snapshot: MetricSnapshot, previous: MetricSnapshot?) {
         val rule = holder.rule
         val state = holder.state
-        val prev = previousSnapshot
         val value = when {
-            prev != null -> rule.type.extractDifferential(snapshot, prev) ?: rule.type.extract(snapshot)
+            previous != null -> rule.type.extractDifferential(snapshot, previous) ?: rule.type.extract(snapshot)
             else -> rule.type.extract(snapshot)
         } ?: rule.type.extractStartup(startupTotalMsProvider())
-        // 更新差分基准:判定用值已取出,当前快照成为下一次的"上一次"
-        previousSnapshot = snapshot
         if (value == null) {
             // 数据缺失:清零计数;若此前已触发,仅清状态不发恢复(N/A ≠ 恢复正常,避免误报)
             state.consecutiveViolations = 0
