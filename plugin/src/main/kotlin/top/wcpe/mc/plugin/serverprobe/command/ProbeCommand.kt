@@ -98,6 +98,14 @@ object ProbeCommand {
     lateinit var arthasRuntime: ArthasRuntime
 
     /**
+     * 告警历史通道(core),由 IOC 注入;供 `/probe alerts` 回查最近告警事件(FR-29)。
+     *
+     * 通道随告警引擎装配自注册;引擎未开启时该 Bean 仍存在但无历史文件,查询返回空列表。
+     */
+    @Inject
+    lateinit var alertHistory: top.wcpe.mc.plugin.serverprobe.core.alert.channel.AlertHistoryChannel
+
+    /**
      * 主命令 / 帮助:列出全部子命令(全程 i18n)。
      *
      * 不使用 `createHelper()`(其 `§cUsage:` 前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
@@ -340,6 +348,18 @@ object ProbeCommand {
                 return@execute
             }
             sendHttp(sender, recent)
+        }
+    }
+
+    /**
+     * `/probe alerts`:回查最近的告警事件(FR-29)。
+     *
+     * 取值与渲染独立在 [AlertsCommandHandler](理由同 [McpCommandHandler]):命令层只做分发。
+     */
+    @CommandBody(permission = "serverprobe.command.alerts")
+    val alerts = subCommand {
+        execute<ProxyCommandSender> { sender, _, _ ->
+            AlertsCommandHandler.render(sender, alertHistory)
         }
     }
 

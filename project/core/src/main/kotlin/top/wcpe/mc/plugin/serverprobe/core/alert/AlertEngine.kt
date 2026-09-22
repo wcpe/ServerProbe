@@ -44,20 +44,27 @@ class AlertEngine {
     private var rules: List<RuleHolder> = emptyList()
 
     /**
-     * 读取配置构建规则集(仅在告警总开关开启时)。
+     * 上一次采集的快照(供速率类类型 [AlertType.extractDifferential] 差分;FR-29 Old GC 频繁)。
      *
-     * 采用 [PostEnable] 而非构造期:确保 [ProbeConfig] 已由 TabooLib 注入完毕再读取。
-     * 仅纳入 [AlertRule.enabled] 为 true 的规则;为每条规则配一份初始 [RuleState]。
+     * 仅编排单线程串行读写(与 [RuleState] 同款并发模型),无需同步;首采前为 null。
      */
-    @PostEnable
-    fun buildRules() {
-        if (!ProbeConfig.alertEnabled()) {
-            ProbeLogger.info("告警引擎未开启(alert.enabled=false),已跳过")
-            return
-        }
-        installRules(ProbeConfig.alertRules())
-        ProbeLogger.info("告警引擎已启用,生效规则数=${rules.size}")
-    }
+    private var previousSnapshot: MetricSnapshot? = null
+
+    /**
+     * 启动画像总时长取值函数(供 [AlertType.STARTUP_SLOW] 取数;FR-29)。
+     *
+     * 刻意用函数注入而非直接依赖 Holder:代理端无画像生产者时由装配侧传 null 来源,
+     * 引擎与"画像在快照之外"的数据源解耦。默认恒 null(未注入=N/A,规则不触发)。
+     */
+    @Volatile
+    private var startupTotalMsProvider: () -> Long? = { null }
+
+    /**
+     * 启动画像持有者(required=false):平台监听器在服务器就绪时写入;代理端实例存在但恒为 null。
+     * 注入成功后据此装配 [startupTotalMsProvider](见 [buildRules]),持有者缺失时规则恒 N/A。
+     */
+    @Inject(required = false)
+    var startupProfileHolder: top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileHolder? = null
 
     /**
      * 用给定规则集装配引擎:过滤掉未启用的规则,为每条配一份初始 [RuleState]。
@@ -85,6 +92,36 @@ class AlertEngine {
     }
 
     /**
+     * 注入启动画像总时长来源(FR-29 启动超基线规则的数据源)。
+     *
+     * 由装配侧在启动期调用一次;代理端(无画像生产者)不注入,规则恒 N/A。
+     * 引擎仅在异步采集线程读取该 provider,注入时序在首个采集周期之前。
+     *
+     * @param provider 返回最近一次启动画像总时长(毫秒)的取值函数;无画像时返回 null。
+     */
+    fun configureStartupSource(provider: () -> Long?) {
+        startupTotalMsProvider = provider
+    }
+
+    /**
+     * 读取配置构建规则集(仅在告警总开关开启时)。
+     *
+     * 采用 [PostEnable] 而非构造期:确保 [ProbeConfig] 已由 TabooLib 注入完毕再读取。
+     * 仅纳入 [AlertRule.enabled] 为 true 的规则;为每条规则配一份初始 [RuleState]。
+     * 同时装配启动画像来源([startupProfileHolder] 已注入时)。
+     */
+    @PostEnable
+    fun buildRules() {
+        startupProfileHolder?.let { holder -> configureStartupSource { holder.get()?.totalMs } }
+        if (!ProbeConfig.alertEnabled()) {
+            ProbeLogger.info("告警引擎未开启(alert.enabled=false),已跳过")
+            return
+        }
+        installRules(ProbeConfig.alertRules())
+        ProbeLogger.info("告警引擎已启用,生效规则数=${rules.size}")
+    }
+
+    /**
      * 对一份快照执行一次告警判定,并按需广播触发/恢复事件。
      *
      * 流程见类 KDoc 的"防抖与恢复"。本方法不抛出异常:单条规则、单个通道的异常均被
@@ -103,13 +140,23 @@ class AlertEngine {
     /**
      * 判定单条规则并驱动其状态机。
      *
+     * 取值顺序:速率类类型(如 FR-29 Old GC 频繁)优先走跨快照差分 [AlertType.extractDifferential]
+     * (引擎持有上一次采集快照时);数据源在快照之外的类型(如启动超基线)走 [AlertType.extractStartup];
+     * 其余走单快照 [AlertType.extract]。三者皆不可用时按"数据缺失"处理(清零计数、触发态仅清不发恢复)。
+     *
      * @param holder 规则及其运行状态。
      * @param snapshot 当前指标快照。
      */
     private fun evaluateRule(holder: RuleHolder, snapshot: MetricSnapshot) {
         val rule = holder.rule
         val state = holder.state
-        val value = rule.type.extract(snapshot)
+        val prev = previousSnapshot
+        val value = when {
+            prev != null -> rule.type.extractDifferential(snapshot, prev) ?: rule.type.extract(snapshot)
+            else -> rule.type.extract(snapshot)
+        } ?: rule.type.extractStartup(startupTotalMsProvider())
+        // 更新差分基准:判定用值已取出,当前快照成为下一次的"上一次"
+        previousSnapshot = snapshot
         if (value == null) {
             // 数据缺失:清零计数;若此前已触发,仅清状态不发恢复(N/A ≠ 恢复正常,避免误报)
             state.consecutiveViolations = 0

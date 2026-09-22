@@ -19,6 +19,7 @@
 | `/probe proxy` | 代理端子服在线、RTT、可达性、玩家路由 | BungeeCord / Velocity |
 | `/probe flamegraph` | 导出最近启动画像为自包含 HTML 火焰图 + 时间线（需启动 agent） | Bukkit |
 | `/probe http` | 回看近期对外网络调用（需启动 agent） | Bukkit |
+| `/probe alerts` | 回查最近告警事件（由新到旧至多 10 条，FR-29） | 通用 |
 | `/probe mcp <on\|off\|status>` | 运行期起停 MCP 诊断控制面端点（**仅控制台**） | 通用 |
 | `/probe mcp arthas <on\|off>` | 运行期加载/卸载内嵌 Arthas 运行时（**仅控制台**） | 通用 |
 
@@ -37,6 +38,7 @@
 | `serverprobe.command.proxy` | `/probe proxy` |
 | `serverprobe.command.flamegraph` | `/probe flamegraph` |
 | `serverprobe.command.http` | `/probe http` |
+| `serverprobe.command.alerts` | `/probe alerts`（回查告警历史） |
 | `serverprobe.command.mcp` | `/probe mcp`（仅控制台生效，游戏内即使持有该权限也被拒） |
 
 ## 备注

@@ -126,6 +126,10 @@ command-help-http: "§a/probe http §7- 查看近期对外 HTTP/TCP 外呼"
 command-http-title: "§6===== §e近期外呼 (最近 {0} 条) §6====="
 command-http-empty: "§7暂无外呼记录(尚无对外请求,或外呼监控已关闭)"
 command-http-agent-absent: "§e外呼监控需要启动 agent，请在启动命令添加 §7-javaagent:plugins/ServerProbe.jar"
+# —— FR-29 /probe alerts ——
+command-alerts-title: "§6===== §e最近告警({0}条,由新到旧) §6====="
+command-alerts-empty: "§7暂无告警历史(引擎未触发过告警,或 alert.enabled=false)"
+command-alerts-row: "§8[{0}] §{1}{2} §f{3} §7值={4} §8/ 阈值={5}"
 command-http-line: "§8- §e[{0}] §f{1} §7{2} §8({3}, {4}ms) §8← {5}"
 
 # MCP 控制面运行期开关(FR-24)

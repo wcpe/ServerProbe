@@ -550,7 +550,13 @@ object ProbeConfig {
         HEAP_USAGE("heap-usage", AlertType.HEAP_USAGE_HIGH, 90.0, 3, AlertLevel.WARN, true),
 
         /** 死锁(严重,事件型):死锁线程数 > 0 即触发(持续 1 周期)。 */
-        DEADLOCK("deadlock", AlertType.DEADLOCK, 0.0, 1, AlertLevel.CRITICAL, true)
+        DEADLOCK("deadlock", AlertType.DEADLOCK, 0.0, 1, AlertLevel.CRITICAL, true),
+
+        /** Old GC 频繁(警告,FR-29):老年代 GC 次数速率 > 0.05 次/秒(约每 20 秒一次)持续 6 周期(约 30 秒)。 */
+        GC_OLD_HIGH("gc-old-high", AlertType.GC_OLD_HIGH, 0.05, 6, AlertLevel.WARN, true),
+
+        /** 启动超基线(警告,FR-29):最近一次启动总时长 > 180 秒持续 1 周期(启动后一次性判定,事件型)。 */
+        STARTUP_SLOW("startup-slow", AlertType.STARTUP_SLOW, 180.0, 1, AlertLevel.WARN, true)
     }
 
     /**

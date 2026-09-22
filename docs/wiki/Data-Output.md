@@ -26,8 +26,8 @@ ServerProbe 提供**多个呈现 / 对接通道**，同一份采集结果向多�
 
 ## 告警引擎
 
-- 内置阈值规则（4 类，`config.yml` 可调阈值/防抖/级别）：TPS<18 警 / <15 重、MSPT p95>50ms、堆>90% 持续、死锁立即
-- 防抖（持续 N 周期才触发）与恢复状态机
+- 内置阈值规则（6 类，`config.yml` 可调阈值/防抖/级别）：TPS<18 警 / <15 重、MSPT p95>50ms、堆>90% 持续、死锁立即、Old GC 频繁（速率>0.05 次/秒持续约 30 秒）、启动超基线（总时长>180s，FR-29）
+- 防抖（持续 N 周期才触发）与恢复状态机；告警历史按日落盘 `data/alerts/`，`/probe alerts` 可回查最近事件
 - 三通道：日志 / 游戏内 / Webhook（默认关闭 `alert.enabled=false`）
 - Prometheus 侧告警模板（TPS/MSPT/堆/死锁同口径）见 `grafana/alerts.yml` 与 [OPERATIONS §5.1](../OPERATIONS.md)（FR-27）
 

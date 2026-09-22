@@ -241,3 +241,17 @@ alert:
       sustain-cycles: 1
       level: CRITICAL
       enabled: true
+    # Old GC 频繁(FR-29)→ 警告:老年代 GC 次数速率高于 0.05 次/秒(约每 20 秒一次)持续 6 周期(约 30 秒)。
+    # 速率为跨采集周期差分(与聚合器 GC 速率同口径);首采或计数回绕(重启)期间不判定。
+    gc-old-high:
+      threshold: 0.05
+      sustain-cycles: 6
+      level: WARN
+      enabled: true
+    # 启动超基线(FR-29)→ 警告:最近一次启动总时长高于阈值(秒)即触发(事件型,启动后判定一次)。
+    # 无启动画像(代理端)时不判定;阈值请按本服正常启动耗时上浮填写。
+    startup-slow:
+      threshold: 180.0
+      sustain-cycles: 1
+      level: WARN
+      enabled: true
