@@ -1,0 +1,339 @@
+{
+  "__comment": "ServerProbe Grafana 看板（FR-27）。数据源变量化；指标名与 docs/API.md §5.4 一一对应（只引用不发明）。导入：Grafana → Dashboards → New → Import。启动耗时面板依赖 FR-25（v0.6.0 起）。",
+  "title": "ServerProbe 服务器探针",
+  "uid": "serverprobe-overview",
+  "schemaVersion": 39,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "数据源",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "serverId",
+        "label": "实例",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(serverprobe_uptime_seconds, serverId)",
+        "refresh": 2,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "总览",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "TPS（1 分钟均值）",
+      "description": "serverprobe_tps{window=\"1m\"}。Folia 无全局 TPS（设计性 N/A），请看已观测 region 行。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        { "expr": "serverprobe_tps{serverId=~\"$serverId\",window=\"1m\"}", "legendFormat": "{{serverId}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 20,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 15 },
+              { "color": "green", "value": 18 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "MSPT p95",
+      "description": "serverprobe_mspt_seconds{quantile=\"p95\"}。>0.05（50ms）即掉 tick。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        { "expr": "serverprobe_mspt_seconds{serverId=~\"$serverId\",quantile=\"p95\"}", "legendFormat": "{{serverId}}", "unit": "s" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.04 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "在线玩家",
+      "description": "serverprobe_players_online / serverprobe_players_max。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        { "expr": "serverprobe_players_online{serverId=~\"$serverId\"}", "legendFormat": "在线 {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "堆内存使用率",
+      "description": "heap_used / heap_max；max 为 -1（无上限）的服务端该面板无值。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        {
+          "expr": "100 * serverprobe_heap_used_bytes{serverId=~\"$serverId\"} / serverprobe_heap_max_bytes{serverId=~\"$serverId\"}",
+          "legendFormat": "{{serverId}}",
+          "unit": "percent"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "JVM",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "堆 / 非堆内存",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "serverprobe_heap_used_bytes{serverId=~\"$serverId\"}", "legendFormat": "堆 {{serverId}}", "unit": "bytes" },
+        { "expr": "serverprobe_heap_committed_bytes{serverId=~\"$serverId\"}", "legendFormat": "堆 committed {{serverId}}" },
+        { "expr": "serverprobe_nonheap_used_bytes{serverId=~\"$serverId\"}", "legendFormat": "非堆 {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "GC 速率（次/秒，按收集器）",
+      "description": "rate(gc_count_total[5m])，label gc。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "rate(serverprobe_gc_count_total{serverId=~\"$serverId\"}[5m])",
+          "legendFormat": "{{gc}} {{serverId}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "GC 耗时速率（秒/秒，按收集器）",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "rate(serverprobe_gc_time_seconds_total{serverId=~\"$serverId\"}[5m])",
+          "legendFormat": "{{gc}} {{serverId}}",
+          "unit": "s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "线程 / 死锁",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "serverprobe_threads{serverId=~\"$serverId\"}", "legendFormat": "线程 {{serverId}}" },
+        { "expr": "serverprobe_threads_daemon{serverId=~\"$serverId\"}", "legendFormat": "daemon {{serverId}}" },
+        { "expr": "serverprobe_threads_deadlocked{serverId=~\"$serverId\"}", "legendFormat": "死锁 {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "TPS / MSPT / 世界",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "TPS（1m/5m/15m）",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "serverprobe_tps{serverId=~\"$serverId\"}", "legendFormat": "{{window}} {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 20 }, "overrides": [] }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "MSPT 分位（avg/p95/p99）",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "targets": [
+        { "expr": "serverprobe_mspt_seconds{serverId=~\"$serverId\"}", "legendFormat": "{{quantile}} {{serverId}}", "unit": "s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "世界负载（区块/实体/方块实体）",
+      "description": "label world；Folia 受限字段为 -1 不导出（对应序列缺省）。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "targets": [
+        { "expr": "serverprobe_world_loaded_chunks{serverId=~\"$serverId\"}", "legendFormat": "{{world}} 区块" },
+        { "expr": "serverprobe_world_entities{serverId=~\"$serverId\"}", "legendFormat": "{{world}} 实体" },
+        { "expr": "serverprobe_world_tile_entities{serverId=~\"$serverId\"}", "legendFormat": "{{world}} 方块实体" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "在线玩家 ping 分布",
+      "description": "serverprobe_players_ping_bucket{range}（FR2.4）。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "targets": [
+        { "expr": "serverprobe_players_ping_bucket{serverId=~\"$serverId\"}", "legendFormat": "{{range}} {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "CPU 归因（运行期，默认关闭 cpu.enabled=true 后有数据）",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "插件 CPU 占比（窗口内）",
+      "description": "serverprobe_plugin_cpu_percent{plugin}；各插件占比之和约 100。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        { "expr": "topk(10, serverprobe_plugin_cpu_percent{serverId=~\"$serverId\"})", "legendFormat": "{{plugin}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "插件 CPU 样本数（counter）",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "targets": [
+        { "expr": "topk(10, rate(serverprobe_plugin_cpu_samples_total{serverId=~\"$serverId\"}[5m]))", "legendFormat": "{{plugin}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 19,
+      "type": "row",
+      "title": "启动画像（FR-25，v0.6.0 起；代理端无此维度）",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 48 }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "启动总耗时（最近一次启动）",
+      "description": "serverprobe_startup_total_seconds。每次重启更新一个点；看跨次启动趋势。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 49 },
+      "targets": [
+        { "expr": "serverprobe_startup_total_seconds{serverId=~\"$serverId\"}", "legendFormat": "{{serverId}}", "unit": "s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "慢插件 Top（最近一次启动 onEnable 耗时）",
+      "description": "serverprobe_startup_plugin_seconds{plugin}，画像慢插件榜口径（Top-N）。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 49 },
+      "targets": [
+        { "expr": "topk(10, serverprobe_startup_plugin_seconds{serverId=~\"$serverId\"})", "legendFormat": "{{plugin}}", "unit": "s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "代理端（BungeeCord/Velocity）与网络取证",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 57 }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "代理总在线与子服 RTT",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
+      "targets": [
+        { "expr": "serverprobe_proxy_players_online{serverId=~\"$serverId\"}", "legendFormat": "总在线 {{serverId}}" },
+        { "expr": "serverprobe_proxy_backend_ping_ms{serverId=~\"$serverId\"}", "legendFormat": "{{backend}} RTT", "unit": "ms" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "网络流量（脱敏聚合）",
+      "description": "FR11 聚合速率；完整 IP/载荷不在 Prometheus（隐私红线）。",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 58 },
+      "targets": [
+        { "expr": "serverprobe_network_ingress_bytes_per_second{serverId=~\"$serverId\"}", "legendFormat": "入 {{serverId}}", "unit": "Bps" },
+        { "expr": "serverprobe_network_egress_bytes_per_second{serverId=~\"$serverId\"}", "legendFormat": "出 {{serverId}}", "unit": "Bps" },
+        { "expr": "serverprobe_network_ingress_packets_per_second{serverId=~\"$serverId\"}", "legendFormat": "入包 {{serverId}}" },
+        { "expr": "serverprobe_network_egress_packets_per_second{serverId=~\"$serverId\"}", "legendFormat": "出包 {{serverId}}" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] }
+    }
+  ]
+}
