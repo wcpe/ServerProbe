@@ -53,8 +53,9 @@ ServerProbe 的首要安全原则是 **「只读优先,绝不成为事故源」*
 - **命令输入**:`/probe …` 各子命令经权限节点门控,只有持相应权限者可执行;告警游戏内通道仅面向 OP 或持 `serverprobe.alert` 权限者。
 - **配置项容错**:配置项均有默认值与容错处理。典型如 Prometheus 端口被占用(含 Windows 动态保留端口场景)时**优雅降级、不影响插件正常启用**(已在真机印证);Webhook 超时过小会被兜底为下限。
 - **agent 字节码插桩的安全约束**(可选 agent,M5):
-  - 插桩生成的字节码经 **ASM `CheckClassAdapter` 对真实 JDK 类校验合法**后才应用,确保不产出非法字节码。
+  - 插桩极简:每个切点仅注入"记录 this + 起始时刻"的最小逻辑;生成的字节码由 **`FrameSafeClassWriter`**(COMPUTE_FRAMES + `getCommonSuperClass` 兜底)保证帧计算不因类型不可加载而失败,transform 全程 `try/catch`,失败返回原始字节码(放弃插桩)。
   - 插桩与外呼记录逻辑**全程 `try/catch` 兜底**,`premain` 顶层再以 `catch(Throwable)` 包裹,任何异常只静默降级为「agent 未生效」,**绝不向上抛、绝不破坏或崩溃 JVM**。
+  - **多版本真机矩阵**(1.8–1.21.11 + Java 8/21/25)对插桩路径做常态化回归:加载、采集、命令、外呼监控逐场景验证,插桩产出字节码非法属"启动即炸"级故障,矩阵可直接暴露。
   - 跨 ClassLoader 通道**只**把极薄、零反向依赖的 `ProbeAgentBridge` append 到 bootstrap ClassLoader(纯数据中转),严守「bootstrap CL 上只放对所有 CL 安全可见的最小桥接类」的边界,避免双向越界引发 `IllegalAccessError`。
 
 ---

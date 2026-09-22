@@ -76,4 +76,13 @@ dependencies {
     // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。
     taboo("org.ow2.asm:asm:9.10.1")
     taboo("org.ow2.asm:asm-commons:9.10.1")
+    // 技术债 #26-⑦:plugin 模块此前零测试。TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突,
+    // 故引擎与 launcher 版本配对显式锁死,保证 JUnit Platform 正常加载。
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.14.4")
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging { events("failed") }
 }
