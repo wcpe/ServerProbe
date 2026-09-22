@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.InputStream
@@ -10,6 +11,8 @@ import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.locks.ReentrantLock
+import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 
 /**
  * 最小 WebSocket 客户端(RFC 6455),**JDK 8 兼容、零第三方依赖**。
@@ -45,8 +48,8 @@ class MinimalWebSocketClient(
     private var input: InputStream? = null
     private var output: DataOutputStream? = null
 
-    /** 写锁:串行化 [sendText]/[sendPing]/close 帧的写出,避免读线程外的心跳线程与之交错。 */
-    private val writeLock = Any()
+    /** 写锁:串行化 [sendText]/[sendPing]/close 帧的写出,避免读线程外的心跳线程与之交错。可中断尝试加锁(事件帧非阻塞写)。 */
+    private val writeLock = ReentrantLock()
 
     private val random = SecureRandom()
 
@@ -118,12 +121,16 @@ class MinimalWebSocketClient(
     /**
      * 发送一条文本消息(单帧、FIN=1、客户端掩码)。
      *
+     * **非阻塞语义(技术债修复)**:以 [tryLock] 尝试取写锁——写锁被占用(如心跳线程正被
+     * 慢 flush 卡住)或对端停滞导致 flush 超时,本方法**立即失败丢弃而非阻塞调用线程**:
+     * 上行事件(玩家 join/quit 等)由 Worker 侧周期全量补救,丢一条事件远好过卡死主线程
+     * (探针"不成事故源"优先于"确保送达")。缓冲区满的 flush 最多阻塞 [WRITE_TIMEOUT_MS]
+     * 毫秒,超时判定为连接坏死、主动关闭走重连。
+     *
      * @param text UTF-8 文本。
-     * @throws java.io.IOException 连接已关闭或写失败。
+     * @return 是否成功写出;false = 写锁不可得、写超时或连接已坏,消息被丢弃(调用方无需重试)。
      */
-    fun sendText(text: String) {
-        writeFrame(OPCODE_TEXT, text.toByteArray(Charsets.UTF_8))
-    }
+    fun sendText(text: String): Boolean = writeFrameWithTimeout(OPCODE_TEXT, text.toByteArray(Charsets.UTF_8))
 
     /**
      * 主动发送一个 ping 控制帧(载荷为空)。服务端应回 pong;本客户端不强依赖 pong,
@@ -149,7 +156,7 @@ class MinimalWebSocketClient(
     @Suppress("LoopWithTooManyJumpStatements")
     fun readMessage(): String {
         val inp = input ?: throw EOFException("连接未建立或已关闭")
-        val payload = ArrayList<Byte>()
+        val payload = ByteArrayOutputStream()
         var messageOpcode = -1
         while (true) {
             val frame = readFrame(inp)
@@ -162,17 +169,25 @@ class MinimalWebSocketClient(
                 OPCODE_CLOSE -> throw EOFException("收到服务端 close 帧")
                 OPCODE_TEXT, OPCODE_CONTINUATION -> {
                     if (frame.opcode == OPCODE_TEXT) messageOpcode = OPCODE_TEXT
-                    payload.addAll(frame.data.asList())
+                    requireMessageSize(payload.size(), frame.data.size)
+                    payload.write(frame.data)
                     if (!frame.fin) continue // 分片未完:继续读续帧
-                    if (messageOpcode == OPCODE_TEXT) return String(payload.toByteArray(), Charsets.UTF_8)
+                    if (messageOpcode == OPCODE_TEXT) return payload.toString("UTF-8")
                     // 非文本消息(如二进制):丢弃已积累载荷,继续读下一条
-                    payload.clear()
+                    payload.reset()
                     messageOpcode = -1
                 }
                 else -> {
                     // 未知 opcode:忽略该帧,继续
                 }
             }
+        }
+    }
+
+    /** 入站消息累积量护栏(技术债修复:防内存炸弹)——对端用小分片也能堆爆内存,按累积量截断。 */
+    private fun requireMessageSize(currentBytes: Int, incomingBytes: Int) {
+        if (currentBytes + incomingBytes > MAX_MESSAGE_BYTES) {
+            throw java.io.IOException("消息超过大小上限:$currentBytes+$incomingBytes > $MAX_MESSAGE_BYTES")
         }
     }
 
@@ -193,6 +208,11 @@ class MinimalWebSocketClient(
         when (len.toInt()) {
             LEN_16 -> len = readUnsigned(inp, 2)
             LEN_64 -> len = readUnsigned(inp, 8)
+        }
+        // 入站帧护栏(技术债修复):声明长度超限即断连。恶意/异常对端可声明超大长度直接触发
+        // ByteArray 分配(OOM);64 位长度在 Int 截断后还会变负或归零,导致帧流错位。
+        if (len > MAX_FRAME_BYTES) {
+            throw java.io.IOException("帧长度超上限:$len > $MAX_FRAME_BYTES")
         }
         // 服务端帧通常不掩码;若掩码则读 4 字节掩码键并解掩。
         val maskKey = if (masked) ByteArray(4) { readByte(inp).toByte() } else null
@@ -215,7 +235,12 @@ class MinimalWebSocketClient(
     fun close() {
         val s = socket ?: return
         runCatching {
-            synchronized(writeLock) { writeFrameLocked(OPCODE_CLOSE, EMPTY) }
+            writeLock.lock()
+            try {
+                writeFrameLocked(OPCODE_CLOSE, EMPTY)
+            } finally {
+                writeLock.unlock()
+            }
         }
         runCatching { s.close() }
         socket = null
@@ -228,7 +253,42 @@ class MinimalWebSocketClient(
 
     /** 写一帧(对外接口,加写锁)。 */
     private fun writeFrame(opcode: Int, data: ByteArray) {
-        synchronized(writeLock) { writeFrameLocked(opcode, data) }
+        writeLock.lock()
+        try {
+            writeFrameLocked(opcode, data)
+        } finally {
+            writeLock.unlock()
+        }
+    }
+
+    /**
+     * 带超时的非阻塞写(事件帧用):tryLock 失败立即返回 false;取到锁后以写超时执行,
+     * 超时判定连接坏死并关闭(由读循环的 EOF 兜底触发重连)。控制帧(ping/close)仍走
+     * [writeFrame] 阻塞路径——它们在锁上等待是可接受的(低频、且必须发出)。
+     */
+    private fun writeFrameWithTimeout(opcode: Int, data: ByteArray): Boolean {
+        val locked = writeLock.tryLock(WRITE_TIMEOUT_MS.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (!locked) return false
+        try {
+            // 借 socket 写超时实现"flush 至多等 WRITE_TIMEOUT_MS":临时收紧 soTimeout,
+            // 写完恢复读超时——Java 对 OutputStream 无独立写超时,这是最小侵入的近似。
+            val s = socket ?: return false
+            val original = s.soTimeout
+            s.soTimeout = WRITE_TIMEOUT_MS
+            try {
+                writeFrameLocked(opcode, data)
+                return true
+            } catch (e: java.net.SocketTimeoutException) {
+                // 写超时 = 对端停滞/连接坏死:记日志(不吞异常语义)、主动关闭,读循环会因流结束进入重连
+                ProbeLogger.warn("插件桥写出超时,判定连接坏死并重连:${e.message}")
+                runCatching { close() }
+                return false
+            } finally {
+                runCatching { s.soTimeout = original }
+            }
+        } finally {
+            writeLock.unlock()
+        }
     }
 
     /**
@@ -332,6 +392,18 @@ class MinimalWebSocketClient(
 
         /** 16 位长度档的最大字节数。 */
         private const val MAX_16 = 0xFFFF
+
+        /**
+         * 入站单帧大小上限(字节)。桥协议的治理/业务/回执帧远小于此(事件帧通常 <4KiB);
+         * 超限即断连走重连,防恶意/异常对端以超大帧或大量小分片触发 OOM(探针不成事故源)。
+         */
+        private const val MAX_FRAME_BYTES = 1L * 1024 * 1024
+
+        /** 入站单条消息(含分片累积)大小上限(字节);与帧上限双保险,小帧分片同样被截断。 */
+        private const val MAX_MESSAGE_BYTES = 1 * 1024 * 1024
+
+        /** 事件帧写出超时(毫秒):flush 卡住超过此时长判定连接坏死,丢弃消息并断线重连。 */
+        private const val WRITE_TIMEOUT_MS = 1_000
 
         private val EMPTY = ByteArray(0)
     }
