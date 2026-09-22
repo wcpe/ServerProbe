@@ -71,13 +71,15 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 
 **`JvmMetrics`**(全平台通用):`heapUsedBytes`/`heapCommittedBytes`/`heapMaxBytes`(无上限为 -1)、`nonHeap*` 同款、`memoryPools: List<MemoryPoolMetric>`、`gcYoungCount`/`gcYoungTimeMs`/`gcOldCount`/`gcOldTimeMs`、`gcCollectors: List<GcCollectorMetric>`、`threadCount`/`daemonThreadCount`/`peakThreadCount`/`deadlockedThreadCount`、`loadedClassCount`/`totalLoadedClassCount`、`processCpuLoad`/`systemCpuLoad`(0.0–1.0,**-1.0 表示当前 JDK 不提供**)、`uptimeMs`/`startTimeMs`、`jvmArgs: List<String>`。
 
-**`ServerMetrics`**(仅 Bukkit 端):`tick: TickSample`、`onlinePlayers`、`maxPlayers`、`uptimeMs`、`worlds: List<WorldMetrics>?`(未采集到或历史档不含时为 null)。
+**`ServerMetrics`**(仅 Bukkit 端):`tick: TickSample`、`onlinePlayers`、`maxPlayers`、`uptimeMs`、`worlds: List<WorldMetrics>?`(未采集到或历史档不含时为 null)、`pingDistribution: List<PingBucket>?`(在线玩家 ping 分桶,FR2.4,无人/不支持时 null)、`observedRegions: List<ObservedRegionMetrics>?`(Folia 已观测 region 明细,FR-12,非 Folia/无数据时 null)、`observedRegionWorlds: List<ObservedRegionWorldMetrics>?`(按世界汇总,FR-12)。
 
 **`TickSample`**:`tps1m`/`tps5m`/`tps15m`、`msptAvg`/`msptP95`/`msptP99`(均 `Double?`,**null 表示 N/A**,如 Folia 无全局 TPS)、`source: TickSampleSource`。
 
 **`WorldMetrics`**:`name`、`loadedChunks`、`entityCount`、`tileEntityCount`(后两者在 **Folia 受限时为 -1**,表示 N/A)、`entitiesByType: Map<String, Int>?`(未开启分类统计或 Folia 受限时为 null)。
 
 **`ProxyMetrics`**(仅代理端):`totalOnline: Int`、`backends: List<BackendServer>`(`BackendServer` = `name` + `online`)。
+
+> `web` 配置键(`web.enabled`/`host`/`port`/`token`/`allowed-ips`,默认关闭仅本机)与 `metrics.*` 同属端点类配置,详见 `config.yml` 注释与 [OPERATIONS](OPERATIONS.md);本文不重复。
 
 **`AggregatedMetrics`**(聚合结果,字段除 `windowSampleCount` 外均可空,**null = 本窗口不可计算**):`windowSampleCount: Int`、`tpsAvg`、`msptP95`、`msptP99`、`gcYoungRatePerSec`、`gcOldRatePerSec`、`gcYoungTimeRatePerSec`、`gcOldTimeRatePerSec`(后六者均 `Double?`)。
 
@@ -167,7 +169,7 @@ Authorization: Bearer <token>
 - **代理端**(仅代理端):`proxy_players_online`、`proxy_backend_players_online`(label `backend`)。
 
 > 端点仅暴露**最新快照**的瞬时值;历史趋势由 Prometheus 抓取时间序列自身承载。
-> Web 面板（FR-04 子能力）为只读三页（总览 / 启动画像 / 历史趋势），默认关闭，见 PRD FR-04。
+> Web 面板（FR-04 子能力，v0.4.0 起四页：总览 / 启动画像 / 历史趋势 / **网络取证**——后者为唯一展示完整 IP 与白名单载荷的页面，经鉴权 + IP 白名单访问），默认关闭，见 PRD FR-04。
 
 ## 6. 游戏内命令 /probe(FR-04)
 
@@ -182,7 +184,7 @@ Authorization: Bearer <token>
 | `tps` | TPS(1/5/15 分钟)与 MSPT(avg/p95/p99),并附近 N 份快照的聚合补充行(FR-03)。 | `serverprobe.command.tps` | 字段 null(Folia/不可用)显示 N/A;代理端无此指标。聚合窗口取 `aggregation.window`(默认 12)。 |
 | `gc` | GC(young/old 的 count/timeMs)+ 堆/非堆/各内存池。 | `serverprobe.command.gc` | JVM 指标全平台通用,代理端同样可用。 |
 | `world` | 各世界:已加载区块数、实体数、方块实体数(FR-02)。 | `serverprobe.command.world` | 代理端无此指标;worlds 未采样时提示采集中;Folia 受限项(-1)显示 N/A。 |
-| `proxy` | 代理端总在线 + 各子服在线明细。 | `serverprobe.command.proxy` | 仅代理端有数据;在服务端提示"此为服务端,请在 BungeeCord 执行"。子服 ping/路由为**规划中,未实现**。 |
+| `proxy` | 代理端总在线 + 各子服在线明细、子服 RTT/可达性、玩家路由与每玩家 ping。 | `serverprobe.command.proxy` | 仅代理端有数据;在服务端提示"此为服务端,请在 BungeeCord 执行"。 |
 | `flamegraph` | 由最近启动画像导出自包含 HTML(火焰图 + 时间线),输出到 `data/flamegraph/`。 | `serverprobe.command.flamegraph` | **需挂载启动 agent**(`-javaagent:plugins/ServerProbe.jar`);未挂载时提示启用方式。 |
 | `http` | 回看最近的对外网络外呼(插件/方法/URL/响应码/耗时/触发处),倒序展示。 | `serverprobe.command.http` | **需挂载启动 agent**且外呼监控开启方有数据;展示条数固定 20(`HTTP_DISPLAY_LIMIT`)。缓冲为空时按 agent 是否挂载给出不同提示。 |
 

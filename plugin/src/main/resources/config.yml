@@ -31,6 +31,11 @@ history-file:
   retention-days: 7
   # 单实例历史文件总体积上限(MB):超出后从最旧文件起清理至达标,绝不删除当天文件。默认 200。
   max-total-mb: 200
+  # 过期历史文件的 gzip 归档保留天数:过期文件压缩为 .gz 归档,超过该天数后删除。0 = 过期即删、不归档。默认 30。
+  archive-days: 30
+
+# 启动画像栈样本保留条数:启动期 agent 采集的折叠栈样本按线程均匀抽稀,单份画像控制在 KB 级。0 = 不限(画像可能很大)。默认 10。
+agent-stack-max-samples: 10
 
 # 是否输出 DEBUG 级调试日志。默认 false(关闭)。
 debug: false
@@ -80,6 +85,10 @@ http-monitor:
   recent-capacity: 500
   # 从 agent 增量拉取外呼记录的周期(tick;20 tick = 1 秒)。默认 20(约 1 秒)。
   drain-period-ticks: 20
+  # 外呼 .log 原始文件的保留天数:过期文件压缩为 .gz 归档。默认 7。
+  file-retention-days: 7
+  # 外呼 .gz 归档的保留天数:超过后删除。0 = 过期直接删除、不归档。默认 30。
+  file-archive-days: 30
 
 # 运行期 CPU 采样归因(FR2.6,M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
 # 得到"哪个插件运行期更吃线程"的近似占比(/probe cpu 查看,Prometheus 导出)。
@@ -141,6 +150,10 @@ mcp:
   artifact-retention-hours: 24
   # MCP 工件工作区总容量上限(单位 GiB)。最小 1；默认 10。
   artifact-max-gib: 10
+  # MCP 审计记录的轮转阈值:活跃审计文件超过该体积(MB)后 gzip 轮转。默认 20。
+  audit-max-file-mb: 20
+  # MCP 审计 gzip 归档的保留天数。0 = 归档不过期。默认 30。
+  audit-retention-days: 30
 
 # Web 面板(FR4.3,M3,P2):启动画像详情 / 历史趋势 / 总览,浏览器访问。
 # 基于 JDK 内置 HttpServer 零依赖;安全默认:默认【关闭】,且默认仅本机可访问。
