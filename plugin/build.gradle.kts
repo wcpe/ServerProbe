@@ -79,7 +79,7 @@ dependencies {
     // 技术债 #26-⑦:plugin 模块此前零测试。TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突,
     // 故引擎与 launcher 版本配对显式锁死,保证 JUnit Platform 正常加载。
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.14.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
 }
 
 tasks.test {
