@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * JVM 运行时指标快照(FR2.1)。
+ * JVM 运行时指标快照。
  *
  * 全部来源于 {@code java.lang.management.*} 的各类 MXBean,全版本 + 全平台通用,
  * 是探针最稳定的指标层。本对象为某一时刻的取样结果,字段全部不可变。

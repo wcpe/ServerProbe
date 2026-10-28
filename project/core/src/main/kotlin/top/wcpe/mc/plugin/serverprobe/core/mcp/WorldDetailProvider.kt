@@ -3,9 +3,9 @@ package top.wcpe.mc.plugin.serverprobe.core.mcp
 import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
 
 /**
- * MCP 世界明细提供者契约（FR-17）。
+ * MCP 世界明细提供者契约。
  *
- * 为 `server_status` 的 `worlds` 输出提供输出层增强字段：每世界的实体类型分布
+ * 为 `server_status`的 `worlds`输出提供输出层增强字段：每世界的实体类型分布
  * （[WorldDetail.entityTypeCounts]）与 Folia 已观测 region 明细（[WorldDetail.regionStats]）。
  * 由平台模块（platform-bukkit）实现并作为 IOC Bean 注入 [McpControlPlane]；
  * 非 Bukkit 平台或实现缺失时 [McpControlPlane.serverStatus] 保持既有聚合输出（向后兼容）。
@@ -24,11 +24,11 @@ interface WorldDetailProvider {
 }
 
 /**
- * 单个世界的明细增强字段（FR-17）。
+ * 单个世界的明细增强字段。
  *
  * [entityTypeCounts] 与 [regionStats] 均允许为 null：实体类型分布仅在开启
- * `world-entity-types` 且非 Folia 时有值（口径与既有 [WorldMetrics.entitiesByType] 一致）；
- * region 明细仅 Folia 有值（透传 FR-12 已观测 region 指标）。
+ * `world-entity-types`且非 Folia 时有值（口径与既有 [WorldMetrics.entitiesByType] 一致）；
+ * region 明细仅 Folia 有值（透传已观测 region 指标）。
  */
 data class WorldDetail(
     /** 世界名称，与 [WorldMetrics.name] 对齐。 */

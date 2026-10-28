@@ -19,7 +19,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Properties;
 
-/** 三种平台共用的 FR11 真实验收断言与权威结果文件写入器。 */
+/** 三种平台共用的真实验收断言与权威结果文件写入器。 */
 public final class NetworkForensicsE2eSupport {
 
     private static final String RESULT_FILE = "MC_TESTKIT_E2E_RESULT_FILE";
@@ -29,7 +29,7 @@ public final class NetworkForensicsE2eSupport {
     private NetworkForensicsE2eSupport() {
     }
 
-    /** 仅在目标场景中等待数据落库并验证 FR8、Web 和 Prometheus 三个出口。 */
+    /** 仅在目标场景中等待数据落库并验证 Web 和 Prometheus 三个出口。 */
     public static void verifyIfRequested(String scenario, String platformPrefix, int metricsPort, int webPort) {
         verifyIfRequested(scenario, platformPrefix, metricsPort, webPort, DEFAULT_RETRIES);
     }
@@ -54,7 +54,7 @@ public final class NetworkForensicsE2eSupport {
         if (resultPath == null || resultPath.trim().isEmpty()) return;
         try {
             verifyEventually(platformPrefix, metricsPort, webPort, retries, expectedPacketType, expectedChannel);
-            writeResult(new File(resultPath), true, "FR11 网络取证真实验收通过");
+            writeResult(new File(resultPath), true, "网络取证真实验收通过");
         } catch (Exception exception) {
             writeResult(new File(resultPath), false, exception.getMessage());
         }
@@ -82,7 +82,7 @@ public final class NetworkForensicsE2eSupport {
                 Thread.sleep(1_000L);
             }
         }
-        throw new IllegalStateException("等待 FR11 取证数据超时：" + lastFailure.getMessage(), lastFailure);
+        throw new IllegalStateException("等待取证数据超时：" + lastFailure.getMessage(), lastFailure);
     }
 
     private static void verify(
@@ -93,7 +93,7 @@ public final class NetworkForensicsE2eSupport {
         String expectedChannel
     ) throws Exception {
         ProbeReadApi api = ServerProbeApi.INSTANCE.read();
-        require(api != null, "ServerProbe FR8 API 尚未就绪");
+        require(api != null, "ServerProbe API 尚未就绪");
         require(api.networkForensicsStatus().getAvailable(), "SQLite 取证存储未就绪");
 
         long now = System.currentTimeMillis();
@@ -104,9 +104,9 @@ public final class NetworkForensicsE2eSupport {
             .limit(100)
             .build());
         List<NetworkPacketRecord> records = page.getRecords();
-        require(!records.isEmpty(), "FR8 未查询到真实协议记录");
-        require(records.stream().anyMatch(record -> record.getPacketType().startsWith(platformPrefix)), "未记录 " + platformPrefix + " 包类型");
-        require(records.stream().anyMatch(record -> "127.0.0.1".equals(record.getIp())), "FR8 未返回完整回环 IP");
+        require(!records.isEmpty(), "未查询到真实协议记录");
+        require(records.stream().anyMatch(record -> record.getPacketType().startsWith(platformPrefix)), "未记录 " + platformPrefix + "包类型");
+        require(records.stream().anyMatch(record -> "127.0.0.1".equals(record.getIp())), "未返回完整回环 IP");
         require(records.stream().anyMatch(record ->
             record.getPayloadCaptured() && (expectedChannel == null || expectedChannel.equals(record.getChannel()))
         ), "白名单 Plugin Message 载荷未保存");
@@ -154,7 +154,7 @@ public final class NetworkForensicsE2eSupport {
             properties.setProperty("message", message == null ? "未知错误" : message);
             File temporary = new File(result.getPath() + ".tmp");
             try (OutputStream output = Files.newOutputStream(temporary.toPath())) {
-                properties.store(output, "FR11 网络取证真实验收结果");
+                properties.store(output, "网络取证真实验收结果");
             }
             Files.move(temporary.toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException ignored) {

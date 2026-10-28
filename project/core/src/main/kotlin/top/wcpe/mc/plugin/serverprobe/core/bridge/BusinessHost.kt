@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
  *
  * 在 [BridgeClient](core,平台无关)与平台层 [BusinessProvider] 实现之间充当解耦装配点 + 事故域隔离边界:
  * core 不依赖任何业务插件,各平台于就绪后按域调 [register] 自注册 Provider;[BridgeClient] 收到带 domain
- * 的业务 `command` 帧时经 [dispatch] 路由执行。沿用 [BridgeCommandRegistry] 的 core 装配范式。
+ * 的业务 `command`帧时经 [dispatch] 路由执行。沿用 [BridgeCommandRegistry] 的 core 装配范式。
  *
  * ## 事故域隔离(铁律,ADR-0015)
  * 业务 Provider 在**独立 daemon 业务线程池**执行(非桥读线程、非监控线程、非主线程),有界超时 + 异常边界:
@@ -70,7 +70,7 @@ class BusinessHost {
     /**
      * 汇总各 Provider 的能力清单为一个 JSON 文本,供 JianManager 动态发现业务能力。
      *
-     * @return 形如 `{"domains":{"economy":{...}}}` 的 JSON 文本。
+     * @return 形如 `{"domains":{"economy":{...}}}`的 JSON 文本。
      */
     fun manifest(): String =
         Json.encode(mapOf("domains" to providers.values.associate { it.domain to it.manifest() }))

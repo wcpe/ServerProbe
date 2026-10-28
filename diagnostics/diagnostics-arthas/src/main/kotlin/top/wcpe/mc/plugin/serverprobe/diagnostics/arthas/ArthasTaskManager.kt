@@ -98,7 +98,7 @@ class ArthasTaskManager(
         return task.snapshot("已请求取消")
     }
 
-    /** 读取已加载类字节码（FR-19 补丁前自动备份）；未提供读取器或类未加载时返回 null。 */
+    /** 读取已加载类字节码（补丁前自动备份）；未提供读取器或类未加载时返回 null。 */
     override fun dumpClassBytes(className: String): ByteArray? = bytecodeReader(className)
 
     private fun execute(task: Task) {

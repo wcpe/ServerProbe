@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 单个插件的 onEnable 耗时(FR1.2,慢插件榜数据项)。
+ * 单个插件的 onEnable 耗时(慢插件榜数据项)。
  */
 @lombok.Value
 @lombok.Builder(toBuilder = true)

@@ -18,13 +18,13 @@ taboolib {
             name("WCPE")
         }
         dependencies {
-            // 业务对接(JBIS FR-122):软依赖 MultiCurrencyEconomy,使探针在 mce 之后加载,
+            // 业务对接(JBIS):软依赖 MultiCurrencyEconomy,使探针在 mce 之后加载,
             // 经济事件监听器(BukkitEconomyEventListener)的 @SubscribeEvent 注册时 mce 事件类已就绪
             // (否则探针先于 mce enable 时事件类未加载,TabooLib 报"事件未能找到"致监听器漏注册);
             // 无 mce 的服上软依赖为空操作,不影响探针独立运行。
             name("MultiCurrencyEconomy").with("bukkit").optional(true)
             name("MultiCurrencyEconomy").with("bungee").optional(true)
-            // 业务对接(JBIS FR-125):软依赖 AllinInventorySync,同理使背包追踪事件监听器(BukkitInventoryEventListener)
+            // 业务对接(JBIS):软依赖 AllinInventorySync,同理使背包追踪事件监听器(BukkitInventoryEventListener)
             // 的 @SubscribeEvent(bind=...) 在其事件类就绪后注册;无 AllinInventorySync 的服上为空操作,不影响独立运行。
             name("AllinInventorySync").with("bukkit").optional(true)
             name("AllinInventorySync").with("bungee").optional(true)
@@ -69,7 +69,7 @@ dependencies {
     taboo(project(":integration:integration-multicurrencyeconomy"))
     taboo(project(":integration:integration-allininventorysync"))
     taboo(project(":diagnostics:diagnostics-arthas"))
-    // FR11 SQLite 驱动随发行 Jar 内置，禁止运行期联网下载。
+    // SQLite 驱动随发行 Jar 内置，禁止运行期联网下载。
     taboo("org.xerial:sqlite-jdbc:${property("sqlite.jdbc.version")}")
     // 启动期 agent 的字节码插桩依赖 ASM。用 taboo(...) 而非 compileOnly:
     // taboo 既加入编译类路径(agent 纯 Java 需编译期可见 ASM),又把 ASM 的 class 实打实合并进二合一 jar,

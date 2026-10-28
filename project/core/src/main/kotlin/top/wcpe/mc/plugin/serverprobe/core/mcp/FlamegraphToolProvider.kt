@@ -7,18 +7,18 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * FR-21 MCP 运行期 CPU 火焰图工具（薄封装，不推翻 ADR-8）。
+ * MCP 运行期 CPU 火焰图工具（薄封装，不推翻 ADR-8）。
  *
  * 本 provider 不实现任何采样器，只做两件事：
- * 1. 把 `flamegraph_start` / `flamegraph_stop` 薄封装为既有 `arthas_profiler`
+ * 1. 把 `flamegraph_start` / `flamegraph_stop`薄封装为既有 `arthas_profiler`
  *    （async-profiler）的 start/stop 异步任务，产物统一落 `mcp-workspace/artifacts/`；
- * 2. 提供 `flamegraph_view` 按扩展名自动分流读取：HTML 火焰图走文本分块，
- *    JFR 仅返回元信息并提示经 `artifact_read_binary` 取回，其他扩展名结构化拒绝。
+ * 2. 提供 `flamegraph_view`按扩展名自动分流读取：HTML 火焰图走文本分块，
+ *    JFR 仅返回元信息并提示经 `artifact_read_binary`取回，其他扩展名结构化拒绝。
  *
  * 降级策略（与既有工具一致）：
  * - Arthas 未 attach / 工作区未装配时，`flamegraph_start` / `flamegraph_stop`
  *   返回结构化 `{available:false, reason}`，不抛异常；
- * - `flamegraph_view` 对非法名、不存在的工件抛 [IllegalArgumentException]
+ * - `flamegraph_view`对非法名、不存在的工件抛 [IllegalArgumentException]
  *   （由 dispatcher 统一转为 JSON-RPC 结构化错误）。
  *
  * 无共享可变状态：每次调用经 [McpArtifactWorkspaceRegistry] 取当前工作区只读快照。
@@ -78,7 +78,7 @@ class FlamegraphToolProvider(
         }
     }
 
-    /** stop 薄封装：默认自动命名 `flamegraph-<epochMillis>.html` 消歧，路径经工作区白名单校验。 */
+    /** stop 薄封装：默认自动命名 `flamegraph-<epochMillis>.html`消歧，路径经工作区白名单校验。 */
     private fun flamegraphStop(arguments: JsonObject?): Map<String, Any?> {
         val workspace = currentWorkspace()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")

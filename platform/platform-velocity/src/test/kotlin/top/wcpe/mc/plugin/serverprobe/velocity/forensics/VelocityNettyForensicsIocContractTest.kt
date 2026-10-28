@@ -19,7 +19,7 @@ class VelocityNettyForensicsIocContractTest {
 
     /** Velocity modern forwarding 必须使用独立 Paper 后端，不能复用仅支持 Bungee 转发的 Spigot 场景。 */
     @Test
-    fun `Velocity FR11 拓扑使用独立 Paper modern forwarding 后端`() {
+    fun `Velocity 拓扑使用独立 Paper modern forwarding 后端`() {
         val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 
         assertTrue(build.contains("backend(\"paper-network-velocity\") {\n        platform = paper"))
@@ -51,7 +51,7 @@ class VelocityNettyForensicsIocContractTest {
     }
 
     @Test
-    fun `Velocity FR11 验收等待完整机器人生命周期并按白名单包过滤`() {
+    fun `Velocity 验收等待完整机器人生命周期并按白名单包过滤`() {
         val harness = File(
             "../../e2e/harness-network-velocity/src/main/java/top/wcpe/mc/plugin/serverprobe/e2e/" +
                 "network/VelocityNetworkForensicsHarness.java",

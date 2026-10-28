@@ -7,7 +7,7 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 /**
  * 老版本 / 纯 CraftBukkit 采样器(source = [TickSampleSource.NMS_RECENT_TPS])。
  *
- * 用于无 Paper `getTPS()` 的服务端:
+ * 用于无 Paper `getTPS()`的服务端:
  * - TPS:经 [TickReflection] 反射读取 NMS `MinecraftServer#recentTps`([1m, 5m, 15m]);
  * - MSPT:平台无现成数据,改由共享 [MsptHistogram](由 [TickClock] 逐 tick 喂入间隔样本)推算
  *   均值与 p95/p99。

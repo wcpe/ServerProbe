@@ -11,11 +11,11 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * FR-19 补丁前自动备份：
- * - 命名转义（`.`→`_`）与同时间戳冲突消歧（`_2` 后缀）；
- * - `dumpClassBytes` 默认 null 兼容路径（WARN+跳过+继续替换）与空字节/异常拒绝替换；
- * - `artifact_backup_list` 按 `backup_` 前缀过滤；
- * - `artifact_backup_restore` 写回 `restored_` 前缀并校验非法名/前缀；
+ * 补丁前自动备份：
+ * - 命名转义（`.`→`_`）与同时间戳冲突消歧（`_2`后缀）；
+ * - `dumpClassBytes`默认 null 兼容路径（WARN+跳过+继续替换）与空字节/异常拒绝替换；
+ * - `artifact_backup_list`按 `backup_`前缀过滤；
+ * - `artifact_backup_restore`写回 `restored_`前缀并校验非法名/前缀；
  * - 多 provider 组合下替换调用被本 provider 拦截（dispatcher 级接线验证）。
  */
 class PrePatchBackupToolProviderTest {
@@ -54,7 +54,7 @@ class PrePatchBackupToolProviderTest {
         Files.write(ws.outputPath(name), bytes)
     }
 
-    /** 替换前备份：类名 `.`→`_` 转义、备份写入成功才提交替换、命令与工件内容正确。 */
+    /** 替换前备份：类名 `.`→`_`转义、备份写入成功才提交替换、命令与工件内容正确。 */
     @Test
     fun `替换前自动备份命名转义并提交替换`() {
         listOf("arthas_redefine" to "redefine", "arthas_retransform" to "retransform").forEachIndexed { index, (tool, operation) ->
@@ -152,7 +152,7 @@ class PrePatchBackupToolProviderTest {
         assertTrue(ws.list().none { it.name.startsWith("backup_") })
     }
 
-    /** 命名冲突消歧：同一类同一毫秒两次替换 → 第二个备份名追加 `_2` 后缀。 */
+    /** 命名冲突消歧：同一类同一毫秒两次替换 → 第二个备份名追加 `_2`后缀。 */
     @Test
     fun `同类同时间戳备份命名冲突消歧`() {
         val ws = workspace()

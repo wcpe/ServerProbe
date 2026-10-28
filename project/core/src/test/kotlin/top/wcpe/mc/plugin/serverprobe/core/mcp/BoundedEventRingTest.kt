@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [BoundedEventRing] 有界环形事件缓冲单测（FR-20）。
+ * [BoundedEventRing] 有界环形事件缓冲单测。
  *
  * 覆盖：默认容量、容量有界（只保留最近事件）、按过滤条件返回最近 N 条且保持时间顺序、
  * 过滤后超出上限时截断、零上限返回空、非法容量拒绝。

@@ -18,21 +18,21 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 游戏内告警通道(FR5,Bukkit 端):把告警事件以聊天消息推送给在线的 OP 或持有告警权限的玩家。
+ * 游戏内告警通道(Bukkit 端):把告警事件以聊天消息推送给在线的 OP 或持有告警权限的玩家。
  *
  * 仅 Bukkit 平台具备"玩家"概念,故本通道落位于 platform-bukkit;文案走 i18n 语言文件
  * (面向玩家的呈现面,与日志通道的中文日志不同)。
  *
  * ## 线程模型:切回主线程发消息
  * [publish] 由编排线程(异步)调用,而 Bukkit 在线玩家遍历与发消息应在服务器主线程进行。
- * 故经 `submit(async = false)` 切回主线程执行实际推送(规范:Bukkit API 须主线程访问)。
+ * 故经 `submit(async = false)`切回主线程执行实际推送(规范:Bukkit API 须主线程访问)。
  *
  * ## 接收对象
- * 在线玩家中,`isOp` 或持有 `serverprobe.alert` 权限者。避免向普通玩家刷告警。
+ * 在线玩家中,`isOp`或持有 `serverprobe.alert`权限者。避免向普通玩家刷告警。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化并注入 [registry];[register] 在 [PostConstruct] 中
  * 先做**平台门**(IOC 不感知 [PlatformSide],会在所有平台实例化本类),仅 Bukkit 端按
- * `alert.channels.in-game` 开关自注册到 [AlertChannelRegistry]。
+ * `alert.channels.in-game`开关自注册到 [AlertChannelRegistry]。
  */
 @Service
 @PlatformSide(Platform.BUKKIT)
@@ -46,7 +46,7 @@ class InGameAlertChannel : AlertChannel {
      * 依赖注入完成后做平台门并按配置自注册。
      *
      * IOC 容器不感知 [PlatformSide],会在所有平台实例化本类;故在此显式平台门:
-     * 仅 Bukkit 端、且 `alert.channels.in-game` 开启时才注册,避免代理端触碰缺失的 Bukkit 类。
+     * 仅 Bukkit 端、且 `alert.channels.in-game`开启时才注册,避免代理端触碰缺失的 Bukkit 类。
      */
     @PostConstruct
     fun register() {

@@ -16,7 +16,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
  * [top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileBuilder] 并入对外的
  * [top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile]。
  *
- * **未挂载语义**:agent 仅在启动加 `-javaagent:plugins/ServerProbe.jar` 时挂载;未挂载时由
+ * **未挂载语义**:agent 仅在启动加 `-javaagent:plugins/ServerProbe.jar`时挂载;未挂载时由
  * [notAttached] 产出 [attached] = false、其余为零值/空列表的实例。
  *
  * 纯数据载体,不对外暴露(故置于 core,而非 api)。

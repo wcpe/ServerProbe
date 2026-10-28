@@ -7,7 +7,7 @@ import java.io.File
 /**
  * IoC 平台扫描兜底的合同约束。
  *
- * JDK 8 注解解析器解析 `@PlatformSide(vararg Platform)` 枚举数组时抛 ArrayStoreException,
+ * JDK 8 注解解析器解析 `@PlatformSide(vararg Platform)`枚举数组时抛 ArrayStoreException,
  * 会沿 TabooLib 注入链中断,导致异常类之后所有组件的 @Inject 字段未注入(1.16.5/JDK8 真机已证)。
  * 扫描必须对该解析失败免疫,并按模块包名给出与注解语义一致的平台判定。
  */

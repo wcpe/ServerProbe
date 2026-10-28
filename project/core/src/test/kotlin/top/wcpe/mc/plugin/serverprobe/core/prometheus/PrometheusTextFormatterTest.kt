@@ -218,14 +218,14 @@ class PrometheusTextFormatterTest {
             .build()
         val text = PrometheusTextFormatter.format(snapshot)
 
-        // 双引号→\" 反斜杠→\\ 换行→\n
+        // 双引号→\"反斜杠→\\ 换行→\n
         assertTrue(
             text.contains("""pool="weird\"pool\\\nname""""),
             "label 值应转义双引号/反斜杠/换行,实际输出:\n$text"
         )
     }
 
-    /** FR11 只导出脱敏流量聚合，不能把完整 IP 或包载荷带入 Prometheus。 */
+    /** 只导出脱敏流量聚合，不能把完整 IP 或包载荷带入 Prometheus。 */
     @Test
     fun `网络取证聚合仅导出速率包类型和脱敏 IP`() {
         val traffic = PacketTrafficReport(

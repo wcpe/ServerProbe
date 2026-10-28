@@ -8,7 +8,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 可切换的指标存储(FR8.2)。
+ * 可切换的指标存储。
  *
  * 未安装第三方实现时始终委派 [LocalFileMetricStore]；安装期间所有读取和写入走同一个替换实例。
  * 替换引用以原子方式切换，避免采集线程与第三方插件卸载并发时读到半更新状态。

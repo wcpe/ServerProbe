@@ -11,7 +11,7 @@ import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Inject
 
 /**
- * BungeeCord 代理端玩家路由监听器(FR-066,JianManager ADR-016 探针侧)。
+ * BungeeCord 代理端玩家路由监听器(JianManager ADR-016 探针侧)。
  *
  * 代理端是「精确跨服感知」的来源:它知道玩家在群组内**哪些子服之间切换**。监听:
  * - [PostLoginEvent]:玩家连入代理(尚未进入任何子服)→ 上报 player_join(代理视角的入网)。
@@ -26,7 +26,7 @@ import top.wcpe.taboolib.ioc.annotation.Inject
  * (未连接静默丢弃、失败仅 WARN),任意线程调用安全,绝不阻塞代理。
  *
  * ## 形态
- * `object` + `@SubscribeEvent`(TabooLib 要求事件宿主为 object);`@Inject` 由 IOC 注入 [BridgeClient]。
+ * `object` + `@SubscribeEvent`(TabooLib 要求事件宿主为 object);`@Inject`由 IOC 注入 [BridgeClient]。
  * 仅 BungeeCord 平台生效([PlatformSide]);开关关闭(独立使用探针)时各回调直接返回,零副作用。
  */
 @PlatformSide(Platform.BUNGEE)

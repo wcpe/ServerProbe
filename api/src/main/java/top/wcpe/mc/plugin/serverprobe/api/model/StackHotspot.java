@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 启动期"Server thread"主线程栈采样热点(FR1,启动 agent 早期数据)。
+ * 启动期"Server thread"主线程栈采样热点(启动 agent 早期数据)。
  *
  * 由启动 agent 的守护线程在启动期周期性采样主线程调用栈,按栈帧聚合命中次数得到;
  * 命中越多代表该帧在启动期占用主线程时间越长,据此定位"开服慢"的主线程热点。

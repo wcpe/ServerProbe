@@ -116,7 +116,7 @@ public final class ProbeAgent {
                 inst.addTransformer(new StartupProfilingTransformer(), true);
             }
 
-            // 6. 启动 "Server thread" 主线程栈采样守护线程（daemon，不阻塞 JVM 退出）。
+            // 6. 启动 "Server thread"主线程栈采样守护线程（daemon，不阻塞 JVM 退出）。
             //    采样不依赖插桩，故无论 bootstrap 注入成功与否都启动，保证至少有主线程热点这条通道可用。
             stackSampler = new StartupStackSampler();
             stackSampler.start();

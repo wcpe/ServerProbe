@@ -4,7 +4,7 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
  * 一个业务域的对接 Provider（JBIS 业务对接,见 ADR-0015 / JianManager ADR-026）。
  *
  * 每个业务插件（经济 / 背包…）对应一个 Provider,住在 platform 层——**唯一认识具体插件 API 的地方**;
- * 经 [BusinessHost] 按域注册,[BridgeClient] 收到带 [domain] 的业务 `command` 帧时路由到对应 Provider 执行。
+ * 经 [BusinessHost] 按域注册,[BridgeClient] 收到带 [domain] 的业务 `command`帧时路由到对应 Provider 执行。
  * core 经本接口解耦,编译期不依赖任何业务插件(分层依赖单向不破)。
  *
  * ## 实现约定

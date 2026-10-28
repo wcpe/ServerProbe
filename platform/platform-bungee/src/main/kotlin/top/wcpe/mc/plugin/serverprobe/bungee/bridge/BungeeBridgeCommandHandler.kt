@@ -15,7 +15,7 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * BungeeCord 代理端治理执行器(FR-067,JianManager ADR-016 探针侧)。
+ * BungeeCord 代理端治理执行器(JianManager ADR-016 探针侧)。
  *
  * 代理端只持有「玩家在代理上的连接」,不持有 banned-players / whitelist(那是各子服的范畴)。故代理端:
  * - kick:把玩家从代理整体断开(等价于踢下线,作用于跨子服的代理会话);

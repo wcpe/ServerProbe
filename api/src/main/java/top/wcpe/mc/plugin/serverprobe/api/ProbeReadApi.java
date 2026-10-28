@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage;
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery;
 
 /**
- * 只读开放接口(FR8.1)。
+ * 只读开放接口。
  *
  * 面向第三方插件的只读数据访问出口,供其经 TabooLib 服务获取探针数据
  * (最新指标快照、近期指标历史、最近一次启动画像)。
@@ -33,7 +33,7 @@ public interface ProbeReadApi {
     java.util.List<MetricSnapshot> recentSnapshots(int limit);
 
     /**
-     * 获取**内存近期缓冲**中时间戳不早于 {@code sinceMs} 的指标快照(M2 FR8 扩面)。
+     * 获取**内存近期缓冲**中时间戳不早于 {@code sinceMs} 的指标快照(M2 扩面)。
      *
      * 仅在内存近期历史缓冲上按时间下界筛选({@link MetricSnapshot#getTimestampMs()} >= {@code sinceMs}),
      * **不触发任何采集、不读盘**,故为轻量内存操作,可在主线程安全调用。
@@ -45,7 +45,7 @@ public interface ProbeReadApi {
     java.util.List<MetricSnapshot> recentSnapshotsSince(long sinceMs);
 
     /**
-     * 对最近 {@code windowSize} 份指标快照做跨快照聚合(FR3.3)。
+     * 对最近 {@code windowSize} 份指标快照做跨快照聚合。
      *
      * 在内存近期历史上就近计算趋势/速率(TPS 均值、MSPT 分位、GC 速率),不触发任何采集或落盘 IO。
      * 聚合口径见 {@link AggregatedMetrics} 各字段的 KDoc。
@@ -64,7 +64,7 @@ public interface ProbeReadApi {
     StartupProfile lastStartupProfile();
 
     /**
-     * 读取**历史归档**的若干份启动画像(M2 FR8 扩面)。
+     * 读取**历史归档**的若干份启动画像(M2 扩面)。
      *
      * 从落盘存储后端读取历次启动画像归档,按时间由新到旧返回至多 {@code limit} 份。
      * **可能读盘**(本地文件后端会遍历归档目录并逐份反序列化),开销随归档份数增长;
@@ -86,7 +86,7 @@ public interface ProbeReadApi {
     String lastStartupComparisonSummary();
 
     /**
-     * 读取指定时间范围内的**历史归档**指标快照(FR-26)。
+     * 读取指定时间范围内的**历史归档**指标快照。
      *
      * 从历史后端(本地文件或第三方存储 SPI)读取 {@link MetricSnapshot#getTimestampMs()} 落在
      * {@code [sinceMs, untilMs]}(闭区间)内的快照,**由新到旧**排序、保留范围内最新的至多 {@code limit} 条
@@ -109,7 +109,7 @@ public interface ProbeReadApi {
     }
 
     /**
-     * 查询网络包取证记录(FR11)。
+     * 查询网络包取证记录。
      *
      * 查询必须提供有限时间范围且每页最多 100 条；实现可读 SQLite，调用方应在异步上下文调用。
      * 默认返回空页，以保持既有第三方实现本接口时的二进制与源码兼容。
@@ -122,7 +122,7 @@ public interface ProbeReadApi {
     }
 
     /**
-     * 获取网络包取证服务状态(FR11)。
+     * 获取网络包取证服务状态。
      *
      * 默认明确报告未启用，保持既有第三方实现本接口时的向后兼容。
      *

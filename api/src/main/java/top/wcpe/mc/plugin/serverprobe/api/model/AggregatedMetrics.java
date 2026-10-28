@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 指标聚合结果(FR3.3):对**近 N 份指标快照**做跨快照统计后的派生值。
+ * 指标聚合结果:对**近 N 份指标快照**做跨快照统计后的派生值。
  *
  * 与单份 {@link MetricSnapshot}(某一时刻的瞬时采样)不同,本对象描述一个**时间窗口**内的趋势/速率:
  * - 均值/分位类字段({@code tpsAvg}/{@code msptP95}/{@code msptP99})对窗口内**各份快照的代表值**做统计;

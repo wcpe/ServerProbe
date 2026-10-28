@@ -31,26 +31,26 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import java.io.File
 
 /**
- * `/probe` 运维探针命令(FR4.1,M1 用户可见核心)。
+ * `/probe`运维探针命令(M1 用户可见核心)。
  *
  * 提供六个只读子命令(health/startup/tps/gc/world/proxy),把探针采集到的指标与启动画像
  * 以中文/英文(i18n)文本呈现给运维。所有用户可见文案均经 [sendLang]/[asLangText] 走语言文件,
  * 逻辑层不散落硬编码文案(规范第 6 条);数值格式化统一委托 [ProbeFormat]。
  *
- * **取值来源**:经 [ProbeReadApi](FR8.1 只读开放接口)读取内存中的最新快照 / 近期历史 / 最近启动画像。
+ * **取值来源**:经 [ProbeReadApi](只读开放接口)读取内存中的最新快照 / 近期历史 / 最近启动画像。
  * 命令层仅做"取值 + 格式化 + 发送",**无业务逻辑、无阻塞 IO**——[ProbeReadApi] 读的是内存快照,轻量;
  * 故不另起异步任务(规范:命令禁止主线程阻塞,此处不阻塞,见 Card 03)。
  *
- * **依赖获取方式(FR8.1 容器内取用的依据)**:本类是 Kotlin `object`,**不**标注 `@Service`
- * (Kotlin `object` 构造私有,不可作为受管 bean——与主类 `ServerProbe` 同理)。
- * 其 [readApi] 字段标注 `top.wcpe.taboolib.ioc` 的 [Inject]:IOC 的 `ObjectInjector` 会在 `ENABLE`
- * 阶段扫描 jar 内所有含 `@Inject` 字段的 `object`,按类型从容器解析并注入到 `object` 的 `INSTANCE` 单例;
+ * **依赖获取方式(容器内取用的依据)**:本类是 Kotlin `object`,**不**标注 `@Service`
+ * (Kotlin `object`构造私有,不可作为受管 bean——与主类 `ServerProbe`同理)。
+ * 其 [readApi] 字段标注 `top.wcpe.taboolib.ioc`的 [Inject]:IOC 的 `ObjectInjector`会在 `ENABLE`
+ * 阶段扫描 jar 内所有含 `@Inject`字段的 `object`,按类型从容器解析并注入到 `object`的 `INSTANCE`单例;
  * 而 TabooLib 命令扫描器(`SimpleCommandRegister`)注册命令时取的恰是同一 `INSTANCE`
- * (`ClassVisitor.findInstance` 对 `object` 返回其单例),故运行期执行子命令时 [readApi] 已注入就绪。
- * 接口 [ProbeReadApi] 经 `BeanResolver` 按类型解析到 `@Service` 实现 `ProbeReadApiImpl`。
+ * (`ClassVisitor.findInstance`对 `object`返回其单例),故运行期执行子命令时 [readApi] 已注入就绪。
+ * 接口 [ProbeReadApi] 经 `BeanResolver`按类型解析到 `@Service`实现 `ProbeReadApiImpl`。
  *
  * **权限**:主命令 `serverprobe.command`;各子命令 `serverprobe.command.<sub>`。
- * `permissionMessage` 为纯文本(高版本 Paper 的 Adventure 链路下避免 legacy 色码告警)。
+ * `permissionMessage`为纯文本(高版本 Paper 的 Adventure 链路下避免 legacy 色码告警)。
  *
  * **进度说明**:proxy 子命令已于 P9 接入代理端真实数据(总在线 + 各子服在线);
  * world 子命令已于 M2 接入世界/实体采集(各世界区块/实体/方块实体数,见其子命令 KDoc)。
@@ -63,7 +63,7 @@ import java.io.File
 object ProbeCommand {
 
     /**
-     * 只读开放接口(FR8.1),由 IOC `ObjectInjector` 在 `ENABLE` 阶段按类型注入(见类 KDoc)。
+     * 只读开放接口,由 IOC `ObjectInjector`在 `ENABLE`阶段按类型注入(见类 KDoc)。
      *
      * 声明为 `lateinit`:注入发生在容器初始化之后、命令实际执行之前,执行期访问安全。
      */
@@ -71,25 +71,25 @@ object ProbeCommand {
     lateinit var readApi: ProbeReadApi
 
     /**
-     * 外呼近期缓冲(core),由 IOC 注入;供 `/probe http` 回看最近的对外网络调用(M5)。
+     * 外呼近期缓冲(core),由 IOC 注入;供 `/probe http`回看最近的对外网络调用(M5)。
      */
     @Inject
     lateinit var httpCallStore: HttpCallStore
 
     /**
-     * 运行期 CPU 归因采样器(core),由 IOC 注入;供 `/probe cpu` 查看各插件样本占比(FR2.6)。
+     * 运行期 CPU 归因采样器(core),由 IOC 注入;供 `/probe cpu`查看各插件样本占比。
      */
     @Inject
     lateinit var cpuSampler: CpuAttributionSampler
 
     /**
-     * MCP 控制面(core),由 IOC 注入;供 `/probe mcp on|off` 运行期起停端点(FR-24)。
+     * MCP 控制面(core),由 IOC 注入;供 `/probe mcp on|off`运行期起停端点。
      */
     @Inject
     lateinit var mcpControlPlane: McpControlPlane
 
     /**
-     * Arthas 运行期启停契约(core),由 IOC 注入;供 `/probe mcp arthas on|off` 加载/卸载运行时(FR-24)。
+     * Arthas 运行期启停契约(core),由 IOC 注入;供 `/probe mcp arthas on|off`加载/卸载运行时。
      *
      * 注入的是 [top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasRuntimeRegistry] 注册表(该接口下唯一的
      * IOC Bean);诊断模块在启动期把启停实现注册进来,未装配诊断模块时降级为安全失败(不抛异常),
@@ -109,7 +109,7 @@ object ProbeCommand {
     /**
      * 主命令 / 帮助:列出全部子命令(全程 i18n)。
      *
-     * 不使用 `createHelper()`(其 `§cUsage:` 前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
+     * 不使用 `createHelper()`(其 `§cUsage:`前缀为内置英文,无法走语言文件),改为逐行 [sendLang]
      * 输出本地化帮助,保证中英一致呈现。
      */
     @CommandBody
@@ -149,7 +149,7 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe startup`:最近一次启动画像(验收核心,FR1)。
+     * `/probe startup`:最近一次启动画像(验收核心)。
      *
      * 取 [ProbeReadApi.lastStartupProfile]:输出端到端总时长、慢插件 Top-N(条数取 [ProbeConfig.startupTopN])、
      * 各世界耗时;无画像时提示"尚无启动画像"。
@@ -190,7 +190,7 @@ object ProbeCommand {
                 return@execute
             }
             sendTps(sender, server)
-            // 聚合补充行(FR3.3):对近 N 份快照做跨快照统计,窗口大小取配置
+            // 聚合补充行:对近 N 份快照做跨快照统计,窗口大小取配置
             sendTpsAggregation(sender)
         }
     }
@@ -213,7 +213,7 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe world`:各世界指标(已加载区块数、实体数、方块实体数;FR2.3)。
+     * `/probe world`:各世界指标(已加载区块数、实体数、方块实体数;)。
      *
      * 取 `latestSnapshot()?.server?.worlds`:server 为 null(代理端语义)时提示该端无此指标;
      * worlds 为 null/空(世界采样尚未产出,采样周期独立于主采集)时提示"采集中"。
@@ -237,7 +237,7 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe ping`:在线玩家 ping 分布(FR2.4)。
+     * `/probe ping`:在线玩家 ping 分布。
      *
      * 取 `latestSnapshot()?.server?.pingDistribution`:服务端各 ping 区间桶人数;
      * server 为 null(代理端)提示该端无此指标;分布为 null(无人或版本不支持)提示暂无数据。
@@ -260,7 +260,7 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe cpu`:运行期各插件 CPU 采样归因 Top-N(FR2.6)。
+     * `/probe cpu`:运行期各插件 CPU 采样归因 Top-N。
      *
      * 取 [CpuAttributionSampler.snapshot](窗口内各插件样本计数 + 占比)。
      * 未启用采样(`cpu.enabled=false`,默认)时提示启用方式;已启用但窗口内无样本时提示暂无。
@@ -285,10 +285,10 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe proxy`:代理端总在线、各子服在线与 ping、玩家路由、每玩家 ping(FR2.5)。
+     * `/probe proxy`:代理端总在线、各子服在线与 ping、玩家路由、每玩家 ping。
      *
      * 取 `latestSnapshot()?.proxy`:在代理端(BungeeCord)呈现总在线 + 各子服 `name: online [ping]` +
-     * 每玩家 ping Top-N + 玩家路由;在服务端 `proxy` 为 null,提示"此为服务端,代理端请在
+     * 每玩家 ping Top-N + 玩家路由;在服务端 `proxy`为 null,提示"此为服务端,代理端请在
      * BungeeCord 执行 /probe proxy";尚无采样时提示"采集中"。
      */
     @CommandBody(permission = "serverprobe.command.proxy")
@@ -313,7 +313,7 @@ object ProbeCommand {
      *
      * 从 [ProbeReadApi.lastStartupProfile] 读取最近启动画像,
      * 经 [FlamegraphExporter] 生成自包含 HTML(火焰图 + 时间线),
-     * 输出到 `data/flamegraph/` 目录。需挂载启动 agent 方有热点/时间线数据。
+     * 输出到 `data/flamegraph/`目录。需挂载启动 agent 方有热点/时间线数据。
      */
     @CommandBody(permission = "serverprobe.command.flamegraph")
     val flamegraph = subCommand {
@@ -353,7 +353,7 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe alerts`:回查最近的告警事件(FR-29)。
+     * `/probe alerts`:回查最近的告警事件。
      *
      * 取值与渲染独立在 [AlertsCommandHandler](理由同 [McpCommandHandler]):命令层只做分发。
      */
@@ -365,10 +365,10 @@ object ProbeCommand {
     }
 
     /**
-     * `/probe mcp ...`:运行期开关 MCP 诊断控制面(FR-24,见 ADR-0028)。
+     * `/probe mcp ...`:运行期开关 MCP 诊断控制面(见 ADR-0028)。
      *
      * 两级开关:端点级([mcpControlPlane])只起 HTTP 端点,原生工具立即可用;Arthas 级([arthasRuntime])才
-     * 付出解包与 Instrumentation 附加代价。参数用 `dynamic` 收单串后在代码内分发(项目无三级 `literal` 先例)。
+     * 付出解包与 Instrumentation 附加代价。参数用 `dynamic`收单串后在代码内分发(项目无三级 `literal`先例)。
      *
      * **仅控制台/RCON**:开启 MCP 等于授予 JVM 完整控制权,游戏内玩家即便持有权限也拒绝,防"游戏内管理员提权";
      * 判定用**控制台类型白名单**(见 [McpCommandHandler.isConsoleSender]),命令方块等非玩家发送者不再被放行——
@@ -481,7 +481,7 @@ object ProbeCommand {
      * 渲染 startup 的 agent 增强段(A3)。
      *
      * **未挂载**([StartupProfile.agentAttached] 为 false):仅输出一行提示,引导运维在启动命令加
-     * `-javaagent:plugins/ServerProbe.jar` 以获取库下载 / 主线程热点等更早期数据。
+     * `-javaagent:plugins/ServerProbe.jar`以获取库下载 / 主线程热点等更早期数据。
      *
      * **已挂载**:依次输出——
      * - 库下载 Top-N(按耗时降序;来自 [StartupProfile.libraryTimings]);
@@ -678,7 +678,7 @@ object ProbeCommand {
     }
 
     /**
-     * 渲染 tps 的聚合补充行(FR3.3):对近 N 份快照统计 TPS 均值 / MSPT p95·p99 / GC young·old 速率。
+     * 渲染 tps 的聚合补充行:对近 N 份快照统计 TPS 均值 / MSPT p95·p99 / GC young·old 速率。
      *
      * 取 [ProbeReadApi.aggregated],窗口大小取 [ProbeConfig.aggregationWindow]。优雅降级:
      * 窗口内无任何快照(`windowSampleCount == 0`,如刚启动)时仅提示"暂无聚合数据";有快照但
@@ -719,7 +719,7 @@ object ProbeCommand {
         rate?.let { String.format("%.2f", it) } ?: na
 
     /**
-     * 渲染 world 详情:逐世界输出已加载区块数、实体数、方块实体数(FR2.3)。
+     * 渲染 world 详情:逐世界输出已加载区块数、实体数、方块实体数。
      *
      * worlds 为 null(尚未采样,采样周期独立于主采集)或空时提示"采集中";Folia 受限项(实体/
      * 方块实体数为 -1)以 N/A 文案兜底。
@@ -787,7 +787,7 @@ object ProbeCommand {
     }
 
     /**
-     * 渲染 proxy 详情(FR2.5):代理总在线 + 各子服在线(含 ping)+ 每玩家 ping Top-N + 玩家路由。
+     * 渲染 proxy 详情:代理总在线 + 各子服在线(含 ping)+ 每玩家 ping Top-N + 玩家路由。
      *
      * @param sender 命令发送者。
      * @param proxy 代理端指标。
@@ -832,7 +832,7 @@ object ProbeCommand {
     }
 
     /**
-     * 渲染 ping 分布(FR2.4):逐区间桶输出在线人数。
+     * 渲染 ping 分布:逐区间桶输出在线人数。
      *
      * @param sender 命令发送者。
      * @param distribution 各 ping 区间桶;为 null(无在线玩家或版本不支持)时提示暂无数据。
@@ -869,23 +869,23 @@ object ProbeCommand {
         }
     }
 
-    /** `/probe proxy` 每玩家 ping 展示条数。 */
+    /** `/probe proxy`每玩家 ping 展示条数。 */
     private const val PROXY_PING_TOP_N = 10
 
     /** 是否"应用层"栈帧(排除 JDK/JVM 帧),用于挑选外呼的触发处。 */
     private fun isAppFrame(frame: String): Boolean =
         !(frame.startsWith("java.") || frame.startsWith("sun.") || frame.startsWith("jdk.") || frame.startsWith("javax."))
 
-    /** `/probe http` 展示的近期外呼条数。 */
+    /** `/probe http`展示的近期外呼条数。 */
     private const val HTTP_DISPLAY_LIMIT = 20
 
-    /** `/probe mcp` 的两段式动作字面量(Arthas 级开关)。 */
+    /** `/probe mcp`的两段式动作字面量(Arthas 级开关)。 */
     private const val ARTHAS_ON = "arthas on"
 
-    /** `/probe mcp` 的两段式动作字面量(Arthas 级关闭)。 */
+    /** `/probe mcp`的两段式动作字面量(Arthas 级关闭)。 */
     private const val ARTHAS_OFF = "arthas off"
 
-    /** `/probe mcp` 的补全候选(与 execute 内的分支保持一致)。 */
+    /** `/probe mcp`的补全候选(与 execute 内的分支保持一致)。 */
     private val MCP_ACTIONS = listOf("on", "off", "status", ARTHAS_ON, ARTHAS_OFF)
 
     /**

@@ -1,4 +1,4 @@
-# FR10 集成场景：MultiCurrencyEconomy 配置（测试专用）
+# 集成场景：MultiCurrencyEconomy 配置（测试专用）
 datasource-key: "default"
 notification:
   enabled: false

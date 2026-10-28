@@ -1,9 +1,9 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
 /**
- * 一条由 JianManager Worker 经反向 WS 下发给探针的治理/查询指令（FR-067,见 JianManager ADR-016）。
+ * 一条由 JianManager Worker 经反向 WS 下发给探针的治理/查询指令（见 JianManager ADR-016）。
  *
- * 平台无关的数据载体:core 解析 `command` 帧得到本对象,交平台层 [BridgeCommandHandler] 执行
+ * 平台无关的数据载体:core 解析 `command`帧得到本对象,交平台层 [BridgeCommandHandler] 执行
  * (Bukkit/Bungee 各自实现踢/封/解封/白名单/在线列表)。字段命名与 Worker 下发约定一致。
  *
  * @property action 指令动作:kick | ban | unban | whitelist_add | whitelist_remove | list | whitelist_list;
@@ -25,7 +25,7 @@ data class BridgeCommand(
 )
 
 /**
- * 一条治理/查询指令的执行结果(FR-067)。由平台层 [BridgeCommandHandler] 产出,core 回传给 Worker。
+ * 一条治理/查询指令的执行结果。由平台层 [BridgeCommandHandler] 产出,core 回传给 Worker。
  *
  * @property success 是否执行成功。
  * @property output 输出文本(list/whitelist_list 的玩家列表等;成功且有内容时填充)。
@@ -47,7 +47,7 @@ data class BridgeCommandResult(
 }
 
 /**
- * 治理/查询指令的平台执行器(FR-067)。由各平台(Bukkit/Bungee)以 IOC `@Service` 实现并注入 [BridgeClient]。
+ * 治理/查询指令的平台执行器。由各平台(Bukkit/Bungee)以 IOC `@Service`实现并注入 [BridgeClient]。
  *
  * core 平台无关,不能直接调 Bukkit/Bungee API;故抽此接口,把「执行平台 API」下沉到平台模块。
  * 实现须**线程安全**(可能在桥读线程被调用)且**绝不抛**(失败返回 [BridgeCommandResult.fail])。

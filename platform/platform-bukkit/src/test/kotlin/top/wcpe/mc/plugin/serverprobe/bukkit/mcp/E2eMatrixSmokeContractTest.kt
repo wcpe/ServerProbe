@@ -7,7 +7,7 @@ import java.io.File
 /**
  * 多版本矩阵冒烟场景的合同约束。
  *
- * 矩阵在 Paper 1.8.8–1.21.1 与 Spigot 1.8.8/1.16.5 上复用 `matrix-` 前缀场景做真实冒烟；
+ * 矩阵在 Paper 1.8.8–1.21.1 与 Spigot 1.8.8/1.16.5 上复用 `matrix-`前缀场景做真实冒烟；
  * harness 必须能在旧版本服务器(缺少 ServerLoadEvent 与 Folia 调度 API)上被反射加载,
  * 否则整个矩阵对旧版本不可用。
  */
@@ -19,7 +19,7 @@ class E2eMatrixSmokeContractTest {
         ).readText()
 
     @Test
-    fun `matrix 前缀场景映射为 FR8 只读冒烟验收`() {
+    fun `matrix 前缀场景映射为 只读冒烟验收`() {
         assertTrue(harnessSource.contains("matrix-"))
         assertTrue(harnessSource.contains("MATRIX_SMOKE"))
     }
@@ -62,10 +62,10 @@ class E2eMatrixSmokeContractTest {
             "../../e2e/harness/src/main/resources/plugin.yml",
         ).readText()
         assertTrue(descriptor.contains("api-version: '1.13'"))
-        val fr11Descriptor = File(
+        val networkDescriptor = File(
             "../../e2e/harness-network-bukkit/src/main/resources/plugin.yml",
         ).readText()
-        assertTrue(fr11Descriptor.contains("api-version: '1.13'"))
+        assertTrue(networkDescriptor.contains("api-version: '1.13'"))
     }
 
     @Test

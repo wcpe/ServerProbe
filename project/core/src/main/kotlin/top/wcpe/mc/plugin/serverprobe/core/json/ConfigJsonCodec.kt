@@ -8,7 +8,7 @@ import taboolib.module.configuration.Type
  * 默认 JSON 适配器实现：后端复用 TabooLib 运行时自带的 `Configuration`（nightconfig），零额外依赖（ADR-14）。
  *
  * 用 [Type.JSON_MINIMAL]（紧凑单行、不美化），与既有指标/启动画像落盘格式同源——
- * 故把落盘序列化收口到本适配器后输出字节不变、`schemaVersion` 兼容自然保持。
+ * 故把落盘序列化收口到本适配器后输出字节不变、`schemaVersion`兼容自然保持。
  */
 object ConfigJsonCodec : JsonCodec {
 

@@ -1,4 +1,4 @@
-# FR14 MCP 诊断场景：ServerProbe 配置（测试专用回环地址与密钥）
+# MCP 诊断场景：ServerProbe 配置（测试专用回环地址与密钥）
 mcp:
   enabled: true
   host: "127.0.0.1"

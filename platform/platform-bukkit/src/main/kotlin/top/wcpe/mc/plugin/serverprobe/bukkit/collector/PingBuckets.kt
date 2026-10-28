@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.bukkit.collector
 import top.wcpe.mc.plugin.serverprobe.api.model.PingBucket
 
 /**
- * 在线玩家 ping 分布分桶器(FR2.4)。
+ * 在线玩家 ping 分布分桶器。
  *
  * 平台无关纯函数:把一组玩家 RTT(毫秒)归入固定区间桶,输出有序的 [PingBucket] 列表。
  * 固定分桶规则(与命令展示、Prometheus 标签口径一致):

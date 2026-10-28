@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 
 /**
- * 校验 FR-24 端点级开关的状态语义。
+ * 校验端点级开关的状态语义。
  *
  * 成功启动路径需要插件数据目录与真实端口绑定，不在单测内执行（由真机验收覆盖）；
  * 此处只断言"未运行"这一确定状态下的开关契约，防止幂等/幂等失败语义回归。
@@ -37,7 +37,7 @@ class McpControlPlaneToggleTest {
     /**
      * 构造仅注入必需协作者的控制面。
      *
-     * 其余 `lateinit` 字段（平台控制、Arthas 控制、工具提供者注册表）只在启动服务时读取，
+     * 其余 `lateinit`字段（平台控制、Arthas 控制、工具提供者注册表）只在启动服务时读取，
      * 本测试不触发启动，故无需装配。
      */
     private fun controlPlane(): McpControlPlane = McpControlPlane().apply {

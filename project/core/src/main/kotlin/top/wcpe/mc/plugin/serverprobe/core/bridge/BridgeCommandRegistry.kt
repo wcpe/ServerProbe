@@ -5,11 +5,11 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 治理指令处理器注册中心(FR-067,JianManager ADR-016 探针侧)。
+ * 治理指令处理器注册中心(JianManager ADR-016 探针侧)。
  *
  * 在 [BridgeClient](core,平台无关)与平台层 [BridgeCommandHandler] 实现之间充当解耦装配点:
  * core 不在编译期依赖任何 Bukkit/Bungee API,各平台(platform-bukkit / platform-bungee)于自身就绪后
- * 调用 [register] 把本平台的治理执行器自注册进来;[BridgeClient] 收到 `command` 帧时经 [handler] 取用。
+ * 调用 [register] 把本平台的治理执行器自注册进来;[BridgeClient] 收到 `command`帧时经 [handler] 取用。
  * 沿用 [AlertChannelRegistry] 的自注册范式(规范:注册中心职责单一,不并入采集用的 ProbeRegistry)。
  *
  * ## 单处理器(与告警的多通道不同)

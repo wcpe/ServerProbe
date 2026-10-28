@@ -1,4 +1,4 @@
-# FR10 集成场景：CoreLib 配置（嵌入式 H2，测试专用，可公开）
+# 集成场景：CoreLib 配置（嵌入式 H2，测试专用，可公开）
 server:
   id: "serverprobe-e2e"
   zone-id: "0"

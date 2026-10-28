@@ -14,10 +14,10 @@ import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
 /**
  * [AgentDataReader] 单元测试。
  *
- * **挂载降级**:agent 类(`ProbeAgentBridge` / `ProbeAgent`)位于 `plugin` 模块,不在 core 测试类路径,故
- * [AgentDataReader.read] 的 `Class.forName` 必然 [ClassNotFoundException]——覆盖"未挂载静默降级"契约。
+ * **挂载降级**:agent 类(`ProbeAgentBridge` / `ProbeAgent`)位于 `plugin`模块,不在 core 测试类路径,故
+ * [AgentDataReader.read] 的 `Class.forName`必然 [ClassNotFoundException]——覆盖"未挂载静默降级"契约。
  *
- * **解析器**:M5 新增的折叠栈/时间线/命名项耗时解析为 `internal` 纯函数,本测试在同模块直接调用,覆盖
+ * **解析器**:M5 新增的折叠栈/时间线/命名项耗时解析为 `internal`纯函数,本测试在同模块直接调用,覆盖
  * 正常多段、字段不全跳过、非数字跳过、空串、分组+降序、主线程热点派生等分支(回归防护)。
  */
 class AgentDataReaderTest {
@@ -124,7 +124,7 @@ class AgentDataReaderTest {
         assertEquals("root#m", topOne[0].frame, "截断后应保留最热帧")
     }
 
-    /** 无 "Server thread" 时,deriveMainThreadHotspots 退化为采样最多的线程。 */
+    /** 无 "Server thread"时,deriveMainThreadHotspots 退化为采样最多的线程。 */
     @Test
     fun `deriveMainThreadHotspots 无主线程时取最忙线程`() {
         val stacks = listOf(

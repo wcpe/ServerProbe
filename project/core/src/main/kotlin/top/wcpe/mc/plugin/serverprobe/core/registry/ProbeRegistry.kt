@@ -13,7 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * 探针组件注册中心。
  *
  * 在 core 与各平台模块之间充当解耦的装配点:core 不在编译期依赖任何平台实现,
- * 平台实现在运行时(各自就绪后)调用本中心的 `register` 完成自注册,从而实现服务发现。
+ * 平台实现在运行时(各自就绪后)调用本中心的 `register`完成自注册,从而实现服务发现。
  *
  * 持有五类组件:
  * - [JvmMetricsCollector]:JVM 指标采集器,P4(core 内通用实现)就绪后自注册;

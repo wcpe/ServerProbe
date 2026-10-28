@@ -12,7 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Properties;
 
-/** 四个平台共用的 FR14 MCP HTTP JSON-RPC 验收客户端。 */
+/** 四个平台共用的 MCP HTTP JSON-RPC 验收客户端。 */
 public final class McpDiagnosticsE2eSupport {
 
     private static final String SCENARIO_ENV = "MC_TESTKIT_E2E_SCENARIO";
@@ -30,7 +30,7 @@ public final class McpDiagnosticsE2eSupport {
         if (resultPath == null || resultPath.trim().isEmpty()) return;
         try {
             verifyEventually(command);
-            writeResult(new File(resultPath), true, "FR14 MCP 平台命令与原生状态验收通过");
+            writeResult(new File(resultPath), true, " MCP 平台命令与原生状态验收通过");
         } catch (Exception exception) {
             writeResult(new File(resultPath), false, failureMessage(exception));
         }
@@ -44,7 +44,7 @@ public final class McpDiagnosticsE2eSupport {
         try {
             verifyEventually(command);
             probe.verify(new Client(port()));
-            writeResult(new File(resultPath), true, "FR14 MCP、平台命令与 Arthas 4.3.2 验收通过");
+            writeResult(new File(resultPath), true, " MCP、平台命令与 Arthas 4.3.2 验收通过");
         } catch (Exception exception) {
             writeResult(new File(resultPath), false, failureMessage(exception));
         }
@@ -63,7 +63,7 @@ public final class McpDiagnosticsE2eSupport {
             String taskId = client.task("arthas_execute", "{\"command\":\"sc " + json(classPattern) + "\",\"timeoutMillis\":5000}");
             String output = client.awaitSuccess(taskId, "sc");
             require(output.contains(classPattern.replace("*", "")), "Arthas 3.1.1 类搜索未返回目标类");
-            writeResult(new File(resultPath), true, "FR14 Java8 Arthas 3.1.1 类搜索验收通过");
+            writeResult(new File(resultPath), true, " Java8 Arthas 3.1.1 类搜索验收通过");
         } catch (Exception exception) {
             writeResult(new File(resultPath), false, failureMessage(exception));
         }
@@ -80,7 +80,7 @@ public final class McpDiagnosticsE2eSupport {
                 Thread.sleep(1_000L);
             }
         }
-        throw new IllegalStateException("等待 FR14 MCP 就绪超时：" + failureMessage(last), last);
+        throw new IllegalStateException("等待 MCP 就绪超时：" + failureMessage(last), last);
     }
 
     private static void verify(Client client, String command) throws Exception {
@@ -121,13 +121,13 @@ public final class McpDiagnosticsE2eSupport {
             File temporary = new File(result.getPath() + ".tmp");
             OutputStream stream = Files.newOutputStream(temporary.toPath());
             try {
-                properties.store(stream, "FR14 MCP 真实验收结果");
+                properties.store(stream, " MCP 真实验收结果");
             } finally {
                 stream.close();
             }
             Files.move(temporary.toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException exception) {
-            throw new IllegalStateException("无法写入 FR14 验收结果文件", exception);
+            throw new IllegalStateException("无法写入 验收结果文件", exception);
         }
     }
 
@@ -164,7 +164,7 @@ public final class McpDiagnosticsE2eSupport {
             String response = call(name, arguments);
             String plain = response.replace("\\", "");
             java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\"taskId\"\\s*:\\s*\"([^\"]+)\"").matcher(plain);
-            if (!matcher.find()) throw new IllegalStateException(name + " 未返回 taskId：" + limit(response));
+            if (!matcher.find()) throw new IllegalStateException(name + "未返回 taskId：" + limit(response));
             return matcher.group(1);
         }
 
@@ -184,7 +184,7 @@ public final class McpDiagnosticsE2eSupport {
                 }
             }
             call("arthas_task_cancel", "{\"taskId\":\"" + json(taskId) + "\"}");
-            throw new IllegalStateException("Arthas " + operation + " 未在限定时间完成：" + limit(status));
+            throw new IllegalStateException("Arthas " + operation + "未在限定时间完成：" + limit(status));
         }
 
         private String post(String body) throws IOException {

@@ -25,7 +25,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.UUID
 
 /**
- * FR-20 Bukkit 在线玩家诊断实现。
+ * Bukkit 在线玩家诊断实现。
  *
  * - 主线程周期刷新在线玩家摘要到 [cache]（避免 MCP 请求线程直读 Bukkit）；
  *   单周期刷新上限 [CACHE_PLAYER_LIMIT]，超出截断标记。

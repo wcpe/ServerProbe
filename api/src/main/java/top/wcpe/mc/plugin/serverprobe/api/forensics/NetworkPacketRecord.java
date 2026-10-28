@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.api.forensics;
 /**
  * 一条可供同进程受信任调用方读取的网络包取证记录。
  *
- * 完整 IP 与载荷仅通过 FR8 只读 API 和已鉴权 Web 查询返回，Prometheus 不得使用本模型的敏感字段。
+ * 完整 IP 与载荷仅通过只读 API 和已鉴权 Web 查询返回，Prometheus 不得使用本模型的敏感字段。
  */
 @lombok.Value
 @lombok.Builder(toBuilder = true)

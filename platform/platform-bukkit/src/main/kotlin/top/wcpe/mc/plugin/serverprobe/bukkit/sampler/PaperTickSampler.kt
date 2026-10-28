@@ -9,12 +9,12 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  *
  * 数据全部经 [TickReflection] 反射 Paper 官方 API 获取(本模块编译期 Bukkit API 为纯 Spigot 口径,
  * 不含这些方法,故走反射):
- * - TPS:`Server#getTPS()` 返回 [1m, 5m, 15m];
+ * - TPS:`Server#getTPS()`返回 [1m, 5m, 15m];
  * - MSPT 均值:`Server#getAverageTickTime()`(毫秒);
  * - MSPT p95/p99:`Server#getTickTimes()`(最近 tick 纳秒数组)排序后取分位。
  *
  * 优雅降级:任一项反射不可用或瞬时取不到值时,对应字段为 null(N/A),其余字段照常给出;
- * 当 `getTickTimes()` 不可用(理论上 Paper 都有,留作兜底)时,p95/p99 退化为 null。
+ * 当 `getTickTimes()`不可用(理论上 Paper 都有,留作兜底)时,p95/p99 退化为 null。
  */
 class PaperTickSampler(
     private val histogram: MsptHistogram?,

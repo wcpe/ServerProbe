@@ -121,9 +121,8 @@ object ComponentVisitor : ClassVisitor(1) {
     /**
      * 包名 → 平台判定的纯函数(供单测;注解不可读时的兜底口径)。
      *
-     * 注意:`integration.*` 包下的类带 `@PlatformSide(BUKKIT)` 却不在三前缀内——注解可读时无影响;
-     * 注解解析失败(仅 JDK8 真机出现过)时这些类按"默认放行"处理,可能被非 Bukkit 平台多注册,
-     * 由类自身 `@PostConstruct` 平台门二次兜底(两层防御,见 issues 审查记录)。
+     * 注意:三前缀之外的类按"默认放行"处理,可能被非 Bukkit 平台多注册,
+     * 由类自身 `@PostConstruct` 平台门二次兜底(两层防御)。
      */
     internal fun platformFromPackage(className: String, current: Platform): Boolean = when {
         className.startsWith(BUNGEE_PACKAGE_PREFIX) -> Platform.BUNGEE == current

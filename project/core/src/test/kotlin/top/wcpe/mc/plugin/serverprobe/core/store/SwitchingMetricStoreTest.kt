@@ -7,7 +7,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 
-/** 存储扩展切换测试(FR8.2):验证第三方替换、拒绝重复安装及卸载回退。 */
+/** 存储扩展切换测试:验证第三方替换、拒绝重复安装及卸载回退。 */
 class SwitchingMetricStoreTest {
 
     /** 安装第三方存储后读写应完整委派，关闭注册后回退默认实现。 */

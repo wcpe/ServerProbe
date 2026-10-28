@@ -4,7 +4,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * MCP 工件工作区的运行期装配点（FR-18）。
+ * MCP 工件工作区的运行期装配点。
  *
  * 工件目录由控制面按数据目录动态创建，无法作为静态 IOC Bean 注入；
  * 本注册表仿照 [ArthasControlRegistry] 的 AtomicReference 模式，把工作区实例

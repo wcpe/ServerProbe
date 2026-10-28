@@ -7,7 +7,7 @@ import java.io.File
 class BukkitNetworkForensicsE2eContractTest {
 
     @Test
-    fun `FR11 分别声明 Spigot Paper 与 Folia 真实场景`() {
+    fun `分别声明 Spigot Paper 与 Folia 真实场景`() {
         // 文件可能为 CRLF 行尾（Windows），统一归一化为 \n 再断言
         val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 

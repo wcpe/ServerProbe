@@ -4,12 +4,12 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 插件元数据契约(FR-15)。
+ * 插件元数据契约。
  *
  * 由各平台模块在运行期提供"已加载插件"的清单元数据;core 的
  * [PluginScopedMcpToolProvider] 只依赖本契约,不触碰任何平台 API。
  * 代理端(BungeeCord/Velocity)无插件 ClassLoader 语义,不注册实现即可,
- * `plugin_list` 会返回空列表并标注平台不支持。
+ * `plugin_list`会返回空列表并标注平台不支持。
  */
 interface PluginMetadataProvider {
 
@@ -25,7 +25,7 @@ interface PluginMetadataProvider {
  * 单个已加载插件的元数据(只读快照)。
  *
  * @property name 插件名(与 ClassLoader 注册表键一致)。
- * @property version 插件版本(经 `PluginDescription` 读取;缺失时为空串)。
+ * @property version 插件版本(经 `PluginDescription`读取;缺失时为空串)。
  * @property enabled 是否处于启用状态。
  * @property loaderSummary 插件 ClassLoader 的摘要描述(如类加载器类型),用于对外展示。
  */

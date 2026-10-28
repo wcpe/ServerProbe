@@ -3,11 +3,11 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
 import java.lang.management.ManagementFactory
 
 /**
- * 全量服务器状态查询(FR-076,JianManager ADR-016)的**平台无关**支撑工具。
+ * 全量服务器状态查询(JianManager ADR-016)的**平台无关**支撑工具。
  *
  * 把不依赖任何 Bukkit/Bungee API 的部分收口到 core(便于单测):
  * - **JVM 快照**:经 `java.lang.management.*` MXBean 取堆/非堆/线程/运行时长/处理器数等。
- * - **类加载快照**:经 [java.lang.management.ClassLoadingMXBean] 取已加载/累计加载/已卸载类计数(FR-076 classloader 专区核心)。
+ * - **类加载快照**:经 [java.lang.management.ClassLoadingMXBean] 取已加载/累计加载/已卸载类计数(classloader 专区核心)。
  * - **类加载器层级摘要**:对给定 ClassLoader 走 parent 链生成简短可读链(用于"插件类加载器层级"展示),
  *   类枚举**不全量 dump**,仅描述加载器身份与 parent 链。
  * - **有界裁剪**:对大集合(插件清单/世界列表/类名采样)统一裁剪 + 计数,避免单次产生大对象/大帧(非侵入)。
@@ -45,7 +45,7 @@ object ServerStateSupport {
     }
 
     /**
-     * 当前 JVM 的类加载快照(FR-076 classloader 专区核心计数)。
+     * 当前 JVM 的类加载快照(classloader 专区核心计数)。
      *
      * 全部经 [java.lang.management.ClassLoadingMXBean]——**不枚举类、不 dump**,只取轻量计数:
      * 当前已加载类数 / 累计已加载类数 / 已卸载类数。异常降级为 -1。
@@ -71,7 +71,7 @@ object ServerStateSupport {
      * 描述一个 ClassLoader 的 parent 链为简短可读字符串列表(自身在前,逐级 parent,到引导加载器止)。
      *
      * 仅取每个加载器的类名(`javaClass.name`)作身份标识——**不触碰其加载的类集合**(避免大数据 + 反射越界),
-     * 满足 FR-076「插件类加载器层级」的层级摘要诉求。引导加载器(null)表示为 "bootstrap"。
+     * 满足「插件类加载器层级」的层级摘要诉求。引导加载器(null)表示为 "bootstrap"。
      * 深度封顶 [MAX_LOADER_CHAIN_DEPTH] 防御异常自引用/超深链;任何异常降级为已收集到的部分。
      *
      * @param loader 起始类加载器(可为 null,表示引导加载器)。
@@ -98,7 +98,7 @@ object ServerStateSupport {
     /**
      * 当前 JVM 的运行时/内存/线程快照(平台无关部分)。经各 MXBean 取数,异常子项降级。
      *
-     * 与 FR2.1 的 [top.wcpe.mc.plugin.serverprobe.core.collector.JvmMetricsCollector] 数据源一致,
+     * 与的 [top.wcpe.mc.plugin.serverprobe.core.collector.JvmMetricsCollector] 数据源一致,
      * 但本方法面向「按需全状态查询」一次性产出可序列化 Map(含 JVM 名/vendor/版本、可用处理器数等
      * 全状态视角更关心的字段),与持续指标采集解耦、互不影响。
      *

@@ -8,7 +8,7 @@ import java.net.URL
 import java.net.URLClassLoader
 
 /**
- * [PluginClassLoaderRegistry] 归并逻辑单测(FR2.6)。
+ * [PluginClassLoaderRegistry] 归并逻辑单测。
  *
  * 归属判定以**定义加载器**为准:注册后类归属插件仅当该类由该加载器(或其子加载器)定义,
  * 经父委派"能加载"的 JDK/服务端类归 null,且"无归属"结果被缓存(二次查询不再遍历)。

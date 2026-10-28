@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test
  * [LatestLogPluginTimingParser] 单元测试。
  *
  * 解析器为纯函数(仅依赖 api 的 [PluginTiming]),不触碰 Bukkit/磁盘,可直接喂样本行验证。
- * 覆盖:标准 Spigot 格式、`Server thread` 变体格式、以 `Done` 结尾计末插件耗时、无 Done 时末插件记 0、
- * 跨午夜校正、空输入与全噪声行容错、插件名/时间戳缺失行被跳过、中途伪 `Done (` 行不误截。
+ * 覆盖:标准 Spigot 格式、`Server thread`变体格式、以 `Done`结尾计末插件耗时、无 Done 时末插件记 0、
+ * 跨午夜校正、空输入与全噪声行容错、插件名/时间戳缺失行被跳过、中途伪 `Done (`行不误截。
  */
 class LatestLogPluginTimingParserTest {
 
@@ -39,7 +39,7 @@ class LatestLogPluginTimingParserTest {
     }
 
     /**
-     * `[HH:mm:ss] [Server thread/INFO]:` 变体格式同样可解析(只取第一段时间)。
+     * `[HH:mm:ss] [Server thread/INFO]:`变体格式同样可解析(只取第一段时间)。
      */
     @Test
     fun `Server thread 变体格式可解析`() {
@@ -95,8 +95,8 @@ class LatestLogPluginTimingParserTest {
     }
 
     /**
-     * 中途伪 `Done (` 行(如插件/数据包打印的 `Done (loading ...)`)不应被误判为启动完成而提前截断:
-     * PluginA 与 PluginB 之间夹一条伪 Done 行,解析仍应越过它直到真正的 `Done (x.xs)!` 收尾。
+     * 中途伪 `Done (`行(如插件/数据包打印的 `Done (loading ...)`)不应被误判为启动完成而提前截断:
+     * PluginA 与 PluginB 之间夹一条伪 Done 行,解析仍应越过它直到真正的 `Done (x.xs)!`收尾。
      */
     @Test
     fun `中途伪 Done 行不截断解析`() {

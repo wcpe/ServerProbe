@@ -18,7 +18,7 @@ data class GcEvent(
     val heapAfterGcKb: Long?,
 )
 
-/** GC 单调计数两点差分的纯函数（FR-22）；并发回退时钳制归零，不抛异常。 */
+/** GC 单调计数两点差分的纯函数；并发回退时钳制归零，不抛异常。 */
 object GcDiff {
 
     /** 从 MXBean 采集样本快照；heapAfterGcKb 仅当 lastGcInfo 可用时填充（反射读取，避免依赖 com.sun 扩展类型）。 */

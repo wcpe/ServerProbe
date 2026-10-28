@@ -14,7 +14,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
  * [MetricAggregator] 核心纯函数 [MetricAggregator.aggregate](接收快照列表)单元测试。
  *
  * 纯函数不依赖注入的 [top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer],
- * 故直接 `new MetricAggregator()` 调用 `aggregate(List)` 验证,无需 IOC 容器。
+ * 故直接 `new MetricAggregator()`调用 `aggregate(List)`验证,无需 IOC 容器。
  *
  * 覆盖:
  * - tpsAvg:窗口内各快照 tps1m 的均值,且自动跳过 null;

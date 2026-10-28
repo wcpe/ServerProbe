@@ -4,13 +4,13 @@ import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot;
 import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile;
 
 /**
- * 存储后端 SPI(FR8.2)。
+ * 存储后端 SPI。
  *
  * 定义启动画像与指标历史的持久化契约。**默认且唯一内置实现为本地文件**(P7,JSON/JSONL,
  * 原子写入、可配滚动与保留),探针自身不内置、不依赖任何数据库。本接口作为扩展点预留,
  * 第三方可自行实现 DB/远程等后端进行替换。
  *
- * <h2>M2 开放接口扩面(FR8)</h2>
+ * <h2>M2 开放接口扩面</h2>
  * 新增三个**带默认实现**的读取/批量写入方法({@link #readStartupProfiles}、{@link #readHistory}、{@link #appendHistory} 批量重载),
  * 供第三方对接 DB/远程后端时按需覆盖。默认实现保持"空读 / 批量退化为逐条"语义,因此**旧实现无需改动即向后兼容**
  * (Java 接口默认方法,不破坏既有 SPI 与既有调用)。
@@ -39,7 +39,7 @@ public interface MetricStore {
     void appendHistory(MetricSnapshot snapshot);
 
     /**
-     * 读取历史归档的若干份启动画像(M2 SPI 扩面,FR8)。
+     * 读取历史归档的若干份启动画像(M2 SPI 扩面)。
      *
      * 本地/第三方实现可读归档目录(由新到旧)返回至多 {@code limit} 份;**默认返回空列表**,
      * 使尚未实现该能力的存储后端保持向后兼容(不强制覆盖)。可能涉及读盘,调用方宜在异步上下文调用。
@@ -52,7 +52,7 @@ public interface MetricStore {
     }
 
     /**
-     * 读取指定时间范围内的历史指标快照(M2 SPI 扩面,FR8)。
+     * 读取指定时间范围内的历史指标快照(M2 SPI 扩面)。
      *
      * 返回 {@link MetricSnapshot#getTimestampMs()} 落在 {@code [sinceMs, untilMs]}(闭区间)内的历史快照,至多 {@code limit} 条;
      * **默认返回空列表**以保持向后兼容。可能涉及读盘,调用方宜在异步上下文调用。
@@ -67,7 +67,7 @@ public interface MetricStore {
     }
 
     /**
-     * 读取指定时间范围内的历史指标快照,并声明排序语义(FR-26,公开只读 API 的底层入口)。
+     * 读取指定时间范围内的历史指标快照,并声明排序语义(公开只读 API 的底层入口)。
      *
      * 与 {@link #readHistory(long, long, int)} 的唯一区别:实现应返回**由新到旧**排序、
      * 保留范围内**最新的** {@code limit} 条(基准方法对条数的选择不作承诺)。
@@ -89,7 +89,7 @@ public interface MetricStore {
     }
 
     /**
-     * 批量追加指标历史记录(M2 SPI 扩面,FR8)。
+     * 批量追加指标历史记录(M2 SPI 扩面)。
      *
      * **默认实现退化为逐条调用 {@link #appendHistory}**,使既有实现无需改动即可用;
      * DB/远程等后端可覆盖本方法以批量写入(单事务/单请求)降低开销。

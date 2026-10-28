@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 代理端视角下单个玩家的路由(FR2.5)。
+ * 代理端视角下单个玩家的路由。
  *
  * 描述某玩家当前被路由到哪个后端子服(代理本地视角)。
  */

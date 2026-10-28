@@ -7,8 +7,8 @@ import java.io.File
 /**
  * 启动画像兜底装配的合同约束。
  *
- * `org.bukkit.event.server.ServerLoadEvent` 自 1.12 才存在;在 1.8–1.11 服务端上 TabooLib 只会打印
- * WARN 并跳过注册,导致启动画像(FR1 核心交付)在旧版本上永不生成。合同要求存在 ACTIVE 兜底装配路径,
+ * `org.bukkit.event.server.ServerLoadEvent`自 1.12 才存在;在 1.8–1.11 服务端上 TabooLib 只会打印
+ * WARN 并跳过注册,导致启动画像(核心交付)在旧版本上永不生成。合同要求存在 ACTIVE 兜底装配路径,
  * 且两条路径以原子标记防重。
  */
 class StartupProfileFallbackContractTest {

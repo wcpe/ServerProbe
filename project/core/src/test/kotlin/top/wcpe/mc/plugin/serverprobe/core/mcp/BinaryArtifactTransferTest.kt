@@ -12,7 +12,7 @@ import java.nio.file.Path
 import java.util.Base64
 
 /**
- * FR-18 二进制分块读取：覆盖字节往返一致、offset 定位、nextOffset 连续、
+ * 二进制分块读取：覆盖字节往返一致、offset 定位、nextOffset 连续、
  * truncated 边界、offset 越界（coerceIn）、空文件、非法名拒绝。
  */
 class McpArtifactWorkspaceBinaryTest {
@@ -119,7 +119,7 @@ class McpArtifactWorkspaceBinaryTest {
 }
 
 /**
- * FR-18 artifact_read_binary：Base64 往返、游标、空文件、非法名与缺失文件结构化错误。
+ * artifact_read_binary：Base64 往返、游标、空文件、非法名与缺失文件结构化错误。
  */
 class BinaryArtifactToolProviderTest {
 

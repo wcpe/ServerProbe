@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 运行期 CPU 采样归因(FR2.6,M3,P2)。
+ * 运行期 CPU 采样归因(M3,P2)。
  *
  * 周期在异步线程对全部线程栈采样(`ThreadMXBean.dumpAllThreads`),把每个栈帧的类名
  * 经 [PluginClassLoaderRegistry] 归并到插件,得到"各插件样本计数"作为运行期 CPU 占用近似。

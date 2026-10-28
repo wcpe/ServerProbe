@@ -12,7 +12,7 @@ import java.io.File
 import java.util.List
 
 /**
- * BukkitWorldDetailProvider（FR-17）源码级契约测试。
+ * BukkitWorldDetailProvider源码级契约测试。
  *
  * 不依赖真机 Bukkit 环境：以反射校验接口与注入字段类型，以源码文本校验
  * 平台注解、IOC 服务注解与"复用采集器缓存、不重复遍历实体"的实现约束，

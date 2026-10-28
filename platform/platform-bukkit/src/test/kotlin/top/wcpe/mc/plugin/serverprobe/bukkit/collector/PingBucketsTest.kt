@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 /**
- * [PingBuckets] 分桶逻辑单测(FR2.4)。
+ * [PingBuckets] 分桶逻辑单测。
  *
  * 覆盖:边界值(0/49/50/99/100/199/200/499/500)、非法值过滤、空列表、恒 5 桶口径。
  */

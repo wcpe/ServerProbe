@@ -9,24 +9,24 @@ import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 
 /**
- * FR-19 补丁前自动备份原始字节码。
+ * 补丁前自动备份原始字节码。
  *
  * 提供：
- * - `artifact_backup_list`：按 `backup_` 前缀过滤当前工作区工件；
- * - `artifact_backup_restore`：把备份字节码原样写回工作区为 `restored_<原名>` 工件；
- * - 替换前自动备份：在 `tools/call` 层拦截 `arthas_redefine` / `arthas_retransform`，
+ * - `artifact_backup_list`：按 `backup_`前缀过滤当前工作区工件；
+ * - `artifact_backup_restore`：把备份字节码原样写回工作区为 `restored_<原名>`工件；
+ * - 替换前自动备份：在 `tools/call`层拦截 `arthas_redefine` / `arthas_retransform`，
  *   先经 [ArthasControl.dumpClassBytes] 读取当前已加载字节码并写入 `backup_<类名转义>_<时间戳>.class`，
  *   再按原调用委托执行替换。
  *
  * 接线方式（不触碰 NativeMcpToolProvider）：本 provider 在 [McpToolProviderRegistry] 中的注册
  * 顺序晚于 Native provider，[McpJsonRpcDispatcher] 按工具名合并时后者覆盖前者，故同名替换工具的
  * 调用会路由到本 provider 的拦截实现；拦截成功后重新构造替换参数调用 [McpArtifactWorkspace.pathOf] +
- * [ArthasControl.submit]，与 Native 的 `arthasClassCommand` 语义一致（扁平命名、Windows 路径转正斜杠）。
+ * [ArthasControl.submit]，与 Native 的 `arthasClassCommand`语义一致（扁平命名、Windows 路径转正斜杠）。
  *
  * 兼容语义（对照 spec §3）：
  * - [ArthasControl.dumpClassBytes] 默认返回 null（能力未提供）→ 跳过备份 + WARN + 继续替换；
  * - 实现已提供但返回空字节或抛异常（读取失败）→ 结构化拒绝替换（backupFailed）；
- * - 备份名按工作区白名单扁平命名，`.`→`_`；同一毫秒命名冲突追加 `_2` 后缀消歧。
+ * - 备份名按工作区白名单扁平命名，`.`→`_`；同一毫秒命名冲突追加 `_2`后缀消歧。
  */
 @Service
 class PrePatchBackupToolProvider(
@@ -100,7 +100,7 @@ class PrePatchBackupToolProvider(
         return writeBackup(className, bytes)
     }
 
-    /** 写入 `backup_<转义类名>_<时间戳>.class`；同一毫秒命名冲突追加 `_2` 后缀消歧。 */
+    /** 写入 `backup_<转义类名>_<时间戳>.class`；同一毫秒命名冲突追加 `_2`后缀消歧。 */
     private fun writeBackup(className: String, bytes: ByteArray): String {
         val workspace = requireWorkspace()
         val base = "backup_" + className.replace('.', '_') + "_" + nowMillis()
@@ -114,7 +114,7 @@ class PrePatchBackupToolProvider(
         return name
     }
 
-    /** 委托替换：按 Native `arthasClassCommand` 语义构造 Arthas 命令并提交。 */
+    /** 委托替换：按 Native `arthasClassCommand`语义构造 Arthas 命令并提交。 */
     private fun submitReplace(operation: String, arguments: JsonObject?): Map<String, Any?> {
         val workspace = requireWorkspace()
         val artifactName = arguments?.getString("artifactName")?.trim()?.takeIf(String::isNotBlank)
@@ -123,14 +123,14 @@ class PrePatchBackupToolProvider(
         return taskSnapshot(arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
     }
 
-    /** 备份列表：复用工作区 list 并按 `backup_` 前缀过滤。 */
+    /** 备份列表：复用工作区 list 并按 `backup_`前缀过滤。 */
     private fun backupList(): Map<String, Any?> {
         val workspace = workspaceOrNull()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         return mapOf("backups" to workspace.list().filter { it.name.startsWith(BACKUP_PREFIX) }.map(::artifactMap))
     }
 
-    /** 备份恢复：入参必须为 `backup_` 前缀且存在；字节码写回 `restored_<原名>` 并返回新工件名。 */
+    /** 备份恢复：入参必须为 `backup_`前缀且存在；字节码写回 `restored_<原名>`并返回新工件名。 */
     private fun backupRestore(arguments: JsonObject?): Map<String, Any?> {
         val workspace = workspaceOrNull()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")

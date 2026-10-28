@@ -975,7 +975,7 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
 /**
  * 火焰图树构建用的可变节点(仅 [FlamegraphExporter] 内部使用)。
  *
- * 用 [LinkedHashMap] 保持子节点插入顺序(序列化时再按 value 降序),`child` 按帧名查找/新建实现折叠栈逐层并入。
+ * 用 [LinkedHashMap] 保持子节点插入顺序(序列化时再按 value 降序),`child`按帧名查找/新建实现折叠栈逐层并入。
  *
  * @property name 帧标识(`类全名#方法名`),根节点为 "root"。
  */

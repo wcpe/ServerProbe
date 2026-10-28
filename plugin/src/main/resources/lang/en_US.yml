@@ -56,7 +56,7 @@ command-startup-compare-none: "§8No baseline (first startup, no previous profil
 command-tps-title: "§6===== §eTPS / MSPT §6====="
 command-tps-line: "§7TPS  §71m: §f{0}  §75m: §f{1}  §715m: §f{2}"
 command-mspt-line: "§7MSPT §7avg: §f{0}  §7p95: §f{1}  §7p99: §f{2}"
-# tps aggregation supplement (FR3.3, cross-snapshot stats over recent N snapshots)
+# tps aggregation supplement (cross-snapshot stats over recent N snapshots)
 command-tps-agg-title: "§7— Recent Aggregation —"
 command-tps-agg-empty: "§8  (no aggregation data yet, collecting)"
 command-tps-agg-window: "§7Samples: §f{0}"
@@ -83,7 +83,7 @@ command-gc-pool-line: "§8  - §f{0}§7: §f{1} §7/ §f{2}"
 command-world-title: "§6===== §eWorld Metrics §6====="
 command-world-line: "§8  - §f{0}§7: chunks §f{1} §7entities §f{2} §7tile-entities §f{3}"
 
-# alerts (FR5) in-game push. Placeholders: {0}=type {1}=value {2}=threshold
+# alerts in-game push. Placeholders: {0}=type {1}=value {2}=threshold
 alert-firing-warn: "§e[Alert] §6{0} §7warning: current §f{1}§7, threshold §f{2}"
 alert-firing-critical: "§c[Alert] §4{0} §7critical: current §f{1}§7, threshold §f{2}"
 alert-recovered: "§a[Recovered] §2{0} §7back to normal: current §f{1}§7, threshold §f{2}"
@@ -104,13 +104,13 @@ command-proxy-routes-title: "§7Player routes:"
 command-proxy-routes-empty: "§8  (no data)"
 command-proxy-route-line: "§8  - §f{0}§7 -> §f{1}"
 
-# ping distribution (FR2.4)
+# ping distribution
 command-help-ping: "§a/probe ping §7- View online player ping distribution"
 command-ping-title: "§6===== §eOnline Player Ping Distribution §6====="
 command-ping-empty: "§eNo ping data yet (possibly no players online or unsupported version)."
 command-ping-line: "§8  - §f{0}§7: §f{1} §7players"
 
-# cpu runtime attribution (FR2.6)
+# cpu runtime attribution
 command-help-cpu: "§a/probe cpu §7- View runtime per-plugin CPU sample attribution Top-N"
 command-cpu-disabled: "§eRuntime CPU attribution is disabled. Set §fcpu.enabled: true §ein config.yml and restart."
 command-cpu-empty: "§eNo CPU sample data yet (window empty, try again later)."
@@ -133,7 +133,7 @@ command-alerts-empty: "§7No alert history yet (nothing fired, or alert.enabled=
 command-alerts-row: "§8[{0}] §{1}{2} §f{3} §7value={4} §8/ threshold={5}"
 command-http-line: "§8- §e[{0}] §f{1} §7{2} §8({3}, {4}ms) §8← {5}"
 
-# MCP control plane runtime toggle (FR-24)
+# MCP control plane runtime toggle
 command-help-mcp: "§a/probe mcp <on|off|status|arthas on|arthas off> §7- Toggle the MCP diagnostics control plane at runtime (console only)"
 command-mcp-console-only: "§cThis command is console-only (enabling MCP grants full JVM control, so in-game execution is refused)."
 command-mcp-usage: "§eUsage: §f/probe mcp <on|off|status> §eor §f/probe mcp arthas <on|off>"

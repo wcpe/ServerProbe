@@ -8,20 +8,20 @@ import taboolib.common.platform.function.warning as platformWarning
  * 探针统一日志门面。
  *
  * 无状态纯门面,仅在 TabooLib 平台日志函数之上做中文分级包装,不持有任何业务状态,
- * 故以 `object` 实现且**不纳入 IOC 容器**(无需注入、无生命周期)。
+ * 故以 `object`实现且**不纳入 IOC 容器**(无需注入、无生命周期)。
  *
  * 因本门面方法名与 TabooLib 顶层函数同名(info/warning),导入时以别名区分,避免递归调用歧义。
  * 分级映射:
  * - [info]/[warn] 直接对应 TabooLib 的 `info`/`warning`;
  * - [error] 对应 TabooLib 的 `severe`(ERROR 级),可携带异常打印堆栈;
- * - [debug] 默认关闭,经 [debugEnabled] 控制,开启后以 `info` 通道输出并加 `[DEBUG]` 前缀。
+ * - [debug] 默认关闭,经 [debugEnabled] 控制,开启后以 `info`通道输出并加 `[DEBUG]`前缀。
  */
 object ProbeLogger {
 
     /**
      * 是否输出 DEBUG 级日志,默认关闭。
      *
-     * P7 阶段由配置接入开关;在并发环境下被读写,故用 `@Volatile` 保证可见性。
+     * P7 阶段由配置接入开关;在并发环境下被读写,故用 `@Volatile`保证可见性。
      */
     @Volatile
     var debugEnabled: Boolean = false

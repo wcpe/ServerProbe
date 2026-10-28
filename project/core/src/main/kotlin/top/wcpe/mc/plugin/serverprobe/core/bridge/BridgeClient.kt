@@ -14,11 +14,11 @@ import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 插件桥反向 WS 客户端(FR-065,JianManager ADR-016 的探针侧载体)。
+ * 插件桥反向 WS 客户端(JianManager ADR-016 的探针侧载体)。
  *
  * 探针启用后主动以实例级 token 反向连入**本机 Worker** 的 `/ws/plugin-bridge`,建立实时双向通道。
- * 上行:连上 → 发 hello → 周期 ping 心跳 → 实时玩家事件(FR-066,经 [emitPlayerEvent])→ 断线指数退避重连。
- * 下行:读循环收 Worker 下发的 `command` 帧(FR-067 治理:踢/封/解封/白名单/在线列表),经
+ * 上行:连上 → 发 hello → 周期 ping 心跳 → 实时玩家事件(经 [emitPlayerEvent])→ 断线指数退避重连。
+ * 下行:读循环收 Worker 下发的 `command`帧(治理:踢/封/解封/白名单/在线列表),经
  * [BridgeCommandRegistry] 交平台执行器执行,并回 `command_result`(带回同一 requestId 供 Worker 匹配同步等待者)。
  *
  * ## 零第三方依赖 / JDK 8
@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ## 安全
  * token 仅用于握手 query 参数,**绝不写入日志**;日志只记 URL host/port 与实例标识。
  *
- * 生命周期:作为 IOC [Service],[start] 于 `@PostEnable` 起后台线程、[stop] 于 `@PreDestroy` 停。
+ * 生命周期:作为 IOC [Service],[start] 于 `@PostEnable`起后台线程、[stop] 于 `@PreDestroy`停。
  */
 @Service
 class BridgeClient {
@@ -50,14 +50,14 @@ class BridgeClient {
     private var client: MinimalWebSocketClient? = null
 
     /**
-     * 治理指令处理器注册中心(FR-067):读循环收到 `command` 帧时经其取平台执行器执行。
+     * 治理指令处理器注册中心:读循环收到 `command`帧时经其取平台执行器执行。
      * 平台模块(bukkit/bungee)自注册执行器;未注册(独立使用探针)时回 success=false 优雅降级。
      */
     @Inject
     lateinit var commandRegistry: BridgeCommandRegistry
 
     /**
-     * 业务对接装配 / 派发中心(JBIS,见 ADR-0015):读循环收到带 domain 的业务 `command` 帧时,
+     * 业务对接装配 / 派发中心(JBIS,见 ADR-0015):读循环收到带 domain 的业务 `command`帧时,
      * 经其路由到对应业务域 Provider 执行(事故域隔离);未注册任何 Provider 时业务命令降级为该域不可用。
      */
     @Inject
@@ -147,7 +147,7 @@ class BridgeClient {
     }
 
     /**
-     * 连接建立后的初始上行:发 hello(自报平台/版本/实例)+ 一个 `connected` 业务事件。
+     * 连接建立后的初始上行:发 hello(自报平台/版本/实例)+ 一个 `connected`业务事件。
      */
     private fun onConnected(ws: MinimalWebSocketClient, instance: String) {
         ws.sendText(helloJson(instance))
@@ -155,7 +155,7 @@ class BridgeClient {
     }
 
     /**
-     * 上报一个玩家/跨服业务事件(FR-066)。供平台监听器(Bukkit join/quit/chat、BC 跨服路由)调用。
+     * 上报一个玩家/跨服业务事件。供平台监听器(Bukkit join/quit/chat、BC 跨服路由)调用。
      *
      * 线程安全且**绝不抛**:未连接(探针独立使用或正在重连)时静默丢弃该事件——玩家事件是实时增量,
      * 漏一两条不影响整体(连上后由后续事件与名册重置自愈);[MinimalWebSocketClient.sendText] 的写
@@ -171,10 +171,10 @@ class BridgeClient {
     }
 
     /**
-     * 上报一个 JBIS 业务域事件(FR-122,见 ADR-027/028)。供平台业务监听器(如经济变更监听器)调用。
+     * 上报一个 JBIS 业务域事件(见 ADR-027/028)。供平台业务监听器(如经济变更监听器)调用。
      *
-     * 与 [emitPlayerEvent] 同走 `event` 帧,但额外带顶层 `domain`(业务域命名空间)与 `dedupKey`(去重锚点):
-     * Worker 透传两字段,CP 按 `(domain, dedupKey)` 幂等落库(至少一次投递去重)。`fields` 为信封载荷
+     * 与 [emitPlayerEvent] 同走 `event`帧,但额外带顶层 `domain`(业务域命名空间)与 `dedupKey`(去重锚点):
+     * Worker 透传两字段,CP 按 `(domain, dedupKey)`幂等落库(至少一次投递去重)。`fields`为信封载荷
      * (键名须与 Worker/CP 解析约定一致),空值字段不发。
      *
      * 线程安全且**绝不抛**:未连接(独立使用探针或重连中)静默丢弃——业务事件至少一次投递,断连缺口由
@@ -197,7 +197,7 @@ class BridgeClient {
      * 读循环:阻塞读服务端帧(welcome/pong/command),按心跳间隔在读超时后补发 ping。
      *
      * [MinimalWebSocketClient.readMessage] 的 socket soTimeout 即心跳间隔:超时(无下行)时抛
-     * SocketTimeoutException,本循环借此节律发 ping;有下行则按帧类型处理。`command` 帧(FR-067)
+     * SocketTimeoutException,本循环借此节律发 ping;有下行则按帧类型处理。`command`帧
      * 解析后交平台执行器执行并回 `command_result`;其余帧(welcome/pong)仅记录。
      */
     // 读超时(SocketTimeoutException)是预期的心跳节拍、非错误,捕获后补发 ping 即可,异常对象无需保留,
@@ -223,7 +223,7 @@ class BridgeClient {
     /**
      * 处理一帧治理 / 业务指令:解析 → 按 domain 分流执行 → 回 `command_result`(带回 requestId)。
      *
-     * domain 空 / core(治理,FR-067)交平台治理执行器 [commandRegistry];domain 非空(业务,JBIS / ADR-0015)
+     * domain 空 / core(治理)交平台治理执行器 [commandRegistry];domain 非空(业务,JBIS / ADR-0015)
      * 路由到 [businessHost] 对应 Provider(事故域隔离派发)。整体**绝不抛**(读循环不得因单条指令异常中断):
      * 平台未注册执行器、域不可用、执行抛错 / 超时均转为 success=false 的回执。执行在桥读线程串行等待
      * (治理可能切回主线程、业务跑独立线程池,均有界超时),等待期间不处理后续下行——指令为低频管理动作,
@@ -251,7 +251,7 @@ class BridgeClient {
             isBusinessDomain(command.domain) ->
                 runCatching { businessHost.dispatch(command.domain, command.action, command.payload) }
                     .getOrElse { BridgeCommandResult.fail("业务执行异常:${it.message}") }
-            // 治理命令(FR-067):交平台治理执行器;未注册则降级。
+            // 治理命令:交平台治理执行器;未注册则降级。
             else ->
                 runCatching {
                     val handler = commandRegistry.handler
@@ -299,10 +299,10 @@ class BridgeClient {
     )
 
     /**
-     * 构造带结构化载荷的玩家事件帧 JSON(FR-066,手拼零依赖)。
+     * 构造带结构化载荷的玩家事件帧 JSON(手拼零依赖)。
      *
-     * 形态与 Worker 侧 [bridgeMessage] 约定一致:顶层 `type=event` + `event` 子类型 + `instance` + `timestamp`,
-     * 结构化字段统一放在嵌套 `data` 对象内(Worker 仅解析 `data` 填充 workerpb.PluginEvent)。空值字段不写入,
+     * 形态与 Worker 侧 [bridgeMessage] 约定一致:顶层 `type=event` + `event`子类型 + `instance` + `timestamp`,
+     * 结构化字段统一放在嵌套 `data`对象内(Worker 仅解析 `data`填充 workerpb.PluginEvent)。空值字段不写入,
      * 减小帧体并避免下游误判。
      *
      * @param event 事件子类型。
@@ -319,10 +319,10 @@ class BridgeClient {
     )
 
     /**
-     * 构造 JBIS 业务域事件帧 JSON(FR-122,手拼零依赖)。
+     * 构造 JBIS 业务域事件帧 JSON(手拼零依赖)。
      *
-     * 形态在 [playerEventJson] 基础上加顶层 `domain` + `dedupKey`(与 Worker `bridgeMessage` 的同名字段对齐):
-     * `event` 取业务事件子类型(如 economy_change),业务信封字段统一放嵌套 `data` 内。Worker 透传 domain/dedupKey、
+     * 形态在 [playerEventJson] 基础上加顶层 `domain` + `dedupKey`(与 Worker `bridgeMessage`的同名字段对齐):
+     * `event`取业务事件子类型(如 economy_change),业务信封字段统一放嵌套 `data`内。Worker 透传 domain/dedupKey、
      * 并把整帧原文带给 CP(raw),CP 据此按 (domain,dedupKey) 去重落库并解析 data 为经济镜像。空值字段不写入。
      *
      * @param domain 业务域(economy…)。
@@ -342,10 +342,10 @@ class BridgeClient {
     )
 
     /**
-     * 构造治理指令回执帧 JSON(FR-067,手拼零依赖)。
+     * 构造治理指令回执帧 JSON(手拼零依赖)。
      *
      * 形态与 Worker 侧 [bridgeMessage] / [commandResultData] 约定一致:顶层 `type=event` +
-     * `event=command_result`,结构化字段放在嵌套 `data` 对象内(requestId/success/output/error)。
+     * `event=command_result`,结构化字段放在嵌套 `data`对象内(requestId/success/output/error)。
      * success 为布尔字面量;output/error 为字符串(空值仍写入,便于 Worker 明确取到字段)。
      * requestId 须与下发指令一致,Worker 据此把回执路由给同步等待的调用方。
      *

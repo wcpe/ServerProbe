@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 在线玩家 ping 分布的一个区间桶(FR2.4)。
+ * 在线玩家 ping 分布的一个区间桶。
  *
  * 描述 RTT 落在某区间内的在线玩家数,便于一眼看出网络质量分布。
  * 区间定义:[minMs, maxMs),maxMs 为 -1 表示无上限(兜底桶)。

@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert
 
 /**
- * 一次告警事件(FR5)。
+ * 一次告警事件。
  *
  * 由 [AlertEngine] 在规则状态发生跃迁时产出,经各 [AlertChannel] 呈现。同时承载"触发"与"恢复"
  * 两种语义,由 [firing] 区分:[firing] = true 表示越线触发,= false 表示从越线回落到正常(恢复)。

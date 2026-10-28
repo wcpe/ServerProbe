@@ -4,7 +4,7 @@ import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-/** FR10 余额验收金额比较测试。 */
+/** 余额验收金额比较测试。 */
 class IntegrationsConsumerTest {
 
     @Test

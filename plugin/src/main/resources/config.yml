@@ -10,7 +10,7 @@ history-capacity: 360
 # 启动摘要中展示的慢插件榜条数(Top-N)。默认 5。
 startup-top-n: 5
 
-# 指标聚合(FR3.3):对近期历史做跨快照统计,用于 /probe tps 的聚合补充行。
+# 指标聚合:对近期历史做跨快照统计,用于 /probe tps 的聚合补充行。
 aggregation:
   # 聚合窗口大小(份,每采集周期一份)。默认 12(约 1 分钟 @ 5 秒采集周期)。
   window: 12
@@ -21,7 +21,7 @@ server-name: ""
 # 启动画像归档保留份数:每次启动落盘一份,超出后清理最旧的。默认 30。
 history-retention: 30
 
-# 历史指标落盘(FR3.2):把每次采集的快照按实例分目录、按自然日滚动追加到
+# 历史指标落盘:把每次采集的快照按实例分目录、按自然日滚动追加到
 # data/metrics/<实例>/metrics-<yyyyMMdd>.jsonl(JSON Lines)。
 # 与上面的 history-capacity(内存缓冲)、history-retention(启动画像归档)相互独立、互不影响。
 history-file:
@@ -40,7 +40,7 @@ agent-stack-max-samples: 10
 # 是否输出 DEBUG 级调试日志。默认 false(关闭)。
 debug: false
 
-# 世界/实体采集(FR2.3)。
+# 世界/实体采集。
 # 世界采集需遍历所有世界与已加载区块,开销较高,故独立限频、采样后缓存。
 world:
   # 世界指标采样周期(单位:tick;20 tick = 1 秒)。默认 600(约 30 秒)。
@@ -48,12 +48,12 @@ world:
   # 是否统计各世界按类型的实体分布。关闭后仅给出实体总数。默认 true。
   entity-types: true
 
-# Folia 已观测 region 指标(FR12)。仅记录真实 tick 中含在线玩家的 region；全局 TPS/MSPT 仍为 N/A。
+# Folia 已观测 region 指标。仅记录真实 tick 中含在线玩家的 region；全局 TPS/MSPT 仍为 N/A。
 folia:
   # region 连续多久没有新的真实 tick 样本就从结果中移除(单位:秒)。默认 60，最小 1。
   observed-region-expire-seconds: 60
 
-# 网络流量与数据包取证(FR11)。元数据默认记录；完整载荷只在包类型与插件消息频道白名单均命中时保存。
+# 网络流量与数据包取证。元数据默认记录；完整载荷只在包类型与插件消息频道白名单均命中时保存。
 network-forensics:
   # 是否开启本地 SQLite 数据包取证。默认 true；驱动加载失败时仅取证降级，流量聚合继续工作。
   enabled: true
@@ -90,7 +90,7 @@ http-monitor:
   # 外呼 .gz 归档的保留天数:超过后删除。0 = 过期直接删除、不归档。默认 30。
   file-archive-days: 30
 
-# 运行期 CPU 采样归因(FR2.6,M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
+# 运行期 CPU 采样归因(M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
 # 得到"哪个插件运行期更吃线程"的近似占比(/probe cpu 查看,Prometheus 导出)。
 # 默认关闭(P2 增强,采样有一定开销)。注:运行期 CPU 火焰图不自研,建议并用 spark。
 cpu:
@@ -101,13 +101,13 @@ cpu:
   # 聚合窗口(轮,每采样周期一轮)。默认 60(约 1 分钟)。
   window-rounds: 60
 
-# Incision 方法级精确归因(FR7):织入 SimplePluginManager.enablePlugin 获取逐插件精确耗时。
+# Incision 方法级精确归因:织入 SimplePluginManager.enablePlugin 获取逐插件精确耗时。
 # 默认关闭;开启需要重启。织入失败会自动降级为普通启动画像,不会阻止插件启用。
 incision:
   # 是否开启 Incision 织入。默认 false(关闭);改为 true 后重启服务器生效。
   enabled: false
 
-# Prometheus /metrics 导出端点(FR4.2),对接 Grafana 长期看板与告警。
+# Prometheus /metrics 导出端点,对接 Grafana 长期看板与告警。
 # Bukkit 与 BungeeCord 各为独立进程、各起一个端点;同机部署两端请配置不同 port。
 # 安全默认:端点默认【关闭】,且默认仅本机(127.0.0.1)可访问。开放到外网前务必配置 token 与/或 IP 白名单。
 metrics:
@@ -127,7 +127,7 @@ metrics:
   allowed-ips:
     - "127.0.0.1"
 
-# 事故诊断 MCP 控制面(FR14)。默认关闭；开启后提供服务器状态和原生线程诊断。
+# 事故诊断 MCP 控制面。默认关闭；开启后提供服务器状态和原生线程诊断。
 # 不强制 HTTPS 或密钥。若留空密钥或改为非回环地址，插件仅打印中文 WARN，由操作者承担完整控制暴露风险。
 mcp:
   # 是否开启 MCP Streamable HTTP 服务。默认 false。
@@ -155,7 +155,7 @@ mcp:
   # MCP 审计 gzip 归档的保留天数。0 = 归档不过期。默认 30。
   audit-retention-days: 30
 
-# Web 面板(FR4.3,M3,P2):启动画像详情 / 历史趋势 / 总览,浏览器访问。
+# Web 面板(M3,P2):启动画像详情 / 历史趋势 / 总览,浏览器访问。
 # 基于 JDK 内置 HttpServer 零依赖;安全默认:默认【关闭】,且默认仅本机可访问。
 # 开放到外网前务必配置 token 与/或 IP 白名单。
 web:
@@ -172,9 +172,9 @@ web:
   allowed-ips:
     - "127.0.0.1"
 
-# 插件桥反向 WebSocket(JianManager 托管时使用,见 JianManager ADR-016 / FR-065、FR-066)。
+# 插件桥反向 WebSocket(JianManager 托管时使用,见 JianManager ADR-016 /)。
 # 探针启用后主动反向连入【本机 Worker】的 /ws/plugin-bridge,建立实时双向通道:上报玩家 join/quit/chat
-# 与跨服路由(BC 端),并接收治理指令(FR-067)。独立使用探针(非 JianManager 托管)时保持 enabled=false,
+# 与跨服路由(BC 端),并接收治理指令。独立使用探针(非 JianManager 托管)时保持 enabled=false,
 # 探针不连任何外部 Worker、仅 /metrics 监控照常工作。下面各项由 JianManager 建服时自动写入并下发。
 # 安全:token 为实例级 JWT(scope=plugin-bridge),探针绝不把它写入日志。
 bridge:
@@ -187,7 +187,7 @@ bridge:
   # 连接 token(实例级 HS256 JWT,scope=plugin-bridge),作为握手 ?token= 参数。留空=不连。
   token: ""
 
-# 告警引擎(FR5):每个采集周期对照规则判定指标是否越线,经各通道(日志/游戏内/Webhook)推送。
+# 告警引擎:每个采集周期对照规则判定指标是否越线,经各通道(日志/游戏内/Webhook)推送。
 # 安全/降噪默认:告警引擎默认【关闭】,需显式开启。
 alert:
   # 是否开启告警引擎。默认 false(关闭)。

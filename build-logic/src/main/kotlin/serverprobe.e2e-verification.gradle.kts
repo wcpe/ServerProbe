@@ -4,8 +4,8 @@
  * 承载：
  * - 应用 top.wcpe.mc-testkit 并声明全部 mcTestkit{} 拓扑（backends/proxies/scenarios/serve）
  * - e2e 场景配置注入：模板文件(e2e/templates/configs/<scenario>/) + 占位符替换，脚本内禁止内嵌 YAML
- * - FR9/FR10/FR12/FR14 的 prepare 系列任务与 e2e 任务接线
- * - FR10 离线 TabooLib 运行时的组装与校验
+ * -///的 prepare 系列任务与 e2e 任务接线
+ * - 离线 TabooLib 运行时的组装与校验
  * - 被测发行 jar 文件名与 mc-testkit 运行目录的统一定义（本插件唯一真源）
  *
  * 跨项目任务引用一律用路径字符串，避免 root 配置期跨项目 tasks.named 的时序坑。
@@ -81,7 +81,7 @@ mcTestkit.apply {
         platform = paper
         version = "1.20.1"
         port = 25591
-        // FR10 离线运行验收：阻断插件运行期经 HTTP/HTTPS 访问远端仓库。
+        // 离线运行验收：阻断插件运行期经 HTTP/HTTPS 访问远端仓库。
         jvmArg("-Dhttp.proxyHost=127.0.0.1")
         jvmArg("-Dhttp.proxyPort=9")
         jvmArg("-Dhttps.proxyHost=127.0.0.1")
@@ -342,7 +342,7 @@ mcTestkit.apply {
             count = 2
         }
     }
-    // 多版本矩阵场景：与 FR8 read-api 同判据（真实快照 + 启动画像），由 harness 的 matrix- 前缀识别。
+    // 多版本矩阵场景：与 read-api 同判据（真实快照 + 启动画像），由 harness 的 matrix- 前缀识别。
     scenario("matrix-paper-1-8-8") { backend = "matrix-paper-1-8-8" }
     scenario("matrix-paper-1-12-2") { backend = "matrix-paper-1-12-2" }
     scenario("matrix-paper-1-16-5") { backend = "matrix-paper-1-16-5" }
@@ -358,21 +358,21 @@ mcTestkit.apply {
         // Bukkit 平台的既有权威结果实际运行于 Spigot 后端。
         backend = "spigot-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
     scenario("network-forensics-paper") {
         backend = "paper-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
     scenario("network-forensics-folia") {
         backend = "folia-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -380,7 +380,7 @@ mcTestkit.apply {
         backend = "spigot-network"
         via = "bungee-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -388,7 +388,7 @@ mcTestkit.apply {
         backend = "paper-network-velocity"
         via = "velocity-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -494,14 +494,14 @@ tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
 }
 
 
-// 清理运行库目录中 FR10 离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
+// 清理运行库目录中离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
 // 在场景间不清除（mc-testkit 保留它以免重复下载）。残留闭包会被后续在同一运行目录起服的场景经
 // 服务端自身的运行库加载读到（TabooLib 的 taboolib.file-libs 默认即指向 libraries/），
 // 曾破坏 spigot 等场景的启动（如 org.bukkit.Registry 冲突）。
 // 非集成场景 prepare 前先清空，避免污染；集成场景自身仍注入该目录。
 val cleanupIntegrationsLibraries by tasks.registering {
     group = "verification"
-    description = "清理共享 run/libraries 中 FR10 离线闭包残留，防止污染其他场景"
+    description = "清理共享 run/libraries 中 离线闭包残留，防止污染其他场景"
     outputs.upToDateWhen { false }
     doLast {
         val librariesDir = e2eRunDirectory.get().file("libraries").asFile
@@ -515,18 +515,18 @@ tasks.matching {
 }.configureEach {
     dependsOn(cleanupIntegrationsLibraries)
 }
-tasks.matching { it.name.startsWith("prepareE2eFr11") }.configureEach {
+tasks.matching { it.name.startsWith("prepareE2eNetworkForensics") }.configureEach {
     dependsOn(":e2e:harness-network-bukkit:jar", ":e2e:harness-network-bungee:jar", ":e2e:harness-network-velocity:jar")
 }
-tasks.matching { it.name.startsWith("prepareE2eFr13") }.configureEach {
+tasks.matching { it.name.startsWith("e2eVelocityMatrixV") }.configureEach {
     dependsOn(":e2e:harness-velocity-matrix:jar")
 }
 
-// ── FR9 桥 fixture ──
+// ── 桥 fixture ──
 
 val prepareBridgeFixture by tasks.registering {
     group = "verification"
-    description = "为 FR9 回环 Worker fixture 生成一次性本机桥配置"
+    description = "为 回环 Worker fixture 生成一次性本机桥配置"
     dependsOn("prepareE2eBridgeFixture")
     outputs.upToDateWhen { false }
     // 配置期只取 Provider，任务动作执行期才解析（配置缓存友好）
@@ -546,7 +546,7 @@ val prepareBridgeFixture by tasks.registering {
 
 wireE2eDependency("e2eBridgeFixture", prepareBridgeFixture)
 
-// ── FR10 离线 TabooLib 运行时（真实业务插件 + 运行库离线闭包）──
+// ── 离线 TabooLib 运行时（真实业务插件 + 运行库离线闭包）──
 
 /** MultiCurrencyEconomy 运行期表达式引擎的精确 Maven 闭包。 */
 private data class OfflineMavenArtifact(
@@ -761,9 +761,9 @@ private fun File.sha1(): String = MessageDigest.getInstance("SHA-1").run {
     digest().joinToString("") { byte -> "%02x".format(byte) }
 }
 
-// ── FR10 集成场景配置注入 ──
+// ── 集成场景配置注入 ──
 
-/** FR10 各组合保留的真实外部插件；所有输入仅由运行环境变量提供。 */
+/** 各组合保留的真实外部插件；所有输入仅由运行环境变量提供。 */
 private data class IntegrationsPluginSet(
     val mce: Boolean,
     val ais: Boolean,
@@ -863,15 +863,15 @@ listOf(
     "e2eIntegrationsNone" to prepareIntegrationsNone,
 ).forEach { (taskName, prepare) -> wireE2eDependency(taskName, prepare) }
 
-/** FR10 的 AIS 验收依赖真实在线玩家，默认 E2E 入口必须先启动其声明的 bot。 */
+/** 的 AIS 验收依赖真实在线玩家，默认 E2E 入口必须先启动其声明的 bot。 */
 wireE2eDependency("e2eIntegrationsBoth", "launchIntegrationsBothBot")
 wireE2eDependency("e2eIntegrationsAisOnly", "launchIntegrationsAisOnlyBot")
 
-// ── FR12 Folia 场景配置注入 ──
+// ── Folia 场景配置注入 ──
 
 val prepareFoliaObservedRegionsConfiguration by tasks.registering {
     group = "verification"
-    description = "为 FR12 Folia 场景写入快速采样与 region 过期配置"
+    description = "为 Folia 场景写入快速采样与 region 过期配置"
     dependsOn("prepareE2eFoliaObservedRegions")
     outputs.upToDateWhen { false }
     val runDirectory = mcTestkit.backendRunDirectory("folia")
@@ -882,11 +882,11 @@ val prepareFoliaObservedRegionsConfiguration by tasks.registering {
 
 wireE2eDependency("e2eFoliaObservedRegions", prepareFoliaObservedRegionsConfiguration)
 
-// ── FR14 MCP 场景配置注入 ──
+// ── MCP 场景配置注入 ──
 
 val prepareMcpDiagnosticsConfiguration by tasks.registering {
     group = "verification"
-    description = "在 Paper 启动前写入 FR14 MCP 场景配置"
+    description = "在 Paper 启动前写入 MCP 场景配置"
     dependsOn("prepareE2eMcpDiagnosticsPaper")
     outputs.upToDateWhen { false }
     val runDirectory = mcTestkit.backendRunDirectory("paper-mcp")

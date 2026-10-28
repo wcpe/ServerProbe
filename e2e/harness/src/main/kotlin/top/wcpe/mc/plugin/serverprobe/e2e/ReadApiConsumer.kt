@@ -10,11 +10,11 @@ import top.wcpe.mc.plugin.serverprobe.api.store.MetricStoreRegistration
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * FR8 的真实第三方消费者。
+ * 的真实第三方消费者。
  *
- * 此类只有在 ServerProbe 已加载后才被 harness 调用，以兼容 FR9 必须先启动回环 fixture 的加载顺序。
+ * 此类只有在 ServerProbe 已加载后才被 harness 调用，以兼容必须先启动回环 fixture 的加载顺序。
  */
-object Fr8Consumer {
+object ReadApiConsumer {
 
     /** 读取公开门面；数据尚未产出时返回 null，完成后严格校验 TPS、MSPT 与启动画像。 */
     fun readEvidence(): Map<String, String>? {

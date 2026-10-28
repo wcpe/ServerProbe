@@ -16,7 +16,7 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 /**
- * 在插件生命周期内注册真实 Arthas 控制器，并提供运行期加载/卸载（FR-24）。
+ * 在插件生命周期内注册真实 Arthas 控制器，并提供运行期加载/卸载。
  *
  * 启动期：**始终**把启停能力注册进 [ArthasRuntimeRegistration]（使 `mcp.enabled=false` 的实例也能被
  * 控制台按需加载），随后仅在 `mcp.enabled=true` 时自动加载，保持既有自动化语义与向后兼容。
@@ -181,7 +181,7 @@ private class RetryingArthasControl(
 }
 
 /**
- * 把 lifecycle 的私有启停逻辑接到 core 的 [ArthasRuntime] 契约上（FR-24）。
+ * 把 lifecycle 的私有启停逻辑接到 core 的 [ArthasRuntime] 契约上。
  *
  * 以函数引用而非对象引用持有宿主，避免注册表长期持有 lifecycle 之外的多余能力；
  * 每次调用都读取当前状态，故加载/卸载后的 `runtimeReady` 变化立即可见。

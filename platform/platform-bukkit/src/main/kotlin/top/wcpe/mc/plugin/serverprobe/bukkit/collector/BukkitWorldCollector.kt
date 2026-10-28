@@ -16,7 +16,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import top.wcpe.mc.plugin.serverprobe.api.collector.WorldMetricsCollector as WorldMetricsCollectorApi
 
 /**
- * Bukkit 世界指标采集器(FR2.3)。
+ * Bukkit 世界指标采集器。
  *
  * 遍历所有世界,采集已加载区块数、实体数、方块实体(TileEntity)数及可选的按类型实体分布,
  * 聚合为各世界的 [WorldMetrics]。
@@ -26,7 +26,7 @@ import top.wcpe.mc.plugin.serverprobe.api.collector.WorldMetricsCollector as Wor
  * 限频采样任务([sampleWorlds]),把结果写入 [cache];[collect] 仅返回最近一次缓存(异步读 `@Volatile`
  * 字段安全)。世界采集开销高于轻量指标,独立限频避免每个 collect 周期重扫。
  *
- * **Folia 受限**:Folia 下实体/方块实体按区域分线程管理,需逐区块 `callRegion` 才能安全统计,
+ * **Folia 受限**:Folia 下实体/方块实体按区域分线程管理,需逐区块 `callRegion`才能安全统计,
  * 成本较高(M2 后续完整支持)。当前 Folia 路线仅给出已加载区块数,实体/方块实体数置 -1(N/A)、
  * 按类型分布置 null。
  *
@@ -45,7 +45,7 @@ class BukkitWorldCollector : WorldMetricsCollectorApi {
     /**
      * 最近一次世界采样结果缓存。
      *
-     * 由主线程采样任务写、由异步编排线程经 [collect] 读,故用 `@Volatile` 保证可见性。
+     * 由主线程采样任务写、由异步编排线程经 [collect] 读,故用 `@Volatile`保证可见性。
      */
     @Volatile
     private var cache: List<WorldMetrics> = emptyList()

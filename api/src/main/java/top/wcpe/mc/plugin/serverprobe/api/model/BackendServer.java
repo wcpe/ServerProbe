@@ -14,12 +14,12 @@ public class BackendServer {
     /** 该子服当前在线人数(代理本地视角)。 */
     int online;
     /**
-     * 该子服最近一次 ping 的 RTT 延迟(毫秒,FR2.5);-1 表示尚未测到 / 不可用。
+     * 该子服最近一次 ping 的 RTT 延迟(毫秒);-1 表示尚未测到 / 不可用。
      * 由代理端采集器的后台周期 ping 任务维护(异步,不阻塞主线程)。
      */
     int pingMs;
     /**
-     * 该子服是否可达(最近一次 ping 成功,FR2.5);尚未测到时为 false。
+     * 该子服是否可达(最近一次 ping 成功);尚未测到时为 false。
      */
     boolean reachable;
 }

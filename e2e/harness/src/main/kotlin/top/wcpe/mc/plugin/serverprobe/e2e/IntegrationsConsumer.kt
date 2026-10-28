@@ -6,7 +6,7 @@ import java.math.BigDecimal
 import java.util.UUID
 
 /**
- * FR10 真实业务插件验收消费者。
+ * 真实业务插件验收消费者。
  *
  * 只经 ServerProbe 的 [BusinessHost][top.wcpe.mc.plugin.serverprobe.core.bridge.BusinessHost] 派发真实 Provider，
  * 不加载或模拟 JianManager；外部 API 均由生产 Provider 自行发现与调用。
@@ -25,7 +25,7 @@ class IntegrationsConsumer(
             SCENARIO_MCE_ONLY -> verifyMceOnly()
             SCENARIO_AIS_ONLY -> verifyAisOnly()
             SCENARIO_NONE -> verifyNone()
-            else -> error("未知 FR10 场景:$scenario")
+            else -> error("未知 场景:$scenario")
         }
     }
 
@@ -242,7 +242,7 @@ class IntegrationsConsumer(
             SCENARIO_MCE_ONLY -> setOf(ECONOMY_DOMAIN)
             SCENARIO_AIS_ONLY -> setOf(INVENTORY_DOMAIN)
             SCENARIO_NONE -> emptySet()
-            else -> error("未知 FR10 场景:$scenario")
+            else -> error("未知 场景:$scenario")
         }
     }
 }

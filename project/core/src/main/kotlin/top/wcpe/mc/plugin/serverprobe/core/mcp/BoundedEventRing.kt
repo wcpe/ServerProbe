@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.mcp
 import java.util.concurrent.LinkedBlockingDeque
 
 /**
- * 有界事件环形缓冲（FR-20）：只保留最近 [capacity] 条事件，按时间顺序提供过滤查询。
+ * 有界事件环形缓冲：只保留最近 [capacity] 条事件，按时间顺序提供过滤查询。
  *
  * 线程安全（[LinkedBlockingDeque] 内部锁保证 add 与裁剪原子，容量严格有界），
  * 读多写少；玩家事件监听写入、MCP 请求线程读取。
@@ -14,7 +14,7 @@ class BoundedEventRing<T>(val capacity: Int = DEFAULT_CAPACITY) {
         require(capacity > 0) { "容量必须大于零" }
     }
 
-    /** 默认容量：2000（FR-20 事件时间线）。 */
+    /** 默认容量：2000（事件时间线）。 */
     private companion object {
         const val DEFAULT_CAPACITY = 2000
     }

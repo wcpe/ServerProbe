@@ -10,14 +10,14 @@ import top.wcpe.mc.plugin.serverprobe.core.alert.AlertType
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 
 /**
- * 探针配置门面(FR1.5 配套)。
+ * 探针配置门面(配套)。
  *
- * 经 TabooLib 的 [Config] 机制在加载期把 `config.yml` 注入到 [conf](不存在则由 TabooLib 从插件资源释放默认副本)。
- * 以 `object` 实现并对外暴露**带默认值兜底的取值方法**:配置缺项或类型不符时回退默认值,确保即使配置异常也不致空指针。
+ * 经 TabooLib 的 [Config] 机制在加载期把 `config.yml`注入到 [conf](不存在则由 TabooLib 从插件资源释放默认副本)。
+ * 以 `object`实现并对外暴露**带默认值兜底的取值方法**:配置缺项或类型不符时回退默认值,确保即使配置异常也不致空指针。
  * 各取值方法对应一个配置键,集中收口默认值与键名,避免散落的魔法值(规范第 6 条)。
  *
  * 注:本类不纳入 IOC 容器——[Config] 字段注入由 TabooLib 反射扫描完成,与 IOC 互不干扰;
- * IOC 组件直接以 Kotlin `object` 方式读取本类即可,无需注入。
+ * IOC 组件直接以 Kotlin `object`方式读取本类即可,无需注入。
  */
 object ProbeConfig {
 
@@ -53,7 +53,7 @@ object ProbeConfig {
     /**
      * 指标聚合窗口大小(份),默认 12(约 1 分钟 @ 5 秒采集周期)。
      *
-     * 用于 `/probe tps` 的聚合补充行:对最近这么多份快照做跨快照统计(FR3.3)。
+     * 用于 `/probe tps`的聚合补充行:对最近这么多份快照做跨快照统计。
      *
      * @return 聚合窗口份数。
      */
@@ -81,16 +81,16 @@ object ProbeConfig {
     fun historyRetention(): Int = conf.getInt(KEY_HISTORY_RETENTION, DEFAULT_HISTORY_RETENTION)
 
     /**
-     * 是否开启历史指标落盘(FR3.2),默认 true。
+     * 是否开启历史指标落盘,默认 true。
      *
-     * 关闭后不再把采集快照按日追加到 `data/metrics/` 下的 JSONL 文件(与内存缓冲、启动画像归档相互独立)。
+     * 关闭后不再把采集快照按日追加到 `data/metrics/`下的 JSONL 文件(与内存缓冲、启动画像归档相互独立)。
      *
      * @return 是否落盘历史指标。
      */
     fun historyFileEnabled(): Boolean = conf.getBoolean(KEY_HISTORY_FILE_ENABLED, DEFAULT_HISTORY_FILE_ENABLED)
 
     /**
-     * 历史指标文件保留天数(FR3.2),默认 7;按自然日,含当天在内保留最近 N 天,更早的文件清理。
+     * 历史指标文件保留天数,默认 7;按自然日,含当天在内保留最近 N 天,更早的文件清理。
      *
      * @return 保留天数。
      */
@@ -106,7 +106,7 @@ object ProbeConfig {
         conf.getInt(KEY_AGENT_STACK_MAX_SAMPLES, DEFAULT_AGENT_STACK_MAX_SAMPLES)
 
     /**
-     * 单实例历史指标文件总体积上限(MB,FR3.2),默认 200;超出后从最旧文件起清理至达标(绝不删当天)。
+     * 单实例历史指标文件总体积上限(MB),默认 200;超出后从最旧文件起清理至达标(绝不删当天)。
      *
      * @return 体积上限(MB)。
      */
@@ -117,7 +117,7 @@ object ProbeConfig {
      * 世界指标采样周期(单位 ticks),默认 600(约 30 秒)。
      *
      * 世界/实体采集需遍历所有世界与区块,开销高于轻量指标,故独立限频、采样后缓存,
-     * 避免每个 collect 周期都重扫(FR2.3)。
+     * 避免每个 collect 周期都重扫。
      *
      * @return 世界采样周期 tick 数。
      */
@@ -201,7 +201,7 @@ object ProbeConfig {
         conf.getBoolean(KEY_HTTP_MONITOR_FILE_ENABLED, DEFAULT_HTTP_MONITOR_FILE_ENABLED)
 
     /**
-     * `/probe http` 可回看的近期外呼条数(内存缓冲),默认 500。
+     * `/probe http`可回看的近期外呼条数(内存缓冲),默认 500。
      *
      * @return 近期缓冲容量。
      */
@@ -217,7 +217,7 @@ object ProbeConfig {
         conf.getLong(KEY_HTTP_MONITOR_DRAIN_PERIOD_TICKS, DEFAULT_HTTP_MONITOR_DRAIN_PERIOD_TICKS)
 
     /**
-     * 是否开启 Prometheus `/metrics` 端点(FR4.2),默认 false(关闭)。
+     * 是否开启 Prometheus `/metrics`端点,默认 false(关闭)。
      *
      * 出于安全默认:端点关闭、仅本地可访问,需显式开启。关闭时 [top.wcpe.mc.plugin.serverprobe.core.prometheus.PrometheusExporter] 不起服。
      *
@@ -228,7 +228,7 @@ object ProbeConfig {
     /**
      * Prometheus 端点绑定地址,默认 `127.0.0.1`(仅本机回环,不对外暴露)。
      *
-     * 如需被同网段 Prometheus 抓取,可改为 `0.0.0.0` 或具体网卡地址,但务必同时配置 [metricsToken] 或 [metricsAllowedIps]。
+     * 如需被同网段 Prometheus 抓取,可改为 `0.0.0.0`或具体网卡地址,但务必同时配置 [metricsToken] 或 [metricsAllowedIps]。
      *
      * @return 绑定主机地址。
      */
@@ -246,7 +246,7 @@ object ProbeConfig {
     /**
      * Prometheus 端点鉴权 token,默认空串(不启用 token 鉴权)。
      *
-     * 非空时要求请求头 `Authorization: Bearer <token>` 匹配方可访问;为空时仅靠 [metricsAllowedIps] IP 白名单限制。
+     * 非空时要求请求头 `Authorization: Bearer <token>`匹配方可访问;为空时仅靠 [metricsAllowedIps] IP 白名单限制。
      *
      * @return 鉴权 token;未配置时为空串。
      */
@@ -314,9 +314,9 @@ object ProbeConfig {
     fun mcpArtifactMaxGib(): Long = conf.getLong(KEY_MCP_ARTIFACT_MAX_GIB, DEFAULT_MCP_ARTIFACT_MAX_GIB).coerceAtLeast(1)
 
     /**
-     * 是否开启插件桥反向 WS(FR-065,见 JianManager ADR-016),默认 false(关闭)。
+     * 是否开启插件桥反向 WS(见 JianManager ADR-016),默认 false(关闭)。
      *
-     * 由 JianManager 建服时写入 `bridge.enabled=true` 并下发 url/instance/token;独立使用探针(非 JianManager
+     * 由 JianManager 建服时写入 `bridge.enabled=true`并下发 url/instance/token;独立使用探针(非 JianManager
      * 托管)时保持关闭,探针不连任何外部 Worker。关闭时 [top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeClient]
      * 不起连接。
      *
@@ -336,7 +336,7 @@ object ProbeConfig {
     /**
      * 插件桥实例标识(JianManager 实例 UUID),默认空串。
      *
-     * 作为握手 `?instance=` 参数,须与 token 内 instanceId 一致(Worker 校验)。
+     * 作为握手 `?instance=`参数,须与 token 内 instanceId 一致(Worker 校验)。
      *
      * @return 去空白后的实例标识;未配置时为空串。
      */
@@ -345,14 +345,14 @@ object ProbeConfig {
     /**
      * 插件桥连接 token(实例级 HS256 JWT,scope=plugin-bridge),默认空串。
      *
-     * 作为握手 `?token=` 参数;**安全:绝不写入日志**。空串时不连。
+     * 作为握手 `?token=`参数;**安全:绝不写入日志**。空串时不连。
      *
      * @return token;未配置时为空串。
      */
     fun bridgeToken(): String = conf.getString(KEY_BRIDGE_TOKEN)?.trim() ?: DEFAULT_BRIDGE_TOKEN
 
     /**
-     * 是否开启告警引擎(FR5),默认 false(关闭)。
+     * 是否开启告警引擎,默认 false(关闭)。
      *
      * 关闭时 [top.wcpe.mc.plugin.serverprobe.core.alert.AlertEngine] 不构建任何规则,采集末尾的判定空转。
      *
@@ -400,7 +400,7 @@ object ProbeConfig {
             .coerceAtLeast(MIN_ALERT_WEBHOOK_TIMEOUT_MS)
 
     /**
-     * 是否开启运行期 CPU 采样归因(FR2.6,M3,P2),默认 false(关闭)。
+     * 是否开启运行期 CPU 采样归因(M3,P2),默认 false(关闭)。
      *
      * P2 增强,采样有一定开销;默认关闭,需显式开启。关闭时
      * [top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler] 不启动采样任务。
@@ -436,7 +436,7 @@ object ProbeConfig {
     fun cpuWindowRounds(): Int = conf.getInt(KEY_CPU_WINDOW_ROUNDS, DEFAULT_CPU_WINDOW_ROUNDS)
 
     /**
-     * 是否开启 Web 面板(FR4.3,M3,P2),默认 false(关闭)。
+     * 是否开启 Web 面板(M3,P2),默认 false(关闭)。
      *
      * 出于安全默认:端点关闭、仅本地可访问,需显式开启。关闭时
      * [top.wcpe.mc.plugin.serverprobe.core.web.WebPanelServer] 不起服。
@@ -462,7 +462,7 @@ object ProbeConfig {
     /**
      * Web 面板鉴权 token,默认空串(不启用 token 鉴权)。
      *
-     * 非空时要求请求头 `Authorization: Bearer <token>` 匹配方可访问。
+     * 非空时要求请求头 `Authorization: Bearer <token>`匹配方可访问。
      *
      * @return 鉴权 token;未配置时为空串。
      */
@@ -481,7 +481,7 @@ object ProbeConfig {
     }
 
     /**
-     * 解析告警规则集(FR5):把 `alert.rules` 下各命名规则解析为 [AlertRule] 列表。
+     * 解析告警规则集:把 `alert.rules`下各命名规则解析为 [AlertRule] 列表。
      *
      * 集中收口规则解析:命名规则 → 固定 [AlertType] 的映射、阈值/持续周期默认值、level 字符串转枚举
      * 与缺项兜底全在此完成,避免散落(规范第 6 条)。每条规则缺省值见 [RuleSpec];level 文本无法识别时
@@ -520,9 +520,9 @@ object ProbeConfig {
      * 内置告警规则规格:命名规则键 → 告警类型 + 各项默认值。
      *
      * 规则种类有限且已知,以枚举集中描述每条内置规则的键名/类型/默认阈值/默认持续周期/默认级别/默认开关,
-     * 既驱动 [alertRules] 解析,又作为 `config.yml` 默认值的单一事实来源(规范第 6 条)。
+     * 既驱动 [alertRules] 解析,又作为 `config.yml`默认值的单一事实来源(规范第 6 条)。
      *
-     * @property key `alert.rules` 下的子键名。
+     * @property key `alert.rules`下的子键名。
      * @property type 对应的告警类型。
      * @property defaultThreshold 默认阈值。
      * @property defaultSustainCycles 默认持续周期。

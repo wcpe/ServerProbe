@@ -8,7 +8,7 @@ import taboolib.module.configuration.Type
  *
  * - [encode] / [parse]：JSON 文本的序列化与解析，走可替换的 [codec]（默认 [ConfigJsonCodec]，零依赖）。
  *   换库只需替换 [codec]，调用点不动。
- * - [decode]：JSON 文本 → 强类型对象的反射映射。默认走 TabooLib `Configuration` 反射，与落盘 [encode]
+ * - [decode]：JSON 文本 → 强类型对象的反射映射。默认走 TabooLib `Configuration`反射，与落盘 [encode]
  *   成对绑定、共同定义持久化格式；因 TabooLib 反序列化为 reified 内联，单列在此门面而非 [JsonCodec] 接口。
  *
  * 线程安全：[codec] 为 `@Volatile`，仅在启动装配期替换；运行期只读。
@@ -28,7 +28,7 @@ object Json {
     /**
      * JSON 文本 → 强类型对象（反射映射，忽略构造器）。
      *
-     * 用于落盘读取（启动画像 / 指标快照等数据类）。后端为 TabooLib `Configuration` 反射，
+     * 用于落盘读取（启动画像 / 指标快照等数据类）。后端为 TabooLib `Configuration`反射，
      * 与 [encode] 落盘序列化成对——故换落盘后端须同步两侧并演进 `schemaVersion`，不在通用 [codec] 替换范围内。
      *
      * @param json JSON 文本。

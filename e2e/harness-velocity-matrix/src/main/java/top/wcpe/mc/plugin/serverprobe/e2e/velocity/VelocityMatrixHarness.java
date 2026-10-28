@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
-/** Velocity 3/4 共用的 FR13 真实双后端矩阵验收桩。 */
+/** Velocity 3/4 共用的真实双后端矩阵验收桩。 */
 @Plugin(id = "serverprobe-velocity-matrix-harness", name = "ServerProbeVelocityMatrixHarness", version = "1.0.0-SNAPSHOT")
 public final class VelocityMatrixHarness {
 
@@ -49,7 +49,7 @@ public final class VelocityMatrixHarness {
         if (matrix == null || resultPath == null || resultPath.trim().isEmpty()) return;
         try {
             verifyEventually(matrix);
-            writeResult(new File(resultPath), true, "FR13 Velocity 真实矩阵验收通过");
+            writeResult(new File(resultPath), true, " Velocity 真实矩阵验收通过");
         } catch (Exception exception) {
             writeResult(new File(resultPath), false, exception.getMessage());
         }
@@ -66,12 +66,12 @@ public final class VelocityMatrixHarness {
                 Thread.sleep(1_000L);
             }
         }
-        throw new IllegalStateException("等待 FR13 Velocity 指标超时：" + lastFailure.getMessage(), lastFailure);
+        throw new IllegalStateException("等待 Velocity 指标超时：" + lastFailure.getMessage(), lastFailure);
     }
 
     private void verifySnapshot(MatrixCase matrix) {
         ProbeReadApi api = ServerProbeApi.INSTANCE.read();
-        require(api != null, "ServerProbe FR8 API 尚未就绪");
+        require(api != null, "ServerProbe API 尚未就绪");
         MetricSnapshot snapshot = api.latestSnapshot();
         require(snapshot != null && snapshot.getProxy() != null, "尚未采集到代理指标");
         ProxyMetrics proxy = snapshot.getProxy();
@@ -111,7 +111,7 @@ public final class VelocityMatrixHarness {
             properties.setProperty("message", message == null ? "未知错误" : message);
             File temporary = new File(result.getPath() + ".tmp");
             try (java.io.OutputStream output = Files.newOutputStream(temporary.toPath())) {
-                properties.store(output, "FR13 Velocity 真实矩阵验收结果");
+                properties.store(output, " Velocity 真实矩阵验收结果");
             }
             Files.move(temporary.toPath(), result.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException ignored) {

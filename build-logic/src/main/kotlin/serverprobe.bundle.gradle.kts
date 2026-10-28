@@ -147,7 +147,7 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
     // 进而破坏插件初始化；此产物只保留 Instrumentation 数据桥所需入口，正式单 Jar 分发策略不变。
     val mcpJava8Agent by tasks.registering(Jar::class) {
         group = "verification"
-        description = "构建 FR14 Java 8 Paper 验收所需的最小 Instrumentation Agent"
+        description = "构建 Java 8 Paper 验收所需的最小 Instrumentation Agent"
         archiveFileName.set("serverprobe-mcp-java8-agent.jar")
         from(project.extensions.getByType(org.gradle.api.tasks.SourceSetContainer::class.java).getByName("main").output) {
             include("top/wcpe/mc/plugin/serverprobe/agent/ProbeAgent.class")
@@ -166,7 +166,7 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
 
     val verifyMcpJava8Agent by tasks.registering {
         group = "verification"
-        description = "校验 FR14 Java 8 瘦 Agent 的类边界与 Agent 清单"
+        description = "校验 Java 8 瘦 Agent 的类边界与 Agent 清单"
         dependsOn(mcpJava8Agent)
         doLast {
             val artifact = mcpJava8Agent.get().archiveFile.get().asFile

@@ -9,11 +9,11 @@ import java.lang.management.ManagementFactory
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * FR-22 MCP GC/JFR 详诊工具（只读）。
+ * MCP GC/JFR 详诊工具（只读）。
  *
  * 提供 `gc_events`（自上次调用以来的 GC 增量）、`gc_stats`（堆/内存池/GC 累计 + delta）、
- * `jfr_start`/`jfr_stop`（经内嵌 Arthas 采集 JFR，产物写工作区，配合 FR-18 二进制回传）。
- * - `gc_*` 经 JMX，始终可用；`jfr_*` 依赖 Arthas attach，失败结构化降级。
+ * `jfr_start`/`jfr_stop`（经内嵌 Arthas 采集 JFR，产物写工作区，配合二进制回传）。
+ * - `gc_*`经 JMX，始终可用；`jfr_*`依赖 Arthas attach，失败结构化降级。
  * - 差分窗口为请求驱动：core 保存上次样本，自上次调用起算。
  */
 @Service

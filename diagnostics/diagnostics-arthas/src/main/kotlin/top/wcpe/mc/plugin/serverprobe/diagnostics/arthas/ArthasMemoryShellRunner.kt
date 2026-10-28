@@ -34,7 +34,7 @@ class ArthasMemoryShellRunner(
         }
     }
 
-    /** 读取指定类的当前已加载字节码（FR-19 补丁前自动备份）；类未加载或读取失败返回 null。 */
+    /** 读取指定类的当前已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。 */
     fun dumpClassBytes(className: String): ByteArray? {
         val inst = instrumentation() ?: return null
         val target = inst.allLoadedClasses.firstOrNull { it.name == className } ?: return null
@@ -435,7 +435,7 @@ internal object ArthasModernBootstrapSettings {
         "arthas.httpPort" to "-1",
         "arthas.mcpEndpoint" to "",
         // AsyncProfiler 按 one.profiler.libraryPath 定位原生库；内存 Shell 模式无 arthas 目录部署，
-        // 显式指向闭包内当前平台的库文件（profiler 命令依赖，FR-21）。
+        // 显式指向闭包内当前平台的库文件（profiler 命令依赖）。
         "one.profiler.libraryPath" to runtimeDirectory.resolve(asyncProfilerLibraryName()).toString(),
     )
 

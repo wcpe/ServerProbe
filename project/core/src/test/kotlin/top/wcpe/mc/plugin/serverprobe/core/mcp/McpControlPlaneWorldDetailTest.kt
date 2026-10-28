@@ -13,7 +13,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
 
 /**
- * FR-17：`server_status` 的 worlds 输出层增强（entityTypeCounts/regionStats）合并逻辑。
+ *：`server_status`的 worlds 输出层增强（entityTypeCounts/regionStats）合并逻辑。
  *
  * 覆盖三类行为：provider 缺失降级（保持既有快照输出）、字段合并（每世界按名对齐，输出层
  * 以同名字段 Map 承载新字段，不改动 [WorldMetrics] 模型）、向后兼容（快照无 worlds 或

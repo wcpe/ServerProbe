@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 启动分段打点器(FR1.4,"本插件视角"的生命周期分段)。
+ * 启动分段打点器("本插件视角"的生命周期分段)。
  *
  * 借助 TabooLib 生命周期钩子([Awake]),在 CONST/INIT/LOAD/ENABLE/ACTIVE 各阶段进入时记录一次
  * [System.nanoTime];据此产出各阶段相对**最早记录点**的累计耗时,作为启动画像的分段数据。
@@ -18,11 +18,11 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * **时间轴口径(关键,呈现层须知)**:本打点器的最早记录点为 **TabooLib CONST 初始化时刻**,
  * 它**晚于** JVM 进程的绝对启动点(后者见 [StartupProfile.totalMs] / [StartupProfile.jvmStartTimeMs])。
- * 因此 `phaseTimings` 是一条"自 CONST 起算"的相对时间轴,与基于 JVM 绝对启动点的 `totalMs` **不在同一基准**;
+ * 因此 `phaseTimings`是一条"自 CONST 起算"的相对时间轴,与基于 JVM 绝对启动点的 `totalMs` **不在同一基准**;
  * 呈现层切勿把二者混在同一条绝对时间轴上比较或相加。
  *
- * 形态选择:以 `object` + `@Awake` 实现,而非 IOC [top.wcpe.taboolib.ioc.annotation.Service]——
- * `@Awake` 由 TabooLib 自身的生命周期扫描器驱动(独立于 IOC 容器),需在容器装配前的极早阶段
+ * 形态选择:以 `object` + `@Awake`实现,而非 IOC [top.wcpe.taboolib.ioc.annotation.Service]——
+ * `@Awake`由 TabooLib 自身的生命周期扫描器驱动(独立于 IOC 容器),需在容器装配前的极早阶段
  * (CONST)即开始打点;且本打点器无需被注入,故不纳入 IOC。其产出经 [phaseTimings] 静态读取。
  *
  * 线程模型:在 Folia 上 [LifeCycle.ACTIVE] 可能由异步调度线程触发,与主线程的早期阶段非同一线程,

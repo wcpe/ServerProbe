@@ -29,9 +29,9 @@ class BungeeNettyForensicsIocContractTest {
         assertFalse(source.contains("PostLoginEvent"))
     }
 
-    /** Bungee 的 FR11 机器人需要完成一次真实重连，验收窗口必须覆盖第二条连接的完整载荷。 */
+    /** Bungee 的机器人需要完成一次真实重连，验收窗口必须覆盖第二条连接的完整载荷。 */
     @Test
-    fun `Bungee FR11 验收窗口覆盖重连后的完整流量`() {
+    fun `Bungee 验收窗口覆盖重连后的完整流量`() {
         val harnessPath = "../../e2e/harness-network-bungee/src/main/java/top/wcpe/mc/plugin/serverprobe/" +
             "e2e/network/BungeeNetworkForensicsHarness.java"
         val source = File(harnessPath)
@@ -40,9 +40,9 @@ class BungeeNettyForensicsIocContractTest {
         assertTrue(source.contains("9952, 9953, 75"))
     }
 
-    /** 后端通用 E2E harness 必须识别代理 FR11 场景，不能因未知场景在加载期失效。 */
+    /** 后端通用 E2E harness 必须识别代理场景，不能因未知场景在加载期失效。 */
     @Test
-    fun `通用 E2E harness 识别 Bungee FR11 场景`() {
+    fun `通用 E2E harness 识别 Bungee 场景`() {
         val source = File("../../e2e/harness/src/main/kotlin/top/wcpe/mc/plugin/serverprobe/e2e/ServerProbeE2eHarnessPlugin.kt")
             .readText()
 

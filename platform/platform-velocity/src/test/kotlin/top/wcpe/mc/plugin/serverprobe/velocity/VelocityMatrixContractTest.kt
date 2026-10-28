@@ -4,10 +4,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
-class VelocityFr13MatrixContractTest {
+class VelocityMatrixContractTest {
 
     @Test
-    fun `FR13 声明三个 Velocity 版本的独立双 Paper 矩阵`() {
+    fun `声明三个 Velocity 版本的独立双 Paper 矩阵`() {
         val build = File("../../build-logic/src/main/kotlin/serverprobe.e2e-verification.gradle.kts").readText().replace("\r\n", "\n")
 
         assertMatrix(build, "v31", "3.1.1", null)
@@ -18,7 +18,7 @@ class VelocityFr13MatrixContractTest {
     }
 
     @Test
-    fun `FR13 代理验收桩同时验证 RTT 路由和两名玩家延迟`() {
+    fun `代理验收桩同时验证 RTT 路由和两名玩家延迟`() {
         val harness = File(
             "../../e2e/harness-velocity-matrix/src/main/java/top/wcpe/mc/plugin/serverprobe/e2e/velocity/VelocityMatrixHarness.java",
         ).readText()
@@ -31,7 +31,7 @@ class VelocityFr13MatrixContractTest {
     }
 
     @Test
-    fun `FR13 协议机器人只有切服角色发送服务器切换命令`() {
+    fun `协议机器人只有切服角色发送服务器切换命令`() {
         val driver = File("../../e2e-bot/src/velocityMatrix.js").readText()
 
         assertTrue(driver.contains("resolveMatrixSwitchTarget"))

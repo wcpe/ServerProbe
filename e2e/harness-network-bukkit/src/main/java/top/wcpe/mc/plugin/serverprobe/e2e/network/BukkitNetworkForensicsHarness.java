@@ -6,7 +6,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.lang.reflect.InvocationTargetException;
 import java.util.function.Consumer;
 
-/** Spigot/Paper/Folia 通用的 FR11 异步验收桩。 */
+/** Spigot/Paper/Folia 通用的异步验收桩。 */
 public final class BukkitNetworkForensicsHarness extends JavaPlugin {
 
     /** 入站自定义载荷包的类名随运行时映射而异：Spigot/Paper 1.20 为 Spigot 映射，Folia 1.21+ 为 Mojang 映射。 */

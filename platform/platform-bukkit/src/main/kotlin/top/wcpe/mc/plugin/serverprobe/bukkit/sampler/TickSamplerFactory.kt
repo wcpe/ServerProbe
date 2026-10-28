@@ -9,7 +9,7 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
  * 选路优先级(从高到低):
  * 1. **Folia**([Folia.isFolia]):无全局 TPS/MSPT → [UnavailableTickSampler];
  * 2. **Paper**:[TickReflection.paperTps] 反射可取到 TPS → [PaperTickSampler];
- * 3. **Legacy**:NMS `recentTps` 反射链路可用([TickReflection.isRecentTpsAvailable])→ [LegacyTickSampler];
+ * 3. **Legacy**:NMS `recentTps`反射链路可用([TickReflection.isRecentTpsAvailable])→ [LegacyTickSampler];
  * 4. **Self**:以上皆不可用 → [SelfTickSampler](最终兜底)。
  *
  * 其中 Legacy/Self 依赖自建 [TickClock] 喂样本;Paper 路径 1.16 之前缺原生 MSPT API,亦以共享

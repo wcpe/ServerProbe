@@ -14,7 +14,7 @@ import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 
 /**
- * Web 面板(FR4.3,M3,P2):启动画像详情 / 历史趋势 / 总览。
+ * Web 面板(M3,P2):启动画像详情 / 历史趋势 / 总览。
  *
  * 基于 JDK 自带 `com.sun.net.httpserver.HttpServer`(零第三方依赖)起轻量 HTTP 服务,
  * 提供三个只读页面:总览(`/`)、启动画像(`/startup`)、历史趋势(`/history`),
@@ -29,7 +29,7 @@ import java.util.concurrent.Executors
  * 与 Prometheus 端点同策略:token(可选 `Authorization: Bearer <token>`)+ IP 白名单双重校验,
  * 默认仅本机(127.0.0.1)可访问、不裸奔;日志不输出 token。
  *
- * 生命周期:作为 IOC [Service],[start] 于 `@PostEnable` 起服、[stop] 于 `@PreDestroy` 停服。
+ * 生命周期:作为 IOC [Service],[start] 于 `@PostEnable`起服、[stop] 于 `@PreDestroy`停服。
  * 默认关闭(`web.enabled=false`),需显式开启。
  */
 @Service
@@ -82,7 +82,7 @@ class WebPanelServer {
     /**
      * 停止 Web 面板。
      *
-     * 在容器关闭时由 `@PreDestroy` 回调触发,释放底层 HTTP 服务与线程池。
+     * 在容器关闭时由 `@PreDestroy`回调触发,释放底层 HTTP 服务与线程池。
      */
     @PreDestroy
     fun stop() {
@@ -114,7 +114,7 @@ class WebPanelServer {
 }
 
 /**
- * Web 面板请求处理器:鉴权 + 按路径渲染对应页面(FR4.3)。
+ * Web 面板请求处理器:鉴权 + 按路径渲染对应页面。
  *
  * 无状态(鉴权配置构造期固定),跑在 HttpServer 的 daemon 线程池上,可并发调用。
  *

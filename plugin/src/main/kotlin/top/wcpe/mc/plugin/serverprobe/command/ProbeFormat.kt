@@ -1,10 +1,10 @@
 package top.wcpe.mc.plugin.serverprobe.command
 
 /**
- * `/probe` 命令的数值格式化工具(FR4.1 呈现辅助)。
+ * `/probe`命令的数值格式化工具(呈现辅助)。
  *
  * 仅做"取值后的纯文本格式化"(字节 → 可读单位、毫秒、百分比、可空数值 → N/A),
- * 是无副作用的纯函数集合,以 `object` 实现且不纳入 IOC 容器(无状态、无生命周期)。
+ * 是无副作用的纯函数集合,以 `object`实现且不纳入 IOC 容器(无状态、无生命周期)。
  *
  * 设计意图:把分散在各子命令里的单位换算集中收口,避免复制粘贴(规范第 5 条)与魔法值(规范第 6 条);
  * "N/A"等不可用占位文案由命令层经 i18n 决定,本工具只负责数值本身的格式化,不直接产出业务文案。
@@ -18,7 +18,7 @@ internal object ProbeFormat {
      * 原样返回供调用方自行判断,不在此处臆断业务语义。
      *
      * @param bytes 字节数;负值表示"无上限/无数据"(由调用方决定如何呈现)。
-     * @return 形如 `512.00 MB` 的字符串;负值时返回原始数值字符串。
+     * @return 形如 `512.00 MB`的字符串;负值时返回原始数值字符串。
      */
     fun bytes(bytes: Long): String {
         if (bytes < 0) {
@@ -41,7 +41,7 @@ internal object ProbeFormat {
      * 将毫秒格式化为整数毫秒文本(如 `1234ms`)。
      *
      * @param ms 毫秒值。
-     * @return 形如 `1234ms` 的字符串。
+     * @return 形如 `1234ms`的字符串。
      */
     fun millis(ms: Long): String = "${ms}ms"
 
@@ -49,17 +49,17 @@ internal object ProbeFormat {
      * 将毫秒格式化为保留一位小数的秒(如 `12.3s`),用于较大耗时的概览展示。
      *
      * @param ms 毫秒值。
-     * @return 形如 `12.3s` 的字符串。
+     * @return 形如 `12.3s`的字符串。
      */
     fun seconds(ms: Long): String = String.format("%.1fs", ms / MILLIS_PER_SECOND)
 
     /**
-     * 将运行时长(毫秒)格式化为 `Xd Yh Zm` 形式,自动省略为 0 的高位单位。
+     * 将运行时长(毫秒)格式化为 `Xd Yh Zm`形式,自动省略为 0 的高位单位。
      *
      * 全为 0 时返回 `0m`,保证始终有可读输出。
      *
      * @param ms 运行时长(毫秒)。
-     * @return 形如 `1d 2h 3m` 的字符串。
+     * @return 形如 `1d 2h 3m`的字符串。
      */
     fun duration(ms: Long): String {
         val totalMinutes = ms / MILLIS_PER_MINUTE
@@ -96,7 +96,7 @@ internal object ProbeFormat {
      * 将可空 TPS 数值格式化为保留两位小数的文本;为 null 时返回 null(调用方据此显示 N/A)。
      *
      * @param tps TPS 值;N/A 时为 null。
-     * @return 形如 `19.98` 的字符串;为 null 时返回 null。
+     * @return 形如 `19.98`的字符串;为 null 时返回 null。
      */
     fun tpsOrNull(tps: Double?): String? = tps?.let { String.format("%.2f", it) }
 
@@ -104,7 +104,7 @@ internal object ProbeFormat {
      * 将可空 MSPT 数值格式化为保留两位小数加 `ms`;为 null 时返回 null(调用方据此显示 N/A)。
      *
      * @param mspt MSPT 值(毫秒);N/A 时为 null。
-     * @return 形如 `3.21ms` 的字符串;为 null 时返回 null。
+     * @return 形如 `3.21ms`的字符串;为 null 时返回 null。
      */
     fun msptOrNull(mspt: Double?): String? = mspt?.let { String.format("%.2fms", it) }
 

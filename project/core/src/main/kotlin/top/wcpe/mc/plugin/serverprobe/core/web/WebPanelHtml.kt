@@ -10,7 +10,7 @@ import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 
 /**
- * Web 面板 HTML 渲染器(FR4.3,M3,P2)。
+ * Web 面板 HTML 渲染器(M3,P2)。
  *
  * 无状态纯函数 object:把快照 / 启动画像渲染为自包含 HTML(内联 CSS、无 CDN、无 JS 依赖),
  * 便于在 HTTP 线程并发调用,也便于单元测试(给定数据即可断言关键片段)。
@@ -157,7 +157,7 @@ object WebPanelHtml {
             "<p class=\"muted\">暂无历史数据(采集启动后自动累积)。</p>"
         } else {
             buildString {
-                append("<h2>近期历史趋势(最近 ").append(snapshots.size).append(" 份快照)</h2>")
+                append("<h2>近期历史趋势(最近 ").append(snapshots.size).append("份快照)</h2>")
                 append("<table><tr><th>时间</th><th>TPS(1m)</th><th>MSPT(p95)</th><th>在线</th><th>堆已用</th></tr>")
                 snapshots.forEach { s ->
                     val tick = s.server?.tick

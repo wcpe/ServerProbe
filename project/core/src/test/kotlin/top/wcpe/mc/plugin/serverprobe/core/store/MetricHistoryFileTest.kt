@@ -147,7 +147,7 @@ class MetricHistoryFileTest {
         assertTrue(Files.exists(todayFile), "当天文件必须保留")
     }
 
-    /** P1-3:含 `../`、`/`、`:` 等危险字符的 serverId 应被净化为单层安全目录名,不含路径分隔符、不逃逸出 metrics/。 */
+    /** P1-3:含 `../`、`/`、`:`等危险字符的 serverId 应被净化为单层安全目录名,不含路径分隔符、不逃逸出 metrics/。 */
     @Test
     fun `resolvePath serverId 危险字符被净化不逃逸`() {
         val root = Files.createTempDirectory("probe-history-sanitize")
@@ -280,7 +280,7 @@ class MetricHistoryFileTest {
     }
 
     /**
-     * 在 `metrics/<serverId>/` 下写一个指定日期、指定体积的历史文件。
+     * 在 `metrics/<serverId>/`下写一个指定日期、指定体积的历史文件。
      *
      * @param root 数据根目录。
      * @param serverId 实例标识。

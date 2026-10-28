@@ -7,7 +7,7 @@ import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 /**
  * 自建采样兜底采样器(source = [TickSampleSource.SELF_SAMPLING])。
  *
- * 当既无 Paper API、又无法反射 NMS `recentTps` 时的最终兜底:
+ * 当既无 Paper API、又无法反射 NMS `recentTps`时的最终兜底:
  * - TPS:完全自算——由 [TickClock] 记录的 tick 时间戳窗口推算 1m/5m/15m 平均 TPS;
  * - MSPT:同 Legacy,经共享 [MsptHistogram] 推算。
  *

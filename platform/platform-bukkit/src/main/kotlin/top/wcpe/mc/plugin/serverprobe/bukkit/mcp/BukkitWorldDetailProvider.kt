@@ -12,17 +12,17 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * Bukkit 世界明细提供者（FR-17）。
+ * Bukkit 世界明细提供者。
  *
- * 为 `server_status` 的 worlds 输出提供增强字段，**不重复遍历实体、不新增采集能力**：
+ * 为 `server_status`的 worlds 输出提供增强字段，**不重复遍历实体、不新增采集能力**：
  * - [WorldDetail.entityTypeCounts]：复用 [BukkitWorldCollector] 的主线程限频采样缓存
- *   （口径与既有 `WorldMetrics.entitiesByType` 一致）。采集器以
- *   `world-entity-types=false` 关闭类型统计或 Folia 受限时，其缓存中的
- *   `entitiesByType` 为 null，此处原样透传 null（N/A），与既有聚合输出语义一致。
+ *   （口径与既有 `WorldMetrics.entitiesByType`一致）。采集器以
+ *   `world-entity-types=false`关闭类型统计或 Folia 受限时，其缓存中的
+ *   `entitiesByType`为 null，此处原样透传 null（N/A），与既有聚合输出语义一致。
  * - [WorldDetail.regionStats]：Folia 下透传 [FoliaObservedRegionService.snapshot] 的
- *   已观测 region 明细（FR-12 复用）；非 Folia 为 null。
+ * 已观测 region 明细（复用）；非 Folia 为 null。
  *
- * 线程模型：MCP 请求线程仅读取各采集服务的 `@Volatile` 缓存（Bukkit 世界数据已由
+ * 线程模型：MCP 请求线程仅读取各采集服务的 `@Volatile`缓存（Bukkit 世界数据已由
  * 采集器在主线程限频采样完毕），本实现不做任何主线程切换或实体遍历。
  *
  * 仅在 Bukkit 平台生效（[PlatformSide]），由 IOC 容器实例化并作为

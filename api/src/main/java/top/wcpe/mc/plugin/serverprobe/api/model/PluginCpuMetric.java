@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 单个插件的运行期 CPU 采样归因(FR2.6)。
+ * 单个插件的运行期 CPU 采样归因。
  *
  * 描述一个插件在一次聚合窗口内的线程栈采样命中次数及其占比。
  * 采样计数为近似 CPU 占用(按栈帧归属的 ClassLoader 归并),供横向对比哪些插件

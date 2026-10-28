@@ -12,7 +12,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.nio.file.Path
 
 /**
- * FR11 取证服务生命周期门面。
+ * 取证服务生命周期门面。
  *
  * SQLite 驱动随发行 Jar 内置；原生库加载失败允许继续启用探针，仅本服务报告不可用。
  */
@@ -40,7 +40,7 @@ class PacketForensicsService {
     /** 平台 Netty 适配器后续调用此入口；当前核心只负责非阻塞入队语义。 */
     fun enqueue(observation: PacketForensicsObservation): Boolean = store.enqueue(observation)
 
-    /** FR8 与 Web 后续复用的受限查询入口。 */
+    /** 与 Web 后续复用的受限查询入口。 */
     fun query(query: NetworkPacketQuery): NetworkPacketPage = store.query(query)
 
     /** 暴露驱动降级和队列丢弃状态。 */

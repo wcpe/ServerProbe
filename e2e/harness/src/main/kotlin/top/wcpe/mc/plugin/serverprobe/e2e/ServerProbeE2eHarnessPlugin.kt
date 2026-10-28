@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.Consumer
 
-/** ServerProbe 的独立第三方 E2E 消费者，负责 FR8 与 FR9 的真实判定。 */
+/** ServerProbe 的独立第三方 E2E 消费者，负责与 的真实判定。 */
 class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
     private val scenario = E2eScenario.from(System.getenv(SCENARIO_ENV))
@@ -33,7 +33,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private val foliaControlRegionId = AtomicLong(UNKNOWN_REGION_ID)
     // Folia 调度任务匣：io.papermc 类型只允许出现在嵌套类中，主类被旧版本服务器反射时不得触发类缺失。
     private var foliaTaskBox: Any? = null
-    private var foliaBaseline: Fr8Consumer.FoliaRegionPair? = null
+    private var foliaBaseline: ReadApiConsumer.FoliaRegionPair? = null
     @Volatile private var foliaLoadSink = 0L
 
     override fun onLoad() {
@@ -127,7 +127,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private fun checkReadApi(remaining: Int) {
         // 早期快照可能尚未携带 Tick 指标(readEvidence 内的严格校验会抛异常):
         // 按"未就绪"容错重试,异常终止轮询会错失后续就绪窗口。
-        val evidence = runCatching { Fr8Consumer.readEvidence() }.getOrNull()
+        val evidence = runCatching { ReadApiConsumer.readEvidence() }.getOrNull()
         if (evidence == null) {
             retryReadApi(remaining)
             return
@@ -276,16 +276,16 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         (foliaTaskBox as? FoliaTaskBox)?.stop(foliaLoadEnabled)
     }
 
-    /** 验收 Region 明细、真实样本与每世界加权汇总均通过 FR8 公共读取接口可见。 */
+    /** 验收 Region 明细、真实样本与每世界加权汇总均通过公共读取接口可见。 */
     private fun checkObservedRegions(remaining: Int) {
-        if (Fr8Consumer.foliaGlobalTickUnavailable() == false) {
+        if (ReadApiConsumer.foliaGlobalTickUnavailable() == false) {
             fail("Folia 全局 TPS/MSPT 未保持 N/A")
             return
         }
         val targetId = foliaTargetRegionId.get()
         val controlId = foliaControlRegionId.get()
-        val evidence = Fr8Consumer.readObservedRegionEvidence()
-        val pair = Fr8Consumer.observedRegionPair(targetId, controlId)
+        val evidence = ReadApiConsumer.readObservedRegionEvidence()
+        val pair = ReadApiConsumer.observedRegionPair(targetId, controlId)
         if (evidence != null && pair != null) {
             foliaBaseline = pair
             smokeFoliaTpsCommand()
@@ -294,7 +294,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             return
         }
         if (remaining == 0) {
-            fail("Folia 已观测 region 未在限定时间内形成两个真实区域样本:${Fr8Consumer.observedRegionDiagnostic(targetId, controlId)}")
+            fail("Folia 已观测 region 未在限定时间内形成两个真实区域样本:${ReadApiConsumer.observedRegionDiagnostic(targetId, controlId)}")
             return
         }
         runLater { checkObservedRegions(remaining - 1) }
@@ -303,7 +303,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** 只在目标 region 的真实 tick 上运行有界 CPU 负载，以验证分区指标隔离。 */
     private fun checkFoliaRegionIsolation(remaining: Int) {
         val baseline = foliaBaseline ?: error("Folia 负载基线尚未形成")
-        val pair = Fr8Consumer.observedRegionPair(foliaTargetRegionId.get(), foliaControlRegionId.get())
+        val pair = ReadApiConsumer.observedRegionPair(foliaTargetRegionId.get(), foliaControlRegionId.get())
         val evidence = pair?.let { regionIsolationEvidence(baseline, it) }
         if (evidence != null && foliaLoadRuns.get() >= MIN_FOLIA_LOAD_RUNS) {
             kickFoliaPlayers()
@@ -324,8 +324,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
     /** 目标 p95 必须显著抬升，而控制 region 的变化不得达到目标变化的一半。 */
     private fun regionIsolationEvidence(
-        baseline: Fr8Consumer.FoliaRegionPair,
-        current: Fr8Consumer.FoliaRegionPair,
+        baseline: ReadApiConsumer.FoliaRegionPair,
+        current: ReadApiConsumer.FoliaRegionPair,
     ): Map<String, String>? {
         val targetDelta = current.target.msptP95!! - baseline.target.msptP95!!
         val controlDelta = current.control.msptP95!! - baseline.control.msptP95!!
@@ -344,11 +344,11 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** 踢出两个协议 bot，验证配置的已观测 region 保留窗口实际生效。 */
     private fun kickFoliaPlayers() {
         stopFoliaRegionTasks()
-        foliaPlayers.forEach { name -> Bukkit.dispatchCommand(server.consoleSender, "minecraft:kick $name FR12验收结束") }
+        foliaPlayers.forEach { name -> Bukkit.dispatchCommand(server.consoleSender, "minecraft:kick $name 验收结束") }
     }
 
     private fun checkObservedRegionsExpired(evidence: Map<String, String>, remaining: Int) {
-        if (Fr8Consumer.observedRegionsExpired()) {
+        if (ReadApiConsumer.observedRegionsExpired()) {
             pass("Folia 真实 region tick 已形成明细、汇总并在离开后过期", evidence + ("expired" to "true"))
             return
         }
@@ -370,7 +370,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** 在启动画像异步落盘前安装记录型存储，使两类真实写入都经过 SPI。 */
     private fun installStorageScenario() {
         runCatching {
-            storageSession = Fr8Consumer.installStorage()
+            storageSession = ReadApiConsumer.installStorage()
             checkStorageWrites(STORAGE_ATTEMPTS)
         }.onFailure {
             fail("安装第三方存储失败:${it.message}")
@@ -380,9 +380,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** 等待启动画像与定时指标各至少一次真实写入后卸载替换。 */
     private fun checkStorageWrites(remaining: Int) {
         val session = requireStorageSession()
-        if (Fr8Consumer.startupWrites(session) > 0 && Fr8Consumer.historyWrites(session) > 0) {
-            Fr8Consumer.closeStorage(session)
-            val countAtClose = Fr8Consumer.historyWrites(session)
+        if (ReadApiConsumer.startupWrites(session) > 0 && ReadApiConsumer.historyWrites(session) > 0) {
+            ReadApiConsumer.closeStorage(session)
+            val countAtClose = ReadApiConsumer.historyWrites(session)
             runLater { verifyStorageRestored(countAtClose) }
             return
         }
@@ -396,14 +396,14 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** 卸载后等一个采集周期，记录型存储不再接收写入即证明已回退默认实现。 */
     private fun verifyStorageRestored(historyWritesAtClose: Int) {
         val session = requireStorageSession()
-        if (Fr8Consumer.historyWrites(session) != historyWritesAtClose) {
+        if (ReadApiConsumer.historyWrites(session) != historyWritesAtClose) {
             fail("关闭存储注册后仍写入第三方存储")
             return
         }
         pass(
             "第三方存储已收到真实写入并在关闭注册后回退默认实现",
             mapOf(
-                "startupWrites" to Fr8Consumer.startupWrites(session).toString(),
+                "startupWrites" to ReadApiConsumer.startupWrites(session).toString(),
                 "historyWrites" to historyWritesAtClose.toString(),
             ),
         )
@@ -497,9 +497,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
     private fun jsonString(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-    /** FR10 在后台经真实 BusinessHost 执行外部插件读写，Bukkit 生命周期操作切回服务器线程。 */
+    /** 在后台经真实 BusinessHost 执行外部插件读写，Bukkit 生命周期操作切回服务器线程。 */
     private fun startFr10IntegrationScenario() {
-        val activeFixture = checkNotNull(fixture) { "FR10 协议 fixture 未启动" }
+        val activeFixture = checkNotNull(fixture) { "协议 fixture 未启动" }
         Thread({
             runCatching {
                 IntegrationsConsumer(this, activeFixture, object : ServerThreadInvoker {
@@ -508,7 +508,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             }.onSuccess { evidence ->
                 runSync { pass("真实 MCE/AIS 集成已完成读写、失败恢复与卸载验收", evidence) }
             }.onFailure { error ->
-                runSync { fail("FR10 真实集成验收失败:${integrationsFailureDetail(error)}") }
+                runSync { fail("真实集成验收失败:${integrationsFailureDetail(error)}") }
             }
         }, "serverprobe-e2e-integrations").apply {
             isDaemon = true
@@ -550,7 +550,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private fun awaitFixture(activeFixture: ProtocolWorkerFixture) {
         Thread({
             runCatching { activeFixture.awaitEvidence() }
-                .onSuccess { evidence -> runSync { pass("协议 fixture 完成 FR9 业务链路验收", evidence) } }
+                .onSuccess { evidence -> runSync { pass("协议 fixture 完成 业务链路验收", evidence) } }
                 .onFailure { error -> runSync { fail("协议 fixture 验收失败:${error.message}") } }
         }, "serverprobe-e2e-fixture-await").apply {
             isDaemon = true

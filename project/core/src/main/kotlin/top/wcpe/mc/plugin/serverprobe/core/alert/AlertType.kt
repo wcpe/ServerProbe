@@ -3,13 +3,13 @@ package top.wcpe.mc.plugin.serverprobe.core.alert
 import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
 
 /**
- * 告警类型(FR5)。
+ * 告警类型。
  *
  * 规则种类有限且已知,故以**枚举多态**驱动告警判定:每个常量自封装两件事——
  * - [extract]:从一份 [MetricSnapshot] 取出该类型关心的观测值(不可用时返回 null,表示该项 N/A);
  * - [violated]:给定观测值与阈值,判断是否越线。
  *
- * 如此把"取什么值、怎么比"内聚在类型自身,告警引擎无需对类型做任何 `if-else`/`switch` 分发
+ * 如此把"取什么值、怎么比"内聚在类型自身,告警引擎无需对类型做任何 `if-else`/`switch`分发
  * (规范第 6/10 条:以枚举多态消灭类型判断),新增类型只需新增常量。
  *
  * 取值约定与各指标模型一致:代理端 [MetricSnapshot.server] 为 null(无 TPS/MSPT 概念),

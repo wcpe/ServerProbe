@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 单个世界的加载耗时(FR1.3)。
+ * 单个世界的加载耗时。
  */
 @lombok.Value
 @lombok.Builder(toBuilder = true)

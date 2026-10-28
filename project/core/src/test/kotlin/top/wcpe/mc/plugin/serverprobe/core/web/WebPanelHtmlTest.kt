@@ -17,7 +17,7 @@ import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketRecord
 import top.wcpe.mc.plugin.serverprobe.api.forensics.PacketDirection
 
 /**
- * [WebPanelHtml] 渲染单测(FR4.3)。
+ * [WebPanelHtml] 渲染单测。
  *
  * 覆盖:三个页面的关键片段、空数据占位、HTML 转义(防注入)。
  */

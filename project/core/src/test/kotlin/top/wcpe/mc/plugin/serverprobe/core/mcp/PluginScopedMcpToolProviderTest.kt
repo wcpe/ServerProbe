@@ -12,7 +12,7 @@ import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import java.net.URLClassLoader
 
 /**
- * [PluginScopedMcpToolProvider] 插件维度诊断工具单测(FR-15)。
+ * [PluginScopedMcpToolProvider] 插件维度诊断工具单测。
  *
  * 覆盖:入参校验、归属线程过滤、线程排序与有界上限、类清单降级、CPU 归因降级与零样本。
  * 全部经可替换的注入点(threadSource/cpuEnabled/cpuSnapshot)与假注册表驱动,不依赖真机环境。

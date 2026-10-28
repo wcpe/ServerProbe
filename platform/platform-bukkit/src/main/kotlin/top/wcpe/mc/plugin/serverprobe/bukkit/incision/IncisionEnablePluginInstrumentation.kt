@@ -13,7 +13,7 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import java.util.ArrayDeque
 
 /**
- * Bukkit 插件启用耗时的 Incision 注解式织入（FR7）。
+ * Bukkit 插件启用耗时的 Incision 注解式织入。
  *
  * 接入方式与 VanillaModify 一致：由 [Surgeon] 在 CONST 阶段发现 [Lead]/[Trail]，
  * 不手动加载 Incision 基础设施或自行管理字节码回滚。配置关闭时 advice 立即返回，

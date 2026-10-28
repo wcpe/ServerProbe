@@ -16,7 +16,7 @@ public final class TimelineEvent {
     String type;
     /** 被 hook 的对象名(插件名/文件名/世界名/命令名)。 */
     String name;
-    /** 事件开始时刻(相对 premain 的 `System.nanoTime()` 偏移,纳秒)。 */
+    /** 事件开始时刻(相对 premain 的 `System.nanoTime()`偏移,纳秒)。 */
     long startNanos;
     /** 事件结束时刻(同上)。 */
     long endNanos;

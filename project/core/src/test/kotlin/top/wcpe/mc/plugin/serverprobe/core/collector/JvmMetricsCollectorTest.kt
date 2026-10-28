@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 /**
  * [JvmMetricsCollector] 单元测试。
  *
- * [JvmMetricsCollector.collect] 仅依赖 `java.lang.management.*` 与反射,不依赖注入的 registry,
+ * [JvmMetricsCollector.collect] 仅依赖 `java.lang.management.*`与反射,不依赖注入的 registry,
  * 故可直接实例化、不经 IOC 容器进行验证。断言聚焦于"在任意可运行 JVM 上都应成立"的稳定不变量,
  * 不对 CPU 占用率、GC 次数等取值波动的指标做具体数值约束。
  */

@@ -32,27 +32,27 @@ import java.lang.management.ManagementFactory
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Bukkit 启动就绪监听器(FR1,启动画像装配触发点)。
+ * Bukkit 启动就绪监听器(启动画像装配触发点)。
  *
  * 监听 [ServerLoadEvent]:仅在 [ServerLoadEvent.LoadType.STARTUP](正常启动,排除 `/reload`)时触发一次,
  * 此刻视为"服务器对外就绪",据此计算端到端启动总时长并装配启动画像([StartupProfile])。
  *
  * 端到端总时长 = `事件触发时刻(currentTimeMillis)` − `RuntimeMXBean.startTime`(JVM 启动时刻),覆盖
- * 「JVM 启动 → 服务就绪」整条串行链(FR1.1)。
+ * 「JVM 启动 → 服务就绪」整条串行链。
  *
  * **时序要点(关键)**:[PhaseTimingRecorder] 的 [taboolib.common.LifeCycle.ACTIVE] 打点由 TabooLib 经
- * `runTask` 安排在**首 tick**执行,而 [ServerLoadEvent] 的派发**早于**该首 tick(经 TabooLib 6.3.0 源码核实)。
+ * `runTask`安排在**首 tick**执行,而 [ServerLoadEvent] 的派发**早于**该首 tick(经 TabooLib 6.3.0 源码核实)。
  * 若在事件回调内立即组装画像,[PhaseTimingRecorder.phaseTimings] 将**缺失 ACTIVE 段**。为此本监听器把组装
- * 推迟到 ACTIVE 打点之后:在事件回调中仅于**主线程立即**测得 `totalMs` 与世界名(保证口径不漂移),随后
- * 用 `submit(delay = 2, async = true)` 延迟 ≥1 tick(确保首 tick 的 ACTIVE 已记录)且异步执行(读日志不阻塞主线程),
+ * 推迟到 ACTIVE 打点之后:在事件回调中仅于**主线程立即**测得 `totalMs`与世界名(保证口径不漂移),随后
+ * 用 `submit(delay = 2, async = true)`延迟 ≥1 tick(确保首 tick 的 ACTIVE 已记录)且异步执行(读日志不阻塞主线程),
  * 在该任务内完成「读分段 + 读并解析日志 + 装配 + 落库 + 打印摘要」。
  *
  * 平台隔离:仅在 Bukkit 平台生效([PlatformSide]);所需的 core bean([StartupProfileBuilder]/
  * [StartupProfileHolder])由 IOC 的 ObjectInjector 注入。读取 `logs/latest.log`(磁盘 IO)在延迟异步任务中进行,
  * **主线程零阻塞**(规范 R7);装配完成后写入持有者并输出启动画像摘要。
  *
- * **形态(关键)**:本类为 `object` 而非 `@Service class`——TabooLib `@SubscribeEvent` 要求事件方法宿主为
- * object(静态 INSTANCE),否则运行期抛 `not a static method`;`@Inject` 字段照常由 IOC ObjectInjector 注入。
+ * **形态(关键)**:本类为 `object`而非 `@Service class`——TabooLib `@SubscribeEvent`要求事件方法宿主为
+ * object(静态 INSTANCE),否则运行期抛 `not a static method`;`@Inject`字段照常由 IOC ObjectInjector 注入。
  */
 @PlatformSide(Platform.BUKKIT)
 object StartupLoadListener {
@@ -84,10 +84,10 @@ object StartupLoadListener {
     /**
      * 服务器就绪回调:主线程即时测量,延迟异步装配启动画像。
      *
-     * 仅处理 [ServerLoadEvent.LoadType.STARTUP];`/reload` 触发的 RELOAD 类型直接忽略
+     * 仅处理 [ServerLoadEvent.LoadType.STARTUP];`/reload`触发的 RELOAD 类型直接忽略
      * (避免把热重载误计为一次启动)。
      *
-     * 在事件线程(主线程)**立即**测得 `totalMs` 与世界名快照(保证口径不漂移、Bukkit API 在主线程访问),
+     * 在事件线程(主线程)**立即**测得 `totalMs`与世界名快照(保证口径不漂移、Bukkit API 在主线程访问),
      * 随后将"读分段 + 读日志 + 装配 + 落库 + 打印"整体推迟到 `submit(delay = 2, async = true)`:
      * 延迟 ≥1 tick 等 [PhaseTimingRecorder] 首 tick 的 ACTIVE 打点落地(见类 KDoc 时序要点),
      * 异步执行使主线程不被磁盘 IO 阻塞。
@@ -201,7 +201,7 @@ object StartupLoadListener {
         runCatching { BeanContainer.getBean(type) }.getOrNull()
 
     /**
-     * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld` 耗时时择优用实测值,否则回退占位 0。
+     * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld`耗时时择优用实测值,否则回退占位 0。
      *
      * 以**实际加载的世界名**([worldNames])为准逐个回填 agent 实测耗时(精度远高于占位):agent 未测到的世界
      * (理论上罕见)用 [WORLD_LOAD_MS_UNKNOWN] 占位。未挂载或无实测时整体回退为"世界名 + 占位 0"。
@@ -219,7 +219,7 @@ object StartupLoadListener {
     }
 
     /**
-     * 读取并解析 `logs/latest.log` 得到逐插件 onEnable 耗时。
+     * 读取并解析 `logs/latest.log`得到逐插件 onEnable 耗时。
      *
      * 日志文件不存在或读取失败时降级为空列表(容错,不影响其余画像数据)。
      * 路径相对服务端工作目录解析(标准布局)。
@@ -243,7 +243,7 @@ object StartupLoadListener {
     /**
      * 解析当前 Minecraft 版本标识。
      *
-     * 取 [Bukkit.getBukkitVersion](形如 "1.21.4-R0.1-SNAPSHOT"),截取首个 `-` 之前的纯版本号(如 "1.21.4");
+     * 取 [Bukkit.getBukkitVersion](形如 "1.21.4-R0.1-SNAPSHOT"),截取首个 `-`之前的纯版本号(如 "1.21.4");
      * 解析异常时降级为 [Bukkit.getVersion] 原始串。
      *
      * 注:本模块未引入 TabooLib `bukkit-nms`(env 未装),故不使用 `MinecraftVersion.runningVersion`,
@@ -337,7 +337,7 @@ object StartupLoadListener {
      * 将毫秒格式化为保留一位小数的秒字符串(如 `12.3s`)。
      *
      * @param ms 毫秒值。
-     * @return 形如 `x.xs` 的字符串。
+     * @return 形如 `x.xs`的字符串。
      */
     private fun formatSeconds(ms: Long): String = String.format("%.1fs", ms / MILLIS_PER_SECOND)
 
@@ -356,7 +356,7 @@ object StartupLoadListener {
      * 世界加载耗时占位值(毫秒)。
      *
      * M1 在 [ServerLoadEvent] 时世界已全部加载完毕,缺乏精确的逐世界加载耗时来源,故置 0。
-     * **M2 完善**:改为从日志 `Preparing spawn area` 行或世界加载事件估算各世界耗时(含 spawn-chunk 预加载)。
+     * **M2 完善**:改为从日志 `Preparing spawn area`行或世界加载事件估算各世界耗时(含 spawn-chunk 预加载)。
      */
     private const val WORLD_LOAD_MS_UNKNOWN = 0L
 

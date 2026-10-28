@@ -100,7 +100,7 @@ class SqlitePacketForensicsStore(
     }
 
     /** 初始化驱动、Schema 和写线程；驱动或原生库失败时仅降级取证。 */
-    // SQLite JDBC 还可能在加载本地原生库时抛 Error，必须按 FR11 降级而非阻断插件，故 catch(Throwable) 有意为之。
+    // SQLite JDBC 还可能在加载本地原生库时抛 Error，必须按降级而非阻断插件，故 catch(Throwable) 有意为之。
     @Suppress("TooGenericExceptionCaught")
     private fun initialize(): Thread? = try {
         databasePath.parent?.let(Files::createDirectories)
@@ -112,7 +112,7 @@ class SqlitePacketForensicsStore(
             start()
         }
     } catch (error: Throwable) {
-        // SQLite JDBC 还可能在加载本地原生库时抛 Error，必须按 FR11 降级而非阻断插件。
+        // SQLite JDBC 还可能在加载本地原生库时抛 Error，必须按降级而非阻断插件。
         markUnavailable("SQLite JDBC 驱动不可用，数据包取证已关闭：${error.javaClass.simpleName}")
         null
     }

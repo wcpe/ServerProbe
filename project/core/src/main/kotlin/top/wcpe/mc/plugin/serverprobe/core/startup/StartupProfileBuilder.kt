@@ -22,7 +22,7 @@ data class StartupProfileInput(
 )
 
 /**
- * 启动画像装配器(FR1)。
+ * 启动画像装配器。
  *
  * 将各来源的启动耗时数据组装为一份结构化 [StartupProfile]:分段耗时取自 [PhaseTimingRecorder],
  * JVM 启动参数与启动时刻取自 [java.lang.management.RuntimeMXBean],其余(总时长、慢插件榜、世界耗时)
@@ -77,7 +77,7 @@ class StartupProfileBuilder {
 
     private companion object {
 
-        /** 落盘/画像格式版本号,FR7 起为 4(M5 = 3,A3 = 2,M1 = 1)。 */
+        /** 落盘/画像格式版本号,当前为 4(M5 = 3,A3 = 2,M1 = 1)。 */
         private const val SCHEMA_VERSION = 4
     }
 }

@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.model;
 
 /**
- * 单个世界的运行时指标快照(FR2.3,Bukkit 端)。
+ * 单个世界的运行时指标快照(Bukkit 端)。
  *
  * 描述某一世界当前的已加载区块数、实体数、方块实体(TileEntity)数,以及可选的按类型实体分布。
  * 仅 Bukkit 系服务端具备此语义,聚合于 ServerMetrics.worlds。

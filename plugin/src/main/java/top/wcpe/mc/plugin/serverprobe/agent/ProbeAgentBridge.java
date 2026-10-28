@@ -666,7 +666,7 @@ public final class ProbeAgentBridge {
             if (sb.length() > 0) {
                 sb.append('\n');
             }
-            // 键已是 "线程名|折叠栈"，追加 "|次数" 即为完整一行
+            // 键已是 "线程名|折叠栈"，追加 "|次数"即为完整一行
             sb.append(entry.getKey()).append('|').append(entry.getValue().sum());
         }
         return sb.toString();

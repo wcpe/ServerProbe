@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.sampler
 
 /**
- * MSPT 定容滑动窗口直方图(FR2.2)。
+ * MSPT 定容滑动窗口直方图。
  *
  * 在无法从平台直接取得 MSPT 分位数据时(Legacy / Self 采样路径),由 tick 时钟逐 tick 喂入
  * 单 tick 耗时(纳秒),本类维护"最近 N 个样本"的环形窗口,按需算出平均值与 p95/p99 分位(毫秒)。

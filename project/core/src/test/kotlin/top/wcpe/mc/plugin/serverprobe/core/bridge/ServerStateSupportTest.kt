@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [ServerStateSupport] 单元测试(FR-076 全量状态查询的平台无关支撑)。
+ * [ServerStateSupport] 单元测试(全量状态查询的平台无关支撑)。
  *
  * 仅覆盖不依赖任何 Bukkit/Bungee API 的逻辑:有界裁剪计数、类加载计数、加载器链摘要、JVM 快照。
  * 断言聚焦"在任意可运行 JVM 上恒成立"的不变量与有界/降级行为;Bukkit API 部分真机验。

@@ -6,7 +6,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 /**
  * 外呼记录的近期内存缓冲(M5,运行期常驻)。
  *
- * 由平台层的外呼监控服务把"已归因(填好 [HttpCall.plugin])"的记录写入;供 `/probe http` 命令读取近期明细。
+ * 由平台层的外呼监控服务把"已归因(填好 [HttpCall.plugin])"的记录写入;供 `/probe http`命令读取近期明细。
  * 有界环形缓冲(超出容量淘汰最旧),线程安全(外呼在任意线程产生、命令在主线程读取)。
  *
  * 作为 IOC [Service],无平台依赖,落位于 core。

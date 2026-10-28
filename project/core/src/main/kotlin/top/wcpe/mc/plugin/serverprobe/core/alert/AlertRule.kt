@@ -1,10 +1,10 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert
 
 /**
- * 一条告警规则(FR5)。
+ * 一条告警规则。
  *
  * 描述"对哪个指标、超过什么阈值、连续多少个采集周期、以什么级别"告警。规则集由
- * [top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig] 从 `config.yml` 的 `alert.rules` 段解析而来。
+ * [top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig] 从 `config.yml`的 `alert.rules`段解析而来。
  *
  * @property type 告警类型,决定取值与比较口径(见 [AlertType])。
  * @property threshold 阈值,语义随 [type] 而定(如 TPS 下限、MSPT 上限、堆占用率上限、死锁个数下限)。

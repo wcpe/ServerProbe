@@ -38,18 +38,18 @@ class MetricOrchestrator {
     @Inject
     lateinit var snapshotBuffer: MetricSnapshotBuffer
 
-    /** 存储后端;每次采集产出的快照追加落盘为历史指标(FR3.2)。 */
+    /** 存储后端;每次采集产出的快照追加落盘为历史指标。 */
     @Inject
     lateinit var metricStore: MetricStore
 
-    /** 告警引擎(FR5);每次采集末尾据最新快照判定并广播告警事件。 */
+    /** 告警引擎;每次采集末尾据最新快照判定并广播告警事件。 */
     @Inject
     lateinit var alertEngine: AlertEngine
 
     /**
      * 最新一份指标快照;尚未产出时为 null。
      *
-     * 由异步采集线程写、由其它线程(API/呈现)读,故用 `@Volatile` 保证可见性。
+     * 由异步采集线程写、由其它线程(API/呈现)读,故用 `@Volatile`保证可见性。
      */
     @Volatile
     private var latest: MetricSnapshot? = null
@@ -96,9 +96,9 @@ class MetricOrchestrator {
      *
      * 流程:无 JVM 采集器(P4 前)则整体跳过;有则采集 JVM 指标,再尝试采集服务器指标
      * (代理端或未注册时为 null)与代理端指标(服务端或未注册时为 null),聚合后写入 [latest]、
-     * 追加到近期历史缓冲,追加落盘为历史指标(FR3.2),最后交告警引擎判定(FR5)。
+     * 追加到近期历史缓冲,追加落盘为历史指标,最后交告警引擎判定。
      * 服务端快照含 server 不含 proxy,代理端反之,JVM 两端皆有。
-     * 服务端额外并入世界指标(FR2.3):server 非空时经 copy 注入 worlds(未注册采集器时为 null)。
+     * 服务端额外并入世界指标:server 非空时经 copy 注入 worlds(未注册采集器时为 null)。
      *
      * 注:JVM/服务器/代理采集器均取首个([firstOrNull]),注册多个时仅用第一个;[ProbeRegistry]
      * 的去重注册仅作防重保护,不做多采集器聚合(M1 各类仅一个实现)。
@@ -107,7 +107,7 @@ class MetricOrchestrator {
         val jvm = registry.jvmCollectors.firstOrNull()?.collect() ?: return
         var server = registry.serverCollectors.firstOrNull()?.collect()
         val proxy = registry.proxyCollectors.firstOrNull()?.collect()
-        // 仅服务端有世界:server 非空时并入世界指标(FR2.3);代理端 server=null,不含世界。
+        // 仅服务端有世界:server 非空时并入世界指标;代理端 server=null,不含世界。
         // ServerMetrics 经 toBuilder 注入 worlds(尚无采集器/缓存时为 null)。
         if (server != null) {
             val worlds = registry.worldCollectors.firstOrNull()?.collect()
@@ -126,9 +126,9 @@ class MetricOrchestrator {
         latest = snapshot
         // 追加到近期历史,供 ProbeReadApi.recentSnapshots 回看
         snapshotBuffer.record(snapshot)
-        // 追加落盘为历史指标(FR3.2);本任务已在异步线程,落盘不阻塞主线程(R7)
+        // 追加落盘为历史指标;本任务已在异步线程,落盘不阻塞主线程(R7)
         metricStore.appendHistory(snapshot)
-        // 告警判定(FR5):在本异步采集线程串行调用,引擎据规则集判定越线并广播触发/恢复事件
+        // 告警判定:在本异步采集线程串行调用,引擎据规则集判定越线并广播触发/恢复事件
         alertEngine.evaluate(snapshot)
     }
 

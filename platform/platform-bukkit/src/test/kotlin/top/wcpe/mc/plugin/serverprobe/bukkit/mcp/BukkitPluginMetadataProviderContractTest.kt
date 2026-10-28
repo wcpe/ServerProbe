@@ -13,10 +13,10 @@ import top.wcpe.mc.plugin.serverprobe.core.mcp.PluginMetadataProviderRegistry
 import java.io.File
 
 /**
- * [BukkitPluginMetadataProvider] 的源码级契约测试(FR-15)。
+ * [BukkitPluginMetadataProvider] 的源码级契约测试。
  *
  * 仅做静态断言,不依赖真机 Bukkit 环境,也不触碰含 Bukkit 类型签名的方法反射
- * (compileOnly 的 Bukkit API 不进测试运行时,`getDeclaredMethod` 枚举签名会
+ * (compileOnly 的 Bukkit API 不进测试运行时,`getDeclaredMethod`枚举签名会
  * NoClassDefFoundError,故沿用项目既有"读源文件断言"风格):
  * - 实现保持 [PluginMetadataProvider] 与 [PluginClassResolver] 契约,**不实现 MCP 工具提供者**
  *   (工具面由 core 的 PluginScopedMcpToolProvider 统一注册,曾兜底注册同名工具覆盖 core 路由);

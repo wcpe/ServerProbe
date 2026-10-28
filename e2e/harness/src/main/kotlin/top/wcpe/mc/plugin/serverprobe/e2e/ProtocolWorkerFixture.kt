@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 仅用于 FR9 的回环 Worker fixture。
+ * 仅用于的回环 Worker fixture。
  *
  * 它实现 ServerProbe 已有桥所需的 RFC 6455 子集，严格验证握手、ping/pong、命令回执和业务事件；
  * 不依赖或模拟 JianManager 的任何运行时代码。
@@ -165,7 +165,7 @@ class ProtocolWorkerFixture private constructor(
         }
     }
 
-    /** 真实背包事件必须保留业务域、去重键与物品动作，供 FR10 验收线程判定。 */
+    /** 真实背包事件必须保留业务域、去重键与物品动作，供验收线程判定。 */
     private fun handleInventoryEvent(text: String) {
         runCatching {
             check(jsonString(text, "domain") == INVENTORY_DOMAIN) { "背包事件 domain 不匹配" }
@@ -423,19 +423,19 @@ class ProtocolWorkerFixture private constructor(
         fun startFromProbeConfiguration(pluginsDirectory: File): ProtocolWorkerFixture {
             val config = File(pluginsDirectory, "$SERVER_PROBE_PLUGIN/config.yml")
             val values = config.readText()
-            check(configValue(values, "enabled") == "true") { "FR9 测试桥未启用" }
-            check(configValue(values, "instance") == INSTANCE_ID) { "FR9 测试实例标识错误" }
+            check(configValue(values, "enabled") == "true") { "测试桥未启用" }
+            check(configValue(values, "instance") == INSTANCE_ID) { "测试实例标识错误" }
             val token = configValue(values, "token")
             val endpoint = URI(configValue(values, "url"))
-            check(endpoint.scheme == "ws" && endpoint.host == "127.0.0.1") { "FR9 测试桥地址必须为本机 WS" }
-            check(endpoint.port in 1..MAX_PORT && endpoint.path == BRIDGE_PATH) { "FR9 测试桥地址无效" }
+            check(endpoint.scheme == "ws" && endpoint.host == "127.0.0.1") { "测试桥地址必须为本机 WS" }
+            check(endpoint.port in 1..MAX_PORT && endpoint.path == BRIDGE_PATH) { "测试桥地址无效" }
             return ProtocolWorkerFixture(ServerSocket(endpoint.port, 1, InetAddress.getLoopbackAddress()), token)
         }
 
         /** 读取本测试生成的最小 YAML 配置项；配置缺失立即失败，禁止悄然降级。 */
         private fun configValue(content: String, key: String): String = checkNotNull(
             Regex("(?m)^\\s*${Regex.escape(key)}:\\s*\\\"?([^\\\"\\r\\n]+)\\\"?\\s*$").find(content)?.groupValues?.get(1)?.trim(),
-        ) { "FR9 测试配置缺少:$key" }
+        ) { "测试配置缺少:$key" }
 
         private const val SERVER_PROBE_PLUGIN = "ServerProbe"
         private const val BRIDGE_PATH = "/ws/plugin-bridge"

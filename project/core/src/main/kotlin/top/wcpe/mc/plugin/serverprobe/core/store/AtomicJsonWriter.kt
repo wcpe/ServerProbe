@@ -10,10 +10,10 @@ import java.nio.file.StandardCopyOption
  * 文本文件原子写入工具。
  *
  * 落盘采用"写临时文件 → 原子重命名"策略([writeAtomic]):先把内容写到同目录下的临时文件,再以
- * [StandardCopyOption.ATOMIC_MOVE] 重命名为目标文件,从而避免崩溃/并发读取到半截内容(FR1.5 原子写入)。
+ * [StandardCopyOption.ATOMIC_MOVE] 重命名为目标文件,从而避免崩溃/并发读取到半截内容(原子写入)。
  * 部分文件系统(如跨卷、个别网络盘)不支持原子移动,此时回退为普通覆盖移动([StandardCopyOption.REPLACE_EXISTING])。
  *
- * 无状态纯工具,以 `object` 实现,不纳入 IOC 容器。统一使用 UTF-8 编码。
+ * 无状态纯工具,以 `object`实现,不纳入 IOC 容器。统一使用 UTF-8 编码。
  */
 object AtomicJsonWriter {
 
