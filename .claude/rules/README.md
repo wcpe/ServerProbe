@@ -11,6 +11,7 @@
 | [testing-and-quality.md](testing-and-quality.md) | **质量漂移**：验证门与质量底线 |
 | [static-analysis.md](static-analysis.md) | **风格漂移**：格式化与静态检查工具链 + CI 门禁 |
 | [comments.md](comments.md) | 注释中文 |
+| [no-fr-numbers.md](no-fr-numbers.md) | **用词漂移**：需求编号只允许出现在文档，禁止进入代码、测试与配置 |
 | [config-files.md](config-files.md) | YAML 配置规范 |
 | [git-commit.md](git-commit.md) | **提交信息规范**、**逻辑提交粒度**、**主线历史整理**、**PR 合入工作流**与**文档入库边界** |
 
