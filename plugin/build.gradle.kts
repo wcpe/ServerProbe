@@ -17,18 +17,6 @@ taboolib {
         contributors {
             name("WCPE")
         }
-        dependencies {
-            // 业务对接(JBIS):软依赖 MultiCurrencyEconomy,使探针在 mce 之后加载,
-            // 经济事件监听器(BukkitEconomyEventListener)的 @SubscribeEvent 注册时 mce 事件类已就绪
-            // (否则探针先于 mce enable 时事件类未加载,TabooLib 报"事件未能找到"致监听器漏注册);
-            // 无 mce 的服上软依赖为空操作,不影响探针独立运行。
-            name("MultiCurrencyEconomy").with("bukkit").optional(true)
-            name("MultiCurrencyEconomy").with("bungee").optional(true)
-            // 业务对接(JBIS):软依赖 AllinInventorySync,同理使背包追踪事件监听器(BukkitInventoryEventListener)
-            // 的 @SubscribeEvent(bind=...) 在其事件类就绪后注册;无 AllinInventorySync 的服上为空操作,不影响独立运行。
-            name("AllinInventorySync").with("bukkit").optional(true)
-            name("AllinInventorySync").with("bungee").optional(true)
-        }
     }
     // 将随 agent 打进二合一 jar 的 ASM 重定向到 agent 专属影子包，避免与服务器/其它插件自带的 ASM 冲突。
     // TabooLib 打包阶段（taboolibMainTask）会用 ASM ClassRemapper 按此前缀改写全部 .class：
@@ -66,8 +54,6 @@ dependencies {
     taboo(project(":platform:platform-bukkit"))
     taboo(project(":platform:platform-bungee"))
     taboo(project(":platform:platform-velocity"))
-    taboo(project(":integration:integration-multicurrencyeconomy"))
-    taboo(project(":integration:integration-allininventorysync"))
     taboo(project(":diagnostics:diagnostics-arthas"))
     // SQLite 驱动随发行 Jar 内置，禁止运行期联网下载。
     taboo("org.xerial:sqlite-jdbc:${property("sqlite.jdbc.version")}")
@@ -76,8 +62,9 @@ dependencies {
     // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。
     taboo("org.ow2.asm:asm:9.10.1")
     taboo("org.ow2.asm:asm-commons:9.10.1")
-    // 技术债 #26-⑦:plugin 模块此前零测试。TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突,
-    // 故引擎与 launcher 版本配对显式锁死,保证 JUnit Platform 正常加载。
+    // plugin 模块的测试覆盖命令层纯函数（ProbeFormat 的单位换算与区域无关性）与 IoC 扫描契约。
+    // TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突，故引擎与 launcher 版本配对显式锁死，
+    // 保证 JUnit Platform 正常加载。
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.14.4")
 }

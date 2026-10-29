@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.startup
 
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import kotlin.math.abs
 
 /**

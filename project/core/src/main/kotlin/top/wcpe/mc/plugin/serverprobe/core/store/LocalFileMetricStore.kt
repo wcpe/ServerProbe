@@ -1,8 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.core.store
 
 import taboolib.common.platform.function.getDataFolder
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
@@ -25,9 +25,9 @@ import java.nio.file.StandardOpenOption
  * 序列化/反序列化统一经 [Json] 适配器(ADR-14,默认后端 TabooLib Configuration `Type.JSON_MINIMAL`):
  * 序列化走 `Json.encode`、反序列化走 `Json.decode`。原子写入由 [AtomicJsonWriter] 保证。
  *
- * M2 扩面:覆盖 [readStartupProfiles](读 `data/startup/`归档,由新到旧)与
- * [readHistory](按 [MetricHistoryFile.resolveRange] 定位日期范围内的 `metrics-*.jsonl`逐行读取并按时间过滤);
- * 二者均为**读盘路径**,坏文件/坏行 `runCatching`跳过并告警,绝不因单份损坏而整体失败。
+ * M2 扩面:覆盖 [readStartupProfiles](读 `data/startup/` 归档,由新到旧)与
+ * [readHistory](按 [MetricHistoryFile.resolveRange] 定位日期范围内的 `metrics-*.jsonl` 逐行读取并按时间过滤);
+ * 二者均为**读盘路径**,坏文件/坏行 `runCatching` 跳过并告警,绝不因单份损坏而整体失败。
  *
  * 作为 IOC [Service] 注入到编排层/平台监听器使用。**注意**:所有落盘方法(含上述读取方法)均不另起线程,
  * 要求**调用方已在异步上下文**(编排采集任务、启动监听的延迟异步任务皆为异步;只读 API 的历史读取由其 KDoc 约定调用方异步),
@@ -44,7 +44,7 @@ class LocalFileMetricStore : MetricStore {
      * 上次执行历史文件清理时所属的自然日(`yyyyMMdd`);尚未清理过为 null。
      *
      * 用于把清理限制为**每天至多一次**:仅当当前自然日与之不同(即跨天)时才触发 [MetricHistoryFile.prune],
-     * 从而避免在高频采集路径上每周期扫描目录。由异步采集线程读写,故用 `@Volatile`保证可见性。
+     * 从而避免在高频采集路径上每周期扫描目录。由异步采集线程读写,故用 `@Volatile` 保证可见性。
      */
     @Volatile
     private var lastPruneDay: String? = null
@@ -73,7 +73,7 @@ class LocalFileMetricStore : MetricStore {
      * 追加一条历史指标到"按实例分目录 + 按自然日滚动"的 JSON Lines 文件。
      *
      * 流程:① 配置开关 [ProbeConfig.historyFileEnabled] 关闭则直接返回;② 解析当天目标文件
-     * `data/metrics/<serverId>/metrics-<yyyyMMdd>.jsonl`并建目录;③ 行式追加单行 JSON;
+     * `data/metrics/<serverId>/metrics-<yyyyMMdd>.jsonl` 并建目录;③ 行式追加单行 JSON;
      * ④ **跨天清理**——当本次所属自然日与 [lastPruneDay] 不同时,触发一次 [MetricHistoryFile.prune]
      * (按保留天数 + 总体积上限清理旧文件,绝不删当天),并更新 [lastPruneDay];清理每天至多一次,不在高频路径扫目录。
      * 任何失败仅 [ProbeLogger.warn],不向外抛、不影响采集主流程。
@@ -110,9 +110,9 @@ class LocalFileMetricStore : MetricStore {
     /**
      * 读取历史归档的若干份启动画像,**由新到旧**返回至多 [limit] 份(M2 扩面)。
      *
-     * 流程:① [limit] 非正直接返回空;② 列出 `data/startup/`下归档文件——经 [archiveEpoch] 仅识别文件名为
-     * 纯数字 epoch 毫秒的 `.json`(自动排除 `latest.json`及其它文件);③ 按 epoch 降序取前 [limit] 个;
-     * ④ 逐份 `Configuration`反序列化为 [StartupProfile],单份失败 `runCatching`跳过并 [ProbeLogger.warn],不影响其余。
+     * 流程:① [limit] 非正直接返回空;② 列出 `data/startup/` 下归档文件——经 [archiveEpoch] 仅识别文件名为
+     * 纯数字 epoch 毫秒的 `.json`(自动排除 `latest.json` 及其它文件);③ 按 epoch 降序取前 [limit] 个;
+     * ④ 逐份 `Configuration` 反序列化为 [StartupProfile],单份失败 `runCatching` 跳过并 [ProbeLogger.warn],不影响其余。
      *
      * **读盘方法**:遍历归档目录并逐份反序列化,开销随保留份数增长,调用方须在**异步上下文**调用(规范 R7)。
      *
@@ -139,16 +139,16 @@ class LocalFileMetricStore : MetricStore {
      * 读取 `[sinceMs, untilMs]`(闭区间)范围内的历史指标快照,至多 [limit] 条(M2 扩面)。
      *
      * 流程:① [limit] 非正直接返回空;② 经 [MetricHistoryFile.resolveRange] 定位本实例在该日期范围内实际存在的
-     * `metrics-*.jsonl`文件(按日期升序);③ 逐文件逐行 `Configuration`反序列化为 [MetricSnapshot],
-     * 仅保留 [MetricSnapshot.timestampMs] 落在 `[sinceMs, untilMs]`内者(文件按自然日分桶,边界日仍需逐条过滤),
-     * 累计达 [limit] 即止;单行解析失败 `runCatching`跳过并 [ProbeLogger.warn],不影响其余行。
+     * `metrics-*.jsonl` 文件(按日期升序);③ 逐文件逐行 `Configuration` 反序列化为 [MetricSnapshot],
+     * 仅保留 [MetricSnapshot.timestampMs] 落在 `[sinceMs, untilMs]` 内者(文件按自然日分桶,边界日仍需逐条过滤),
+     * 累计达 [limit] 即止;单行解析失败 `runCatching` 跳过并 [ProbeLogger.warn],不影响其余行。
      *
      * 实例口径:与采集写入一致,取当前实例 `serverId`([InstanceId.resolve] + 配置 `server-name`),
      * 即只读"本服务器"的历史(与最新快照/近期缓冲/最近启动画像的单实例语义一致),不跨实例混读。
      *
      * **读盘方法**:遍历并逐行解析历史文件,调用方须在**异步上下文**调用(规范 R7)。
      *
-     * 返回内容仅取决于磁盘已有文件,与当前 `history-file.enabled`开关无关(开关只控制是否继续写入新数据,
+     * 返回内容仅取决于磁盘已有文件,与当前 `history-file.enabled` 开关无关(开关只控制是否继续写入新数据,
      * 不影响对历史文件的读取)。
      *
      * **测试说明**:逐行反序列化依赖 [Configuration] 运行期实现(不在裸单测类路径),故本方法不写可运行单测,
@@ -167,7 +167,7 @@ class LocalFileMetricStore : MetricStore {
         val files = MetricHistoryFile.resolveRange(dataRoot(), serverId, sinceMs, untilMs)
         val result = ArrayList<MetricSnapshot>()
         for (file in files) {
-            readSnapshotLines(file, sinceMs, untilMs, limit - result.size, result)
+            readSnapshotLines(file, sinceMs, untilMs, limit - result.size) { result.add(it) }
             if (result.size >= limit) {
                 break
             }
@@ -190,44 +190,75 @@ class LocalFileMetricStore : MetricStore {
         }
         val serverId = InstanceId.resolve(ProbeConfig.configuredServerName())
         val files = MetricHistoryFile.resolveRange(dataRoot(), serverId, sinceMs, untilMs)
-        val result = ArrayList<MetricSnapshot>()
+        // 从**最新**的日期文件往回扫：先到手的必然更晚，所以只要凑满 limit 就可以停。
+        val tail = BoundedTailSnapshots(limit)
         for (file in files.asReversed()) {
-            val dayHits = ArrayList<MetricSnapshot>()
-            readSnapshotLines(file, sinceMs, untilMs, Int.MAX_VALUE, dayHits)
-            // 单文件内取最新的(尾部)部分,保持时间升序插入到结果头部
-            val tail = if (dayHits.size > limit) dayHits.subList(dayHits.size - limit, dayHits.size) else dayHits
-            result.addAll(0, tail)
-            if (result.size >= limit) {
-                // 头部拼接后总量可能超限:去掉最旧的多余条
-                while (result.size > limit) {
-                    result.removeAt(0)
-                }
+            readSnapshotLines(file, sinceMs, untilMs, Int.MAX_VALUE) { tail.add(it) }
+            // 该文件里的匹配行已全部进入 tail（超出容量时自动丢最旧），
+            // 因此 tail 一旦装满，更早的文件不可能再贡献任何"更新的"快照。
+            if (tail.isFull()) {
                 break
             }
         }
-        // 结果当前为时间升序(旧→新):反转为公开契约的"由新到旧"
-        result.reverse()
-        return result
+        // tail 内部为时间升序（旧→新），公开契约要求"由新到旧"。
+        return tail.toList().reversed()
+    }
+
+    /** 读取 `untilMs` 及之前**最近的** `limit` 条（"崩溃前最后 N 条"这类需求的实际语义）。
+     *
+     * ## 为什么必须覆写而不是用默认实现
+     * 默认实现把下界设为 `Long.MIN_VALUE` 后交给 [readHistory]，而 [readHistory] 是
+     * **按日期升序、由旧到新累计到 `limit` 即止**——于是"最近 N 条"会退化成
+     * "范围内**最早** N 条"。对"查最后 100 条日志"这种用法，返回的是几天前开头的
+     * 100 条，与意图正好相反。
+     *
+     * ## 做法
+     * 倒序遍历 [MetricHistoryFile.resolveRange] 的结果（它按日期升序），在每个文件内
+     * 仍按行序前向扫描（行内 `timestampMs` 递增），把命中的快照收集到双端队列尾部，
+     * 超过 `limit` 就从头部丢弃。最后反转为时间正序返回，与 [readHistory] 的顺序一致。
+     *
+     * 代价：单个文件必须整份扫完（无法像 [readHistory] 那样凑够 `limit` 就早停），
+     * 但只发生在"取最近 N 条"这个明确要求下，且 N 通常很小。
+     */
+    override fun readHistoryUntil(untilMs: Long, limit: Int): List<MetricSnapshot> {
+        if (limit <= 0) {
+            return emptyList()
+        }
+        val serverId = InstanceId.resolve(ProbeConfig.configuredServerName())
+        val files = MetricHistoryFile.resolveRange(dataRoot(), serverId, Long.MIN_VALUE, untilMs)
+        // 从**最新**的日期文件往回扫：先到手的必然更晚，所以只要凑满 limit 就可以停。
+        val tail = BoundedTailSnapshots(limit)
+        for (file in files.asReversed()) {
+            readSnapshotLines(file, Long.MIN_VALUE, untilMs, Int.MAX_VALUE) { tail.add(it) }
+            // 该文件里的匹配行已全部进入 tail（超出容量时自动丢最旧），
+            // 因此 tail 一旦装满，更早的文件不可能再贡献任何"更新的"快照。
+            if (tail.isFull()) {
+                break
+            }
+        }
+        // 与 [readHistory] 一致：返回时间正序。
+        return tail.toList()
     }
 
     /**
      * 读取单个历史指标文件:逐行反序列化为 [MetricSnapshot],按时间范围过滤后追加到 [sink],至多再收 [remaining] 条。
      *
-     * 整体读取以 `runCatching`容错(读文件失败仅告警);单行解析失败逐行 `runCatching`跳过并告警,不中断本文件其余行。
+     * 整体读取以 `runCatching` 容错(读文件失败仅告警);单行解析失败逐行 `runCatching` 跳过并告警,不中断本文件其余行。
      * 空行直接跳过(JSON Lines 末尾换行的兜底)。
      *
      * @param file 历史指标文件(`metrics-<yyyyMMdd>.jsonl`)。
      * @param sinceMs 范围下界(epoch 毫秒,含)。
      * @param untilMs 范围上界(epoch 毫秒,含)。
-     * @param remaining 本文件最多还可收取的条数(由上层按 `limit - 已收数`传入)。
-     * @param sink 收集结果的可变列表(原地追加)。
+     * @param remaining 本文件最多还可收取的条数(由上层按 `limit - 已收数` 传入)。
+     * @param sink 命中一条即回调一次（由调用方决定怎么收集：普通读取追加到 List，
+     *   "取最近 N 条"则接入有界队列自动淘汰最旧）。
      */
     private fun readSnapshotLines(
         file: Path,
         sinceMs: Long,
         untilMs: Long,
         remaining: Int,
-        sink: MutableList<MetricSnapshot>
+        sink: (MetricSnapshot) -> Unit
     ) {
         if (remaining <= 0) {
             return
@@ -255,7 +286,7 @@ class LocalFileMetricStore : MetricStore {
                         break
                     }
                     if (snapshot.timestampMs >= sinceMs) {
-                        sink.add(snapshot)
+                        sink(snapshot)
                         taken++
                     }
                 }
@@ -266,7 +297,7 @@ class LocalFileMetricStore : MetricStore {
     }
 
     /**
-     * 反序列化单份启动画像归档文件;失败时告警并返回 null(供上层 `mapNotNull`跳过坏文件)。
+     * 反序列化单份启动画像归档文件;失败时告警并返回 null(供上层 `mapNotNull` 跳过坏文件)。
      *
      * @param file 启动画像归档文件。
      * @return 解析得到的 [StartupProfile];失败时为 null。
@@ -299,7 +330,7 @@ class LocalFileMetricStore : MetricStore {
      * 跨天才清理:仅当本次快照所属自然日与上次清理日 [lastPruneDay] 不同时,触发一次按实例的历史文件清理并更新标记。
      *
      * 把清理收敛到每天至多一次,避免每个采集周期扫描目录(性能,规范第 17 条)。清理本身的容错由
-     * [MetricHistoryFile.prune] 内部 `runCatching`保证,异常仅经回调告警。
+     * [MetricHistoryFile.prune] 内部 `runCatching` 保证,异常仅经回调告警。
      *
      * @param root 数据根目录。
      * @param serverId 实例标识。
@@ -337,7 +368,7 @@ class LocalFileMetricStore : MetricStore {
      * [Type.JSON_MINIMAL] **恒输出紧凑单行**:它不做缩进/换行美化,故正常情况下结果本就不含换行;
      * 即便某字段值内部含有换行符,nightconfig 序列化器也会将其转义为两字符序列 `\n`(反斜杠 + 字母 n),
      * 并不会写出真实换行字节。因此下方 `replace("\r"/"\n")` **仅为防御性兜底**(防范序列化实现未来变化或
-     * 极端边界),不会误伤字段内容——被转义的 `\n`是字面两字符,不在 `replace`的匹配范围内。
+     * 极端边界),不会误伤字段内容——被转义的 `\n` 是字面两字符,不在 `replace` 的匹配范围内。
      *
      * @param snapshot 指标快照。
      * @return 末尾带换行的单行 JSON。
@@ -370,9 +401,9 @@ class LocalFileMetricStore : MetricStore {
     }
 
     /**
-     * 取归档文件名中的 epoch 毫秒;非归档文件(非普通文件、非 `.json`后缀、或文件名非纯数字)返回 null。
+     * 取归档文件名中的 epoch 毫秒;非归档文件(非普通文件、非 `.json` 后缀、或文件名非纯数字)返回 null。
      *
-     * 借文件名(去后缀)是否为纯数字(epoch 毫秒)来识别归档,从而排除 `latest.json`及其它文件,避免误删。
+     * 借文件名(去后缀)是否为纯数字(epoch 毫秒)来识别归档,从而排除 `latest.json` 及其它文件,避免误删。
      *
      * @param file 待判断文件。
      * @return epoch 毫秒值;非归档文件时为 null。
@@ -410,5 +441,38 @@ class LocalFileMetricStore : MetricStore {
 
         /** JSON 文件后缀。 */
         private const val JSON_SUFFIX = ".json"
+    }
+}
+
+/**
+ * 只保留**最后** [capacity] 条的有界集合（`readHistoryUntil` 的尾部语义载体）。
+ *
+ * ## 为什么单独成类
+ * "取最近 N 条"的正确性完全取决于两点：**文件必须从新往旧扫**、**超出容量时丢最旧**。
+ * 这两点与 JSON 反序列化无关，值得脱离 nightconfig 单独测（core 裸单测类路径里没有它，
+ * 内联在 [LocalFileMetricStore] 私有区会变成永不可测的逻辑）。
+ */
+internal class BoundedTailSnapshots(private val capacity: Int) : AbstractList<MetricSnapshot>() {
+
+    private val delegate = ArrayList<MetricSnapshot>(capacity)
+
+    override val size: Int get() = delegate.size
+
+    override fun get(index: Int): MetricSnapshot = delegate[index]
+
+    /** 是否已装满：装满后更早的文件不可能再贡献更新的快照。 */
+    fun isFull(): Boolean = delegate.size >= capacity
+
+    /**
+     * 追加一条；超出容量时丢**最旧**（头部）。
+     *
+     * 只暴露追加语义，故意不实现 [MutableList] 的其余写操作——
+     * 解析逻辑只需要 `add`，多余的写口只会让"有界"这个不变量更难维持。
+     */
+    fun add(snapshot: MetricSnapshot) {
+        if (delegate.size == capacity) {
+            delegate.removeAt(0)
+        }
+        delegate.add(snapshot)
     }
 }

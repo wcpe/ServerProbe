@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger

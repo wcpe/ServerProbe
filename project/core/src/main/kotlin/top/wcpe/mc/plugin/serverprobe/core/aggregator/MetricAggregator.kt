@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.aggregator
 
-import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
@@ -80,7 +80,7 @@ class MetricAggregator {
      */
     private inline fun collectMsptSamples(
         snapshots: List<MetricSnapshot>,
-        selector: (top.wcpe.mc.plugin.serverprobe.api.model.TickSample) -> Double?
+        selector: (top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample) -> Double?
     ): DoubleArray = snapshots.mapNotNull { snapshot -> snapshot.server?.tick?.let(selector) }.toDoubleArray()
 
     /**

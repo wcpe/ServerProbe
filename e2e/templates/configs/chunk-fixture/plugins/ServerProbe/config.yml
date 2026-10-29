@@ -1,0 +1,13 @@
+# 帧分片场景：ServerProbe 配置（一次性回环桥配置，token/端口由构建期随机生成）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"
+  # 显式写死分片参数：E2E 要验证的是"按配置切分"，而不是"读默认值恰好也能切"。
+  # 阈值取 64 KiB 让 1 MiB 回执必然切成多片（默认 256 KiB 只有 6 片，边界覆盖更弱）。
+  chunk:
+    enabled: true
+    max-frame-bytes: 65536
+    max-chunks-per-group: 64

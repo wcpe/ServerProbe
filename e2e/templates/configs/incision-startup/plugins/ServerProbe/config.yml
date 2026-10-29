@@ -1,0 +1,8 @@
+# Incision 织入验收场景：必须真的打开开关。
+# 本场景唯一要证的是「@Surgeon 切点被织入并执行过」，即启动画像里的
+# incisionActive=true 且 incisionPluginEnableTimings 非空。
+collect-period-ticks: 20
+world:
+  sample-period-ticks: 20
+incision:
+  enabled: true

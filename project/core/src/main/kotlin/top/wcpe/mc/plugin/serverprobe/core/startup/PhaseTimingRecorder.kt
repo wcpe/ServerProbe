@@ -3,8 +3,8 @@ package top.wcpe.mc.plugin.serverprobe.core.startup
 import taboolib.common.LifeCycle
 import taboolib.common.platform.Awake
 import top.wcpe.mc.plugin.serverprobe.api.enums.StartupPhase
-import top.wcpe.mc.plugin.serverprobe.api.model.PhaseTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PhaseTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import java.util.concurrent.ConcurrentHashMap
 
 /**

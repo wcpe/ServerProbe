@@ -1,8 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.core.prometheus
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 import top.wcpe.mc.plugin.serverprobe.core.startup.SlowPluginRanking
 
@@ -176,7 +176,7 @@ object PrometheusTextFormatter {
      * 涵盖:TPS(1m/5m/15m)、MSPT 分位(avg/p95/p99,ms→s)、在线/容量、运行时长、各世界计数。
      * TPS/MSPT 为 null(如 Folia 全局 N/A)按惯例跳过;世界各计数 -1(Folia 受限)亦跳过。
      */
-    private fun appendServer(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics) {
+    private fun appendServer(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics) {
         val tick = server.tick
         // TPS(gauge,label window);各窗口值为 null 时不导出该行
         writer.gaugeIfPresent("tps", tick.tps1m, listOf("window" to "1m"))
@@ -209,7 +209,7 @@ object PrometheusTextFormatter {
     }
 
     /** 追加 Folia 已观测 region 及世界汇总，绝不回填全局 TPS/MSPT。 */
-    private fun appendObservedRegions(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics) {
+    private fun appendObservedRegions(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics) {
         server.observedRegions?.forEach { region ->
             val labels = listOf(
                 "world" to region.worldName,
@@ -259,7 +259,7 @@ object PrometheusTextFormatter {
      *
      * 涵盖:代理总在线、各后端子服在线(label backend)与子服 RTT(label backend;-1 不导出)。
      */
-    private fun appendProxy(writer: MetricWriter, proxy: top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics) {
+    private fun appendProxy(writer: MetricWriter, proxy: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics) {
         writer.gauge("proxy_players_online", proxy.totalOnline.toDouble())
         for (backend in proxy.backends) {
             writer.gauge("proxy_backend_players_online", backend.online.toDouble(), listOf("backend" to backend.name))

@@ -3,8 +3,8 @@ package top.wcpe.mc.plugin.serverprobe.core.json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 
 /**
  * [Json.decodeLenient] 的字段定位逻辑单测（issue #46）。

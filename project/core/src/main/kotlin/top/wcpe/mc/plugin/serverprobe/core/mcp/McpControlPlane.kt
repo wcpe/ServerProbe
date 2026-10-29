@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.bridge.ServerStateSupport
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
@@ -226,13 +226,20 @@ class McpControlPlane {
             ("worldsTruncated" to (enhancedWorlds.size >= McpJsonWriter.MAX_ITEMS))
     }
 
-    /** 组合全部 MCP 工具提供者：原生工具 + 扩展 provider（~22 交付时在 McpToolProviderRegistry 注册）。 */
-    private fun providers(): List<McpToolProvider> = buildList {
+    /**
+     * 组合全部 MCP 工具提供者：原生工具 + 扩展 provider（~22 交付时在 McpToolProviderRegistry 注册）。
+     *
+     * [arthasTimeoutMillis] 默认取配置值（生产路径）；测试可显式传入，
+     * 从而在没有 `config.yml` 的纯 JVM 里也能组合出真实的工具集。
+     */
+    internal fun providers(
+        arthasTimeoutMillis: Long = TimeUnit.MINUTES.toMillis(ProbeConfig.mcpTaskTimeoutMinutes()),
+    ): List<McpToolProvider> = buildList {
         add(NativeMcpToolProvider(
             ::serverStatus,
             platformControl = platformControl,
             arthasControl = arthasControl,
-            defaultArthasTimeoutMillis = TimeUnit.MINUTES.toMillis(ProbeConfig.mcpTaskTimeoutMinutes()),
+            defaultArthasTimeoutMillis = arthasTimeoutMillis,
             artifacts = artifacts,
         ))
         addAll(mcpToolProviderRegistry.providers())

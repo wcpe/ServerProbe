@@ -7,7 +7,7 @@ import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.getDataFolder
 import taboolib.common.platform.function.submit
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallAttributor
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore

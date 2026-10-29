@@ -1,11 +1,11 @@
 package top.wcpe.mc.plugin.serverprobe.core.web
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 

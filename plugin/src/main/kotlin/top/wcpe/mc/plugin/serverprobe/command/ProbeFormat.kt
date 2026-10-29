@@ -8,6 +8,13 @@ package top.wcpe.mc.plugin.serverprobe.command
  *
  * 设计意图:把分散在各子命令里的单位换算集中收口,避免复制粘贴(规范第 5 条)与魔法值(规范第 6 条);
  * "N/A"等不可用占位文案由命令层经 i18n 决定,本工具只负责数值本身的格式化,不直接产出业务文案。
+ *
+ * ## 为什么每个 String.format 都显式传 `Locale.ROOT`
+ *
+ * 不传 Locale 时 `String.format` 用 JVM 默认区域,小数点会随区域变形:德语/法语等区域下
+ * `%.2f` 产出 `512,00` 而不是 `512.00`。本插件的输出是**技术读数**(内存/TPS/MSPT/耗时),
+ * 服主可能把它贴进工单或脚本里做比对,逗号小数点会让人误读成两个数,也让同一台服在不同
+ * 区域设置下输出不一致。故统一钉死 ROOT;同包 `FlamegraphExporter` 已是这个口径。
  */
 internal object ProbeFormat {
 
@@ -34,7 +41,7 @@ internal object ProbeFormat {
             value /= UNIT_STEP
             unitIndex++
         }
-        return String.format("%.2f %s", value, BYTE_UNITS[unitIndex])
+        return String.format(java.util.Locale.ROOT, "%.2f %s", value, BYTE_UNITS[unitIndex])
     }
 
     /**
@@ -51,7 +58,7 @@ internal object ProbeFormat {
      * @param ms 毫秒值。
      * @return 形如 `12.3s`的字符串。
      */
-    fun seconds(ms: Long): String = String.format("%.1fs", ms / MILLIS_PER_SECOND)
+    fun seconds(ms: Long): String = String.format(java.util.Locale.ROOT, "%.1fs", ms / MILLIS_PER_SECOND)
 
     /**
      * 将运行时长(毫秒)格式化为 `Xd Yh Zm`形式,自动省略为 0 的高位单位。
@@ -89,7 +96,7 @@ internal object ProbeFormat {
         if (ratio < 0) {
             return null
         }
-        return String.format("%.1f%%", ratio * PERCENT_BASE)
+        return String.format(java.util.Locale.ROOT, "%.1f%%", ratio * PERCENT_BASE)
     }
 
     /**
@@ -98,7 +105,7 @@ internal object ProbeFormat {
      * @param tps TPS 值;N/A 时为 null。
      * @return 形如 `19.98`的字符串;为 null 时返回 null。
      */
-    fun tpsOrNull(tps: Double?): String? = tps?.let { String.format("%.2f", it) }
+    fun tpsOrNull(tps: Double?): String? = tps?.let { String.format(java.util.Locale.ROOT, "%.2f", it) }
 
     /**
      * 将可空 MSPT 数值格式化为保留两位小数加 `ms`;为 null 时返回 null(调用方据此显示 N/A)。
@@ -106,7 +113,7 @@ internal object ProbeFormat {
      * @param mspt MSPT 值(毫秒);N/A 时为 null。
      * @return 形如 `3.21ms`的字符串;为 null 时返回 null。
      */
-    fun msptOrNull(mspt: Double?): String? = mspt?.let { String.format("%.2fms", it) }
+    fun msptOrNull(mspt: Double?): String? = mspt?.let { String.format(java.util.Locale.ROOT, "%.2fms", it) }
 
     /** 字节进制步长(1024)。 */
     private const val UNIT_STEP = 1024.0

@@ -53,10 +53,17 @@ object MetricHistoryFile {
     /**
      * 解析 `[sinceMs, untilMs]`(闭区间)所跨自然日范围内、**实际存在**的历史指标文件路径(M2 读取)。
      *
-     * 按系统时区把时间范围映射为若干自然日,对每一天调用 [resolvePath] 得到候选文件,仅保留磁盘上确实存在的;
-     * 结果按日期**升序**(最旧在前)返回,便于上层按时间顺序逐文件逐行读取。纯文件/时间逻辑,不依赖 [Configuration]。
+     * 按系统时区把时间范围映射为起止自然日,再**枚举实例目录**中的 `metrics-*.jsonl[.gz]`,
+     * 仅保留日期落在区间内且磁盘上确实存在的文件;结果按日期**升序**(最旧在前)返回,
+     * 便于上层按时间顺序逐文件逐行读取。纯文件/时间逻辑,不依赖 [Configuration]。
      *
-     * 边界:[sinceMs] > [untilMs] 时范围为空,返回空列表;实例目录不存在或当天无文件时对应日跳过。
+     * **为何枚举目录而不是逐日试探**:逐日 `isRegularFile` 的代价与查询跨度成正比,而实际文件数由保留策略决定。
+     * 若下界取 [Long.MIN_VALUE](`MetricStore.readHistoryUntil` 的「无下界」哨兵),
+     * 逐日遍历会从公元前 2.9 亿年走到今天、空转上千亿次;枚举目录则只扫真实存在的文件,与跨度无关。
+     * `Long.MIN_VALUE`/`Long.MAX_VALUE` 经 [Instant.ofEpochMilli] 换算后仍落在 [LocalDate] 的可表示范围内,不会溢出。
+     *
+     * 边界:[sinceMs] > [untilMs] 时范围为空,返回空列表;实例目录不存在或当天无文件时对应日跳过;
+     * 同一天原始文件与 gzip 归档同时存在时优先原始文件;文件名日期无法解析时忽略该文件。
      *
      * @param dataRoot 数据根目录。
      * @param serverId 实例标识。
@@ -72,23 +79,53 @@ object MetricHistoryFile {
         val startDay = Instant.ofEpochMilli(sinceMs).atZone(zone).toLocalDate()
         val endDay = Instant.ofEpochMilli(untilMs).atZone(zone).toLocalDate()
         val instanceDir = instanceDir(dataRoot, serverId)
-        val result = ArrayList<Path>()
-        var day = startDay
-        while (!day.isAfter(endDay)) {
-            val raw = "$FILE_PREFIX${day.format(DAY_FORMATTER)}$FILE_SUFFIX"
-            val file = instanceDir.resolve(raw)
-            if (Files.isRegularFile(file)) {
-                result.add(file)
-            } else {
-                // 原始文件已 gzip 归档时回退读取压缩档,保证历史查询跨归档窗口仍完整。
-                val gz = instanceDir.resolve(raw + GZ_SUFFIX)
-                if (Files.isRegularFile(gz)) {
-                    result.add(gz)
+        if (!Files.isDirectory(instanceDir)) {
+            return emptyList()
+        }
+        // 一次目录枚举取代按天试探:候选集大小只取决于实际保留的文件数,与 sinceMs 取多早无关。
+        return runCatching {
+            val byDay = HashMap<LocalDate, Path>()
+            Files.newDirectoryStream(instanceDir, "$FILE_PREFIX*").use { stream ->
+                for (file in stream) {
+                    if (!Files.isRegularFile(file)) {
+                        continue
+                    }
+                    val day = parseDayOfName(file) ?: continue
+                    if (day.isBefore(startDay) || day.isAfter(endDay)) {
+                        continue
+                    }
+                    // 同一天原始文件与 gzip 归档并存时优先原始文件(与归档清理前的旧行为一致)。
+                    val existing = byDay[day]
+                    if (existing == null || existing.fileName.toString().endsWith(GZ_SUFFIX)) {
+                        byDay[day] = file
+                    }
                 }
             }
-            day = day.plusDays(1)
+            byDay.entries.sortedBy { it.key }.map { it.value }
+        }.getOrElse { emptyList() }
+    }
+
+    /**
+     * 严格解析 `metrics-<yyyyMMdd>.jsonl[.gz]` 文件名中的自然日。
+     *
+     * 与 [dayOfFile] 不同,**不回退文件修改时间**:范围查询必须按文件名日期精确匹配,
+     * 否则人为改名/异常文件会被错误纳入某个日期区间。命名不符或日期非法时返回 null(由调用方忽略)。
+     *
+     * @param file 历史指标文件。
+     * @return 文件名中的自然日;无法解析时为 null。
+     */
+    private fun parseDayOfName(file: Path): LocalDate? {
+        val name = file.fileName.toString()
+        if (!name.startsWith(FILE_PREFIX)) {
+            return null
         }
-        return result
+        val rest = name.substring(FILE_PREFIX.length)
+        val datePart = when {
+            rest.endsWith(FILE_SUFFIX + GZ_SUFFIX) -> rest.removeSuffix(FILE_SUFFIX + GZ_SUFFIX)
+            rest.endsWith(FILE_SUFFIX) -> rest.removeSuffix(FILE_SUFFIX)
+            else -> return null
+        }
+        return runCatching { LocalDate.parse(datePart, DAY_FORMATTER) }.getOrNull()
     }
 
     /**

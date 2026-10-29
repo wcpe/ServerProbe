@@ -1,9 +1,9 @@
 package top.wcpe.mc.plugin.serverprobe.core.startup
 
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 import top.wcpe.mc.plugin.serverprobe.core.incision.IncisionStartupData
 import top.wcpe.taboolib.ioc.annotation.Service

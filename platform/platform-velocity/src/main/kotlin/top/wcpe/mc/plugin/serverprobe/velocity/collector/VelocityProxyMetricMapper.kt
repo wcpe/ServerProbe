@@ -1,9 +1,9 @@
 package top.wcpe.mc.plugin.serverprobe.velocity.collector
 
-import top.wcpe.mc.plugin.serverprobe.api.model.BackendServer
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerPing
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerRoute
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.player.BackendServer
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerPing
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerRoute
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
 
 /** Velocity 平台原始观测到通用代理指标模型的纯映射。 */
 object VelocityProxyMetricMapper {

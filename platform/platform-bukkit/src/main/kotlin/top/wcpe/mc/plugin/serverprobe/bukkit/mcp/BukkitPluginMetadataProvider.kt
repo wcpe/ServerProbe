@@ -54,6 +54,18 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
     lateinit var classResolverRegistry: PluginClassResolverRegistry
 
     /**
+     * 平台门接缝。
+     *
+     * <p>生产行为与直接写 `Platform.CURRENT == Platform.BUKKIT` 完全一致（就是默认值）；
+     * 开这个口子只为了让测试能模拟“运行在 Bukkit 上”。</p>
+     *
+     * <p><b>为什么必须开口子</b>：`Platform.CURRENT` 是进程级事实，单测环境永远不是 BUKKIT。
+     * 不注入的话，`register()` 第一行就 return，而“到底注册了哪两个契约、有没有误注册工具面”
+     * ——正是历史上出过真机事故的那条——完全无法被覆盖。</p>
+     */
+    internal var isBukkitPlatform: () -> Boolean = { Platform.CURRENT == Platform.BUKKIT }
+
+    /**
      * 依赖注入完成后注册两份数据源到 core 契约。
      *
      * 工具目录由 core 的 [PluginScopedMcpToolProvider] 作为 [McpToolProvider] 统一注册——
@@ -62,7 +74,7 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
      */
     @PostConstruct
     fun register() {
-        if (Platform.CURRENT != Platform.BUKKIT) return
+        if (!isBukkitPlatform()) return
         metadataRegistry.register(this)
         classResolverRegistry.register(this)
         ProbeLogger.info("Bukkit 插件维度诊断数据源已注册(元数据 + 类清单)")

@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.sampler
 
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 
 /**

@@ -84,17 +84,17 @@ class ReflectiveNettyForensicsTest {
     /** BungeeCord 的 UserConnection 通过 getCh 与 ChannelWrapper 的 getHandle 暴露真实 Channel。 */
     @Test
     fun `BungeeCord getter 链定位 ChannelWrapper 中的 Channel`() {
-        val channel = EmbeddedChannel()
+        val channel = embeddedChannel()
 
-        assertSame(channel, locate(BungeeConnectionWithGetter(BungeeChannelWrapper(channel))))
+        attachViaGetterChain(BungeeConnectionWithGetter(BungeeChannelWrapper(channel)), channel)
     }
 
     /** 部分 BungeeCord 派生实现只保留 ch 字段，定位器应沿同名字段继续解析。 */
     @Test
     fun `BungeeCord 字段链定位 ChannelWrapper 中的 Channel`() {
-        val channel = EmbeddedChannel()
+        val channel = embeddedChannel()
 
-        assertSame(channel, locate(BungeeConnectionWithField(FieldOnlyChannelWrapper(channel))))
+        attachViaGetterChain(BungeeConnectionWithField(FieldOnlyChannelWrapper(channel)), channel)
     }
 
     /** BungeeCord 的 ChannelPipeline 同时提供 String 与 Class 重载，取证处理器必须使用 String 重载。 */
@@ -211,11 +211,32 @@ class ReflectiveNettyForensicsTest {
         val remoteAddress: InetSocketAddress = InetSocketAddress("203.0.113.77", 25565)
     }
 
-    private fun locate(connection: Any): Any? {
-        val type = Class.forName("top.wcpe.mc.plugin.serverprobe.core.forensics.ReflectiveNettyChannelLocator")
-        val finder = type.getDeclaredMethod("find", Any::class.java, List::class.java)
-        finder.isAccessible = true
-        return finder.invoke(type.getField("INSTANCE").get(null), connection, listOf("getCh", "getHandle"))
+    /**
+     * 用真实接入路径验证 Channel 定位：定位到的那个 Channel 上必须真的装上了取证处理器。
+     *
+     * <p>早先这里是反射调内部的 `ReflectiveNettyChannelLocator.find` 再 `assertSame`。
+     * 但对外契约不是“能返回同一个对象”，而是“能不能在这条连接上装处理器”——
+     * 定位错了 Channel，接入就失败，这里直接看得见。</p>
+     */
+    private fun attachViaGetterChain(connection: Any, channel: EmbeddedChannel) {
+        val registry = ReflectiveNettyForensicsRegistry(
+            platformId = "bungee",
+            channelGetterPath = listOf("getCh", "getHandle"),
+            decoderHandlerName = "packet-decoder",
+            encoderHandlerName = "packet-encoder",
+            recorder = recorder(),
+            maxPayloadBytes = 64,
+        )
+
+        assertTrue(
+            registry.attach(connection, NettyPacketIdentity(null, "玩家", "203.0.113.77")),
+            "应能沿 getter/字段链定位到 Channel 并接入",
+        )
+        assertEquals(
+            3,
+            channel.pipeline().names().count { it.startsWith("serverprobe-forensics-") },
+            "定位到的必须是这条连接自己的 Channel，处理器实际=${channel.pipeline().names()}",
+        )
     }
 
     private class BungeeConnectionWithGetter(private val ch: BungeeChannelWrapper) {

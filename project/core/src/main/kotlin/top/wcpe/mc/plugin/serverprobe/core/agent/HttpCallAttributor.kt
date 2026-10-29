@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
 
 /**
  * 外呼归因器(M5):把一次外呼归因到触发它的插件。

@@ -78,6 +78,5 @@ class PluginClassLoaderRegistryTest {
         registry.register("A", loader)
         registry.register("B", loader)
         assertEquals(setOf("A", "B"), registry.pluginNames())
-        assertTrue(registry.pluginNames().isNotEmpty())
     }
 }

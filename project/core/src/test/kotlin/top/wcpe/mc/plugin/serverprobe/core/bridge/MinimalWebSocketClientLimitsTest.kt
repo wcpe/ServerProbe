@@ -72,17 +72,18 @@ class MinimalWebSocketClientLimitsTest {
         }
     }
 
-    /** 帧长上限常量:导出语义验证(1 MiB)。 */
+    /** 入站上限默认值：导出语义验证（1 MiB）。 */
     @Test
     fun `帧与消息上限为一 MiB 量级`() {
-        // 通过反射读 companion 私有常量,锁定"上限存在且量级正确"——防后续被无意改大或删除
-        val frameMax = MinimalWebSocketClient::class.java.getDeclaredField("MAX_FRAME_BYTES")
-            .apply { isAccessible = true }.get(null) as Long
+        // 读实际生效的构造参数默认值（而非某个已废弃的硬编码常量），
+        // 锁定“上限存在且量级正确”——防后续被无意改大或删除。
+        val inboundMax = MinimalWebSocketClient::class.java.getDeclaredField("DEFAULT_MAX_INBOUND_BYTES")
+            .apply { isAccessible = true }.get(null) as Int
         val msgMax = MinimalWebSocketClient::class.java.getDeclaredField("MAX_MESSAGE_BYTES")
             .apply { isAccessible = true }.get(null) as Int
-        assertTrue(frameMax in 65536L..(16L * 1024 * 1024), "帧上限应为 64KiB–16MiB 合理区间,实际=$frameMax")
+        assertTrue(inboundMax in 65536..(16 * 1024 * 1024), "帧上限应为 64KiB–16MiB 合理区间,实际=$inboundMax")
         assertTrue(msgMax in 65536..(16 * 1024 * 1024), "消息上限应为 64KiB–16MiB 合理区间,实际=$msgMax")
-        assertFalse(frameMax > Int.MAX_VALUE, "帧上限不应超过 Int 可表示范围")
+        assertTrue(msgMax >= inboundMax, "消息上限不应小于单帧上限,否则分片拼接必被先拦")
     }
 
     /** 64 位长度截断防御:声明 4GiB 长度的帧头不会触发 ByteArray 分配(超限即抛)。 */

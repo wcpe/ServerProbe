@@ -2,7 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.cpu
 
 import taboolib.common.platform.function.submit
 import taboolib.common.platform.service.PlatformExecutor
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject

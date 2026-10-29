@@ -122,12 +122,15 @@ class BukkitPlayerDiagnosticsProvider : PlayerDiagnosticsProvider, Listener {
             enderChest = player.enderChest.contents.mapIndexedNotNull { slot, item ->
                 item?.let { InventorySummary(it.type.name, it.amount, slot) }
             }.takeIf { it.isNotEmpty() },
+            // `helmet`/`itemInMainHand` 等属性在空槽位返回的是 ItemStack(AIR) 而非 null，
+            // 直接 `?.let` 会把「空气」当成一件装备报出去（实测 slot=4 material=AIR amount=0）。
+            // 这里统一按「有数量且非空气」过滤，与 contents 的口径保持一致。
             equipment = listOfNotNull(
-                player.inventory.helmet?.let { InventorySummary(it.type.name, it.amount, 0) },
-                player.inventory.chestplate?.let { InventorySummary(it.type.name, it.amount, 1) },
-                player.inventory.leggings?.let { InventorySummary(it.type.name, it.amount, 2) },
-                player.inventory.boots?.let { InventorySummary(it.type.name, it.amount, 3) },
-                player.inventory.itemInMainHand?.let { InventorySummary(it.type.name, it.amount, 4) },
+                player.inventory.helmet?.takeIf { it.isUsable() }?.let { InventorySummary(it.type.name, it.amount, 0) },
+                player.inventory.chestplate?.takeIf { it.isUsable() }?.let { InventorySummary(it.type.name, it.amount, 1) },
+                player.inventory.leggings?.takeIf { it.isUsable() }?.let { InventorySummary(it.type.name, it.amount, 2) },
+                player.inventory.boots?.takeIf { it.isUsable() }?.let { InventorySummary(it.type.name, it.amount, 3) },
+                player.inventory.itemInMainHand?.takeIf { it.isUsable() }?.let { InventorySummary(it.type.name, it.amount, 4) },
             ).takeIf { it.isNotEmpty() },
             chunk = linkedMapOf("x" to (location.blockX shr 4), "z" to (location.blockZ shr 4)),
             recentActivity = eventRing.recent(MAX_ACTIVITY) { it.first == player.uniqueId }.map { it.second },
@@ -168,3 +171,13 @@ class BukkitPlayerDiagnosticsProvider : PlayerDiagnosticsProvider, Listener {
         const val LISTENER_RETRY_DELAY_TICKS = 20L
     }
 }
+
+/**
+ * 该 ItemStack 是否代表「真的有一件物品」。
+ *
+ * Bukkit 的空槽位约定是 `Material.AIR` 且 `amount == 0`，但 `inventory.helmet` /
+ * `itemInMainHand` 这类属性在空槽时返回的仍是 `ItemStack` 实例（不是 null），
+ * 因此必须显式判空，否则会把「空气」当成装备上报。
+ */
+private fun org.bukkit.inventory.ItemStack.isUsable(): Boolean =
+    amount > 0 && type != org.bukkit.Material.AIR

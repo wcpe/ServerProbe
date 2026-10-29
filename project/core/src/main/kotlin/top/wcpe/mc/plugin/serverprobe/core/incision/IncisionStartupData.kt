@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.incision
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
 
 /**
  * Incision 织入链路在一次启动中的定格数据。

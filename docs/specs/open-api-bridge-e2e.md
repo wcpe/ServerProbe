@@ -25,7 +25,7 @@
 
 ### 不纳入
 
-- 不测试 ADR-0017 已明确降级的 `writeInventory` / `writeEnderChest`。
+- 不测试已被取代的背包写动作（原 ADR-0016 / ADR-0017 的内置集成契约已随 FR-32 移除）。
 - 不使用 JianManager 作为测试运行时依赖，不修改 JianManager。
 - 不使用无条件 PASS；fixture 只在收到每条预期协议帧并完成真实 `BusinessHost` 派发后写 PASS。
 - 不修改 mc-testkit 框架；现有 v0.5.1 已能编排 Paper、依赖 jar、服务端模板与机器人。只有发现框架阻塞时才单独开变更。
@@ -65,7 +65,7 @@ fixture ← event(domain/dedupKey/data)                     ← BridgeClient
 4. 下发 `e2e.emit`，断言接到带 `domain`、`dedupKey` 和结构化数据的业务 `event` 帧。
 5. 下发 `e2e.fail` 与 `e2e.slow`，断言各自得到失败回执；随后再次下发 `e2e.echo`，必须成功，证明失败/超时未中断桥读循环和后续业务派发。
 
-该测试验证 FR-09 的业务 agent、桥协议、命令路由、回执、事件和事故域隔离。它**不**替代 MultiCurrencyEconomy / AllinInventorySync 的真实插件联调；两者继续由已有 Provider / Envelope 单元测试覆盖，后续如需真插件 E2E 应另立规格。
+该测试验证 FR-09 的业务 agent、桥协议、命令路由、回执、事件和事故域隔离。探针不内置任何业务实现（FR-32 已移除内置集成），因此本规格不覆盖具体业务插件的联调；仓库内以测试专用 `BusinessProvider` 验证契约本身。
 
 ## 验收与验证
 
@@ -80,7 +80,7 @@ fixture ← event(domain/dedupKey/data)                     ← BridgeClient
 
 - JDK 17；mc-testkit 首次运行需要网络下载 Paper，或经环境变量提供本地 Paper jar。
 - fixture 只绑定回环地址、使用运行期生成的测试凭据，不读取或写入任何生产数据。
-- 不需要 JianManager、MySQL、Redis、MultiCurrencyEconomy 或 AllinInventorySync 作为此规格的运行前置条件。
+- 不需要 JianManager、MySQL 或 Redis 作为此规格的运行前置条件。
 
 ## 任务
 

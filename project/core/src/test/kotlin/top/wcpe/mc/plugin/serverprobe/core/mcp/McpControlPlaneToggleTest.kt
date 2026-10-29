@@ -3,9 +3,9 @@ package top.wcpe.mc.plugin.serverprobe.core.mcp
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 
 /**
  * 校验端点级开关的状态语义。

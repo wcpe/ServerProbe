@@ -2,7 +2,9 @@
 
 ## 状态
 
-决策 1 / 2「结构化物品写传输契约」已被 [ADR-0017](0017-inventory-write-degraded-byte-facade.md) 取代——AllinInventorySync 2.0.0 把物品写门面入参退回不透明分区字节、探针侧物品写暂不提供；决策 3 的幂等模型对 `writeBasicAttrs` 仍适用，决策 4 的追踪事件契约仍有效。其余背景 / 理由作为历史保留。
+已被 [ADR-0030](0030-remove-built-in-business-integrations.md) 取代（PRD 记账 FR-32，[spec](../specs/business-self-registration.md)）——背包集成模块随内置业务集成移除而删除，本 ADR 的物品传输契约不再有消费者。原决策作为历史保留。
+
+（原状态：决策 1 / 2「结构化物品写传输契约」被 [ADR-0017](0017-inventory-write-degraded-byte-facade.md) 取代；决策 3 的幂等模型、决策 4 的追踪事件契约在其后一度继续适用）
 
 ## 背景
 

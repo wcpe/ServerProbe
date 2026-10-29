@@ -2,7 +2,9 @@
 
 ## 状态
 
-已接受（取代 [ADR-0015](0015-business-integration-agent.md) 决策 1 中“Provider 实现落 platform-bukkit”的部分；其余决策继续有效）
+已被 [ADR-0030](0030-remove-built-in-business-integrations.md) 取代（PRD 记账 FR-32，[spec](../specs/business-self-registration.md)）——内置业务集成整体移除，两个 `integration-*` 模块已从仓库删除，改由第三方插件经 `api` 的 `ServerProbeAPI.businessHost()` 自注册业务域，探针只做「面板 ↔ 插件」的路由中介。原决策作为历史保留。
+
+（原状态：已接受，取代 [ADR-0015](0015-business-integration-agent.md) 决策 1 中“Provider 实现落 platform-bukkit”的部分；其余决策继续有效）
 
 ## 背景
 

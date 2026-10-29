@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.mc.plugin.serverprobe.core.cpu.PluginClassLoaderRegistry

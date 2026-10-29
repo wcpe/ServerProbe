@@ -8,7 +8,8 @@ import top.wcpe.taboolib.ioc.bean.BeanContainer
 /**
  * 跨插件存储扩展门面。
  *
- * 第三方插件仅能通过 [install] 注册一个 [MetricStore]；读取 API 仍由 [ServerProbeApi] 单独提供，
+ * 第三方插件仅能通过 [install] 注册一个 [MetricStore]；读取 API 仍由
+ * [top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI] 单独提供，
  * 因此存储写入能力不会混入只读 API。
  */
 object ServerProbeStorageApi {

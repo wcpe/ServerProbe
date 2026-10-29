@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.startup
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 
 /**
  * 慢插件榜的取值与抽稀口径（FR-1 / FR-25 / FR-29 共用的唯一真源）。

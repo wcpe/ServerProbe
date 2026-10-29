@@ -1,10 +1,10 @@
 package top.wcpe.mc.plugin.serverprobe.e2e
 
-import top.wcpe.mc.plugin.serverprobe.ServerProbeApi
 import top.wcpe.mc.plugin.serverprobe.ServerProbeStorageApi
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStoreRegistration
 import java.util.concurrent.atomic.AtomicInteger
@@ -16,9 +16,40 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object ReadApiConsumer {
 
+    /**
+     * 读取 Incision 织入证据；尚未就绪时返回 null。
+     *
+     * <p>这是“切点真的被织入并执行了”的**唯一真机判据**：
+     * `incisionEnabled=true` 只说明配置开了，`incisionActive=true` 才说明 Incision 真的把
+     * `SimplePluginManager#enablePlugin` 织上了、而且至少执行过一次切点。</p>
+     *
+     * <p>返回 null（而非直接失败）的两种情形：画像还没产出、或画像里 `incisionActive` 仍为 false
+     * ——后者留给轮询窗口内的后续尝试，因为织入生效可能晚于首个画像。</p>
+     */
+    fun readIncisionEvidence(): Map<String, String>? {
+        val profile = ServerProbeAPI.read().lastStartupProfile() ?: return null
+        if (profile.incisionEnabled != true) {
+            // 配置档就没打开：这是部署错误，不是“还没就绪”，故直接抛而不是静默重试。
+            error("启动画像显示 incisionEnabled=false，模板未开启 Incision")
+        }
+        if (profile.incisionActive != true) {
+            return null
+        }
+        val timings = profile.incisionPluginEnableTimings
+        check(!timings.isNullOrEmpty()) { "incisionActive=true 但逐插件耗时为空，切点未真正记录样本" }
+        check(timings.all { it.enableMs >= 0L }) { "存在负的 onEnable 耗时:${timings.map { it.name to it.enableMs }}" }
+        return mapOf(
+            "incisionEnabled" to "true",
+            "incisionActive" to "true",
+            "plugins" to timings.size.toString(),
+            // 取最慢一条作为可视证据，便于人工核对名字与量级合理。
+            "slowest" to timings.maxByOrNull { it.enableMs }?.let { "${it.name}@${it.enableMs}ms" }.orEmpty(),
+        )
+    }
+
     /** 读取公开门面；数据尚未产出时返回 null，完成后严格校验 TPS、MSPT 与启动画像。 */
     fun readEvidence(): Map<String, String>? {
-        val api = ServerProbeApi.read() ?: return null
+        val api = ServerProbeAPI.read()
         val snapshot = api.latestSnapshot() ?: return null
         val profile = api.lastStartupProfile() ?: return null
         val tick = checkNotNull(snapshot.server?.tick) { "快照缺少服务端 Tick 指标" }
@@ -40,7 +71,7 @@ object ReadApiConsumer {
      * @return 证据键值；历史尚未落盘（采集周期未到）或回读为空时返回 null，由 harness 继续轮询。
      */
     fun readHistoryEvidence(metricsRoot: java.io.File, limit: Int): Map<String, String>? {
-        val api = ServerProbeApi.read() ?: return null
+        val api = ServerProbeAPI.read() ?: return null
         val latest = api.latestSnapshot() ?: return null
         val persisted = api.historySnapshots(0L, System.currentTimeMillis(), limit)
         if (persisted.isEmpty()) {
@@ -77,7 +108,8 @@ object ReadApiConsumer {
     }
 
     /** 读取真实 Folia 已观测 region，要求区域明细和世界聚合均已形成。 */
-    fun readObservedRegionEvidence(): Map<String, String>? {        val server = ServerProbeApi.read()?.latestSnapshot()?.server ?: return null
+    fun readObservedRegionEvidence(): Map<String, String>? {
+        val server = ServerProbeAPI.read().latestSnapshot()?.server ?: return null
         val regions = server.observedRegions.orEmpty()
         val worlds = server.observedRegionWorlds.orEmpty()
         val stableRegions = regions.filter {
@@ -98,7 +130,7 @@ object ReadApiConsumer {
         if (targetId == controlId) {
             return null
         }
-        val regions = ServerProbeApi.read()?.latestSnapshot()?.server?.observedRegions.orEmpty()
+        val regions = ServerProbeAPI.read().latestSnapshot()?.server?.observedRegions.orEmpty()
         val target = regions.firstOrNull { it.foliaRegionId == targetId && it.isStableObservedRegion() } ?: return null
         val control = regions.firstOrNull { it.foliaRegionId == controlId && it.isStableObservedRegion() } ?: return null
         return FoliaRegionPair(target, control)
@@ -106,7 +138,7 @@ object ReadApiConsumer {
 
     /** 场景超时时输出最小化 region 状态，便于区分身份任务与公开快照未形成。 */
     fun observedRegionDiagnostic(targetId: Long, controlId: Long): String {
-        val server = ServerProbeApi.read()?.latestSnapshot()?.server ?: return "公开服务端快照不可用"
+        val server = ServerProbeAPI.read().latestSnapshot()?.server ?: return "公开服务端快照不可用"
         val regions = server.observedRegions.orEmpty()
         val samples = regions.take(MAX_DIAGNOSTIC_REGIONS).joinToString(";") {
             "id=${it.foliaRegionId},玩家=${it.playerCount},样本=${it.sampleCount}"
@@ -125,14 +157,14 @@ object ReadApiConsumer {
 
     /** Folia 的全局 Tick 值必须保持 N/A，不能退回 Paper 的伪全局读数。 */
     fun foliaGlobalTickUnavailable(): Boolean? {
-        val tick = ServerProbeApi.read()?.latestSnapshot()?.server?.tick ?: return null
+        val tick = ServerProbeAPI.read().latestSnapshot()?.server?.tick ?: return null
         return tick.tps1m == null && tick.tps5m == null && tick.tps15m == null &&
             tick.msptAvg == null && tick.msptP95 == null && tick.msptP99 == null
     }
 
     /** 已观测 region 的保留窗口过期后，明细与世界汇总应同时清空。 */
     fun observedRegionsExpired(): Boolean {
-        val server = ServerProbeApi.read()?.latestSnapshot()?.server ?: return false
+        val server = ServerProbeAPI.read().latestSnapshot()?.server ?: return false
         return server.observedRegions.orEmpty().isEmpty() && server.observedRegionWorlds.orEmpty().isEmpty()
     }
 

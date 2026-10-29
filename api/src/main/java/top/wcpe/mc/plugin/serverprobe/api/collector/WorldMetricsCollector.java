@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.api.collector;
 
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics;
 
 /**
  * 世界指标采集器契约。

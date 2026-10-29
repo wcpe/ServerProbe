@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
 
 /**
  * MCP 世界明细提供者契约。

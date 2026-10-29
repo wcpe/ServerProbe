@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.store
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStoreRegistration
 import top.wcpe.taboolib.ioc.annotation.Service
@@ -42,6 +42,20 @@ class SwitchingMetricStore : MetricStore {
 
     override fun readHistory(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> =
         current().readHistory(sinceMs, untilMs, limit)
+
+    /**
+     * 单侧区间读取必须显式委派到当前生效实例。
+     *
+     * 若沿用 [MetricStore] 的默认实现，本类会先落到自己的 [readHistory]、再转给当前实例，
+     * 从而**绕过第三方存储对单侧读取的覆写**（例如自定义时间源或尾部截断）。
+     * 这里直接转发，保证安装期间所有读取都走同一个替换实例。
+     */
+    override fun readHistorySince(sinceMs: Long, limit: Int): List<MetricSnapshot> =
+        current().readHistorySince(sinceMs, limit)
+
+    /** 同上：只设上界的读取直接委派当前实例，`Long.MIN_VALUE` 无下界哨兵由该实例自行处理。 */
+    override fun readHistoryUntil(untilMs: Long, limit: Int): List<MetricSnapshot> =
+        current().readHistoryUntil(untilMs, limit)
 
     override fun appendHistory(snapshots: List<MetricSnapshot>) = current().appendHistory(snapshots)
 

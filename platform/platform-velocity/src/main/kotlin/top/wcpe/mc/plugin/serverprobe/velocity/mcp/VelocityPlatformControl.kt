@@ -26,9 +26,19 @@ class VelocityPlatformControl : PlatformControl {
     @Inject
     lateinit var registry: PlatformControlRegistration
 
+    /**
+     * 平台门接缝。
+     *
+     * 生产行为与直接写 `Platform.CURRENT == Platform.VELOCITY` 完全一致（就是默认值）；
+     * 开这个口子只为了让测试能模拟“运行在 Velocity 上”或“运行在别的平台上”——
+     * `Platform.CURRENT` 是进程级不可变事实，单元测试跑在普通 JVM 上永远不可能是 VELOCITY，
+     * 不开口子的话“非本平台不注册”这条真正的不变量根本无从验证。
+     */
+    internal var isVelocityPlatform: () -> Boolean = { Platform.CURRENT == Platform.VELOCITY }
+
     @PostConstruct
     fun register() {
-        if (Platform.CURRENT == Platform.VELOCITY) registry.register(this)
+        if (isVelocityPlatform()) registry.register(this)
     }
 
     @PreDestroy

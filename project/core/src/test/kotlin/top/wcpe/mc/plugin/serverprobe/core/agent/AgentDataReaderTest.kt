@@ -4,12 +4,12 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
-import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.TimelineEvent
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 
 /**
  * [AgentDataReader] 单元测试。
@@ -44,10 +44,23 @@ class AgentDataReaderTest {
         assertFalse(data.attached, "未挂载时无论 topN 取值都应降级为未挂载")
     }
 
-    /** agent 类不存在时,stopStackSampler 应静默无副作用(不抛异常)。 */
+    /**
+     * agent 类不存在时，`stopStackSampler` 必须静默幂等。
+     *
+     * <p>原先这条只调一次、不断言任何东西——只能证明“没抛”，
+     * 而这两个方法内部本来就是 `runCatching{}`，抛异常才是不正常的。
+     * 这里改成验证真正的不变量：<b>重复调用不产生任何可见副作用</b>
+     * （重复停止不能把已卸载状态搞坏）。</p>
+     */
     @Test
-    fun `stopStackSampler 未挂载时静默`() {
-        AgentDataReader.stopStackSampler()
+    fun `stopStackSampler 未挂载时重复调用不抛且不改变可读状态`() {
+        // 连续多次：若内部有“已停止”标志位被误置，第二次可能抛或改变后续读结果。
+        repeat(3) { AgentDataReader.stopStackSampler() }
+
+        // 停止采样器不得影响读取入口的降级契约：仍未挂载、仍返回空数据。
+        val data = AgentDataReader.read(5)
+        assertFalse(data.attached, "仍应处于未挂载状态")
+        assertTrue(data.threadStacks.isEmpty(), "未挂载时线程栈仍应为空")
     }
 
     /** 未挂载时 readHttpCallsSince 应返回空列表且游标不前进,不抛异常。 */
@@ -58,11 +71,26 @@ class AgentDataReaderTest {
         assertEquals(5L, maxSeq, "未挂载时游标应原样返回")
     }
 
-    /** 未挂载时 setHttpMonitorEnabled 应静默无副作用(不抛异常)。 */
+    /**
+     * 未挂载时 `setHttpMonitorEnabled` 必须静默，且不得改变其它读取入口的降级结果。
+     *
+     * <p>原先这条只调用 true/false 各一次，无任何断言。
+     * 现在验证的是：无论怎么开关，未挂载时外呼读取仍应返回空且游标原样返回——
+     * 若开关误把某个全局状态打开，这里会暴露。</p>
+     */
     @Test
-    fun `setHttpMonitorEnabled 未挂载时静默`() {
+    fun `setHttpMonitorEnabled 未挂载时开关不改变读取降级`() {
         AgentDataReader.setHttpMonitorEnabled(true)
+
+        val (callsWhenOn, cursorWhenOn) = AgentDataReader.readHttpCallsSince(7L)
+        assertTrue(callsWhenOn.isEmpty(), "未挂载时开关为 true 也不应有外呼记录")
+        assertEquals(7L, cursorWhenOn, "游标应原样返回")
+
         AgentDataReader.setHttpMonitorEnabled(false)
+
+        val (callsWhenOff, cursorWhenOff) = AgentDataReader.readHttpCallsSince(9L)
+        assertTrue(callsWhenOff.isEmpty(), "未挂载时开关为 false 也不应有外呼记录")
+        assertEquals(9L, cursorWhenOff, "游标应原样返回")
     }
 
     /** parseFoldedStacks 应按线程分组、组内按命中降序,帧序列按 ';' 切分。 */

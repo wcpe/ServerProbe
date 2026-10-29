@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 
 /**
  * 告警类型。

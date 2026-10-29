@@ -34,7 +34,10 @@ configure<TabooLibExtension> {
         // 运行期模块从 wcpe 托管的 tabooproject release 镜像解析，避免 tabooproject 上对应版本缺失导致插件无法加载。
         repoTabooLib = "https://maven.wcpe.top/repository/maven-tabooproject-release"
     }
-    version { taboolib = "6.3.0-wcpe.1" }
+    // 6.3.0-wcpe.3 修了 `TabooLib.isKotlinEnvironment()` 只查未重定位 `kotlin.Lazy` 的缺陷：
+    // 开了 Kotlin 重定位时它恒返回 false，导致所有 Kotlin 写的 TabooLib 模块组件
+    // （Incision 的 Bootstrap/SurgeonScanner 等）不被扫描实例化，整块功能静默失效。
+    version { taboolib = "6.3.0-wcpe.3" }
 }
 
 // IoC 静态分析只把"本项目模块"作为依赖输入,排除第三方库。

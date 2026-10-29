@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.bungee.bridge
 
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import net.md_5.bungee.api.ProxyServer
 import net.md_5.bungee.api.chat.TextComponent
 import taboolib.common.platform.Platform
@@ -7,7 +8,6 @@ import taboolib.common.platform.PlatformSide
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommand
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandHandler
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandRegistry
-import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject

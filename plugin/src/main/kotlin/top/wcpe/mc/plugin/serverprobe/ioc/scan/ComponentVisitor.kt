@@ -110,25 +110,27 @@ object ComponentVisitor : ClassVisitor(1) {
         // 中断整条注入链,令异常类之后所有组件的 @Inject 字段全部未注入(1.16.5/JDK8 真机已证)。
         // 故读取失败时按模块包名约定兜底判定平台,与注解语义严格一致。
         val declaredPlatforms = runCatching { candidate.getAnnotation(PlatformSide::class.java)?.value }
-            .getOrElse { return platformFromPackage(candidate.name, Platform.CURRENT) }
+            .getOrElse { return platformFromPackage(candidate) }
         return declaredPlatforms?.let { Platform.CURRENT in it } ?: true
     }
 
-    /** 模块包名到运行平台的映射:`bukkit.`/`nms.` 归 Bukkit 系,`bungee.`/`velocity.` 各归其平台。 */
-    private fun platformFromPackage(candidate: Class<*>): Boolean =
-        platformFromPackage(candidate.name, Platform.CURRENT)
+    /** 模块包名到运行平台的映射:`bukkit.`/`nms.`归 Bukkit 系,`bungee.`/`velocity.`各归其平台。 */
+    internal fun platformFromPackage(candidate: Class<*>): Boolean =
+        // null = 无法从包名判定 = 不限定平台（保持原语义：无匹配时归为 true）
+        platformOfPackage(candidate.name)?.let { it == Platform.CURRENT } ?: true
 
     /**
-     * 包名 → 平台判定的纯函数(供单测;注解不可读时的兜底口径)。
+     * 把类名映射为所属平台；无法从包名判定时返回 null（表示“不限定平台”）。
      *
-     * 注意:三前缀之外的类按"默认放行"处理,可能被非 Bukkit 平台多注册,
-     * 由类自身 `@PostConstruct` 平台门二次兜底(两层防御)。
+     * <p>抽成纯函数（不读 `Platform.CURRENT`）是为了能被直接测试：
+     * 原先只能靠读源码字符串确认三个包名前缀的存在，
+     * 现在可以真的传类名进去断言映射结果。</p>
      */
-    internal fun platformFromPackage(className: String, current: Platform): Boolean = when {
-        className.startsWith(BUNGEE_PACKAGE_PREFIX) -> Platform.BUNGEE == current
-        className.startsWith(VELOCITY_PACKAGE_PREFIX) -> Platform.VELOCITY == current
-        className.startsWith(BUKKIT_PACKAGE_PREFIX) -> Platform.BUKKIT == current
-        else -> true
+    internal fun platformOfPackage(className: String): Platform? = when {
+        className.startsWith(BUNGEE_PACKAGE_PREFIX) -> Platform.BUNGEE
+        className.startsWith(VELOCITY_PACKAGE_PREFIX) -> Platform.VELOCITY
+        className.startsWith(BUKKIT_PACKAGE_PREFIX) -> Platform.BUKKIT
+        else -> null
     }
 
     private fun singleton(className: String): Any = Class.forName(className).getField("INSTANCE").get(null)

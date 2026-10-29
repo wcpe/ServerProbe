@@ -4,7 +4,7 @@ import org.bukkit.Bukkit
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import taboolib.platform.Folia
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 import top.wcpe.mc.plugin.serverprobe.bukkit.folia.FoliaObservedRegionService
 import top.wcpe.mc.plugin.serverprobe.bukkit.sampler.TickClock

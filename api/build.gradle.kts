@@ -12,6 +12,17 @@ java {
 dependencies {
     compileOnly("org.projectlombok:lombok:1.18.48")
     annotationProcessor("org.projectlombok:lombok:1.18.48")
+    // 契约测试:DomainManifest/ActionSpec 的 null 归一、防御性拷贝、
+    // 风险等级 fail-safe 默认值等语义都是对外承诺，必须有测试钉死。
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
+    // JUnit 5.12+ 要求测试运行期显式具备 Platform launcher，否则 Gradle 报
+    // "Could not start Gradle Test Executor / Failed to load JUnit Platform"。
+    // 版本由 junit-jupiter 传递的 junit-bom 管理，无需在此写死。
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 publishing {

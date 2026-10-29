@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.core.cpu.PluginClassLoaderRegistry
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import java.net.URLClassLoader

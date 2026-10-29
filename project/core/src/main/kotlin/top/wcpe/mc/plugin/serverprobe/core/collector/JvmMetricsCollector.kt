@@ -1,8 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.core.collector
 
-import top.wcpe.mc.plugin.serverprobe.api.model.GcCollectorMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MemoryPoolMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.GcCollectorMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MemoryPoolMetric
 import top.wcpe.mc.plugin.serverprobe.core.jmx.JmxSupport
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger

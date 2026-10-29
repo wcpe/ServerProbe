@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 
 /**
  * FR-29 新增告警类型的取值/差分单元测试。

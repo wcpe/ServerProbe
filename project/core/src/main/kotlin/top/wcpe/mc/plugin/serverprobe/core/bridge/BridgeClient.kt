@@ -1,8 +1,18 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
-import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BusinessHost
+import top.wcpe.mc.plugin.serverprobe.core.bridge.chunk.FrameChunker
+import top.wcpe.mc.plugin.serverprobe.core.bridge.event.BridgeEventPublisher
+import top.wcpe.mc.plugin.serverprobe.core.bridge.event.BusinessEventPublisher
+import top.wcpe.mc.plugin.serverprobe.core.bridge.reload.ConfigReloadCoordinator
+import top.wcpe.mc.plugin.serverprobe.core.bridge.reload.ConfigReloadRoute
+import top.wcpe.mc.plugin.serverprobe.core.bridge.reload.ReloadListenerSource
+import top.wcpe.mc.plugin.serverprobe.core.bridge.reload.ReloadRuntime
+import top.wcpe.mc.plugin.serverprobe.core.bridge.topic.TopicFilter
+import top.wcpe.mc.plugin.serverprobe.core.bridge.topic.TopicSubscriptionRegistry
+import top.wcpe.mc.plugin.serverprobe.core.config.BridgeConfigSource
+import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfigBridgeConfigSource
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
-import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.store.InstanceId
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -12,410 +22,870 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.io.EOFException
 import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 插件桥反向 WS 客户端(JianManager ADR-016 的探针侧载体)。
+ * 插件桥反向 WS 客户端（线路治理）。
  *
- * 探针启用后主动以实例级 token 反向连入**本机 Worker** 的 `/ws/plugin-bridge`,建立实时双向通道。
- * 上行:连上 → 发 hello → 周期 ping 心跳 → 实时玩家事件(经 [emitPlayerEvent])→ 断线指数退避重连。
- * 下行:读循环收 Worker 下发的 `command`帧(治理:踢/封/解封/白名单/在线列表),经
- * [BridgeCommandRegistry] 交平台执行器执行,并回 `command_result`(带回同一 requestId 供 Worker 匹配同步等待者)。
+ * 探针启用后主动以实例级 token 反向连入**本机 Worker** 的 `/ws/plugin-bridge`。
+ * 本类只负责**连接生命周期**：
+ * - 建连 / 握手 / hello / 周期性心跳 / 指数退避重连 / 停机；
+ * - 把读循环收到的帧交给 [BridgeKernel]（解析与分发）；
+ * - 把上行帧交给 [FrameSender]（队列、优先级、落盘）。
  *
- * ## 零第三方依赖 / JDK 8
- * 探针锁 Java 8 且约定不引第三方 HTTP/JSON 库(见 PrometheusExporter / WebhookAlertChannel)。
- * 故用 [MinimalWebSocketClient](裸 Socket 手写 RFC 6455)+ 手拼极简 JSON,不引任何库。
+ * 业务执行、路由匹配、事件分级都**不在本类**——这是本次重构的核心：
+ * 读线程只做"读 + 转交"，任何执行都在池上发生。
  *
- * ## 线程模型:独立后台线程,绝不阻塞服务器
- * 连接/读循环/重连跑在本类自起的 **daemon 线程**(非主线程、非 TabooLib 调度线程),
- * 网络阻塞不影响宿主;心跳由读线程按节奏在循环内发出。整体 try/catch:任何异常仅 WARN 降级、
- * 绝不抛出影响插件(探针不成事故源)。
+ * ## 线程模型
+ * - `ServerProbe-Bridge`：读循环（唯一），绝不阻塞；
+ * - `ServerProbe-Heartbeat`：周期 ping（不依赖读超时，忙连接也要发）；
+ * - `ServerProbe-Sender`：发送循环，按优先级取帧；
+ * - `ServerProbe-Spill`：落盘（仅可靠事件队列满时用）；
+ * - `serverprobe-cmd/event/reload`：业务执行池，见 [BridgePools]。
+ * - `serverprobe-reload-worker`：配置重载的监听器子任务池，与 `serverprobe-reload`
+ *   **必须是两个池**（共用会池内自锁，见 [ReloadWorkerPool]）。
+ * - `serverprobe-health` / `serverprobe-health-probe`：Provider 健康刷新，
+ *   由 [ProviderHealthRegistry] 持有；桥启动时一并起、停机时与 reload 池同批 `shutdownNow`。
  *
  * ## 安全
- * token 仅用于握手 query 参数,**绝不写入日志**;日志只记 URL host/port 与实例标识。
- *
- * 生命周期:作为 IOC [Service],[start] 于 `@PostEnable`起后台线程、[stop] 于 `@PreDestroy`停。
+ * token 只用于握手 query 参数，**绝不写入日志**；日志只记 host/port 与实例标识。
  */
+// 函数数超阈值是**刻意的收敛结果**：本类只做"连接管理"，
+// 把编解码/队列/分片/路由都推给了 FrameSender、BridgeKernel、BridgeRoutes。
+// 剩下的多是小而单一的私有助手（encode/helloJson/classify/...），
+// 再拆成 2~3 个类会把同一份连接状态切片共享，反而更难读，故只抑制。
+@Suppress("TooManyFunctions")
 @Service
 class BridgeClient {
 
-    /** 运行标志:start 置 true,stop 置 false;读循环与重连据此决定是否继续。 */
+    /** 运行标志：start 置 true，stop 置 false。 */
     private val running = AtomicBoolean(false)
 
-    /** 后台连接线程;未启动时为 null。 */
+    /** 读线程。 */
     @Volatile
-    private var thread: Thread? = null
+    private var readThread: Thread? = null
 
-    /** 当前活动连接;用于 stop 时主动断开以打断读阻塞,以及心跳/事件发送。 */
+    /** 心跳线程。 */
+    @Volatile
+    private var heartbeatThread: Thread? = null
+
+    /** 发送线程。 */
+    @Volatile
+    private var senderThread: Thread? = null
+
+    /** 落盘线程。 */
+    @Volatile
+    private var spillThread: Thread? = null
+
+    /** 当前连接。 */
     @Volatile
     private var client: MinimalWebSocketClient? = null
 
+    /** 运行期组件（start 时创建，stop 时销毁）。 */
+    @Volatile
+    private var sender: FrameSender? = null
+
+    @Volatile
+    private var kernel: BridgeKernel? = null
+
+    @Volatile
+    private var pools: BridgePools? = null
+
+    @Volatile
+    private var spill: EventSpillStore? = null
+
     /**
-     * 治理指令处理器注册中心:读循环收到 `command`帧时经其取平台执行器执行。
-     * 平台模块(bukkit/bungee)自注册执行器;未注册(独立使用探针)时回 success=false 优雅降级。
+     * 配置重载运行时：worker 池 + 在途表 + 熔断表，与 [pools] 的 `reload` 协调池**分离**。
+     *
+     * 由本类持有生命周期：桥启动时创建、停机时 `shutdownNow`（与 reload 协调池同批）。
      */
+    @Volatile
+    private var reloadRuntime: ReloadRuntime? = null
+
+    /** 连接状态（批次 0 先记最小字段；批次 1 补完整重连语义）。 */
+    private val link = BridgeLinkState()
+
+    /** 上次打印的连接失败原因,用于日志限频。 */
+    @Volatile
+    private var lastLoggedReason: String = ""
+
+    /** 自上次打印以来被抑制的同类日志条数。 */
+    private val suppressedFailures = AtomicLong(0)
+
+    /** 治理指令处理器注册中心。 */
     @Inject
     lateinit var commandRegistry: BridgeCommandRegistry
 
-    /**
-     * 业务对接装配 / 派发中心(JBIS,见 ADR-0015):读循环收到带 domain 的业务 `command`帧时,
-     * 经其路由到对应业务域 Provider 执行(事故域隔离);未注册任何 Provider 时业务命令降级为该域不可用。
-     */
+    /** 业务对接装配 / 派发中心。 */
     @Inject
     lateinit var businessHost: BusinessHost
 
     /**
-     * 启动插件桥客户端。
+     * Provider 健康状态缓存。
      *
-     * 开关关闭或 url/token 未配置则跳过(独立使用探针时不连);否则起一个 daemon 线程跑连接-读-重连循环。
-     * 整体不抛:配置异常/线程起不来仅 WARN 降级。
+     * 注入类型 [ProviderHealthRegistry] **未实现任何接口**，故 IoC 以自身类型暴露，按具体类型注入是
+     * 正确写法（IoC 静态分析的坑在"实现了接口的类只以接口暴露"，`BusinessHost` 那类才必须按接口注入）。
+     * 单测直接构造 [BridgeClient] 时该字段未注入，故所有访问点先判 `isInitialized`。
      */
-    @PostEnable
-    fun start() {
-        if (!ProbeConfig.bridgeEnabled()) {
-            ProbeLogger.info("插件桥未开启(bridge.enabled=false),已跳过反向 WS 连接")
-            return
-        }
-        val url = ProbeConfig.bridgeUrl()
-        val token = ProbeConfig.bridgeToken()
-        if (url.isEmpty() || token.isEmpty()) {
-            ProbeLogger.warn("插件桥已开启但 bridge.url 或 bridge.token 为空,已跳过(请检查 JianManager 下发的探针配置)")
-            return
-        }
-        if (running.getAndSet(true)) return // 幂等:重复回调不重复起线程
+    @Inject
+    lateinit var healthRegistry: ProviderHealthRegistry
 
-        val t = Thread({ runLoop(url, token) }, "ServerProbe-Bridge")
-        t.isDaemon = true
-        thread = t
-        t.start()
-        // 安全:只记 host,不打 token
-        ProbeLogger.info("插件桥反向 WS 客户端已启动,目标 ${safeAuthority(url)}")
+    /**
+     * 配置重载监听器来源。
+     *
+     * 注入类型是 core 内部接口 [ReloadListenerSource]，实现类 [top.wcpe.mc.plugin.serverprobe.core.bridge.reload.ConfigReloadRegistryImpl]
+     * 同时被 IoC 暴露为对外契约 `ConfigReloadRegistry` 与本接口——**按接口注入**，
+     * 注入实现类会报 `missing-bean`。
+     *
+     * 单测直接构造 [BridgeClient] 时该字段未注入，故访问点先判 `isInitialized`。
+     */
+    @Inject
+    lateinit var reloadListeners: ReloadListenerSource
+
+    /**
+     * 业务事件发布器（懒建；与连接解耦，故可安全地在桥未启动时创建）。
+     *
+     * `BridgeEventPublisher` 每次调用现取 [sender]/[resolveInstance]，因此重连后无需重建。
+     * 桥未启动时发送器为 null，发布器按"未受理"返回 false。
+     */
+    private val publisher: BridgeEventPublisher by lazy {
+        BridgeEventPublisher(sender = { sender }, instance = { resolveInstance() })
     }
 
     /**
-     * 停止插件桥客户端。置停标志、主动断开当前连接以打断读阻塞、join 后台线程(限时)。
+     * 业务事件发布器（供 [BusinessEventSinkImpl] 取用）。
+     *
+     * 返回的是稳定实例，可安全缓存。
+     */
+    fun eventPublisher(): BusinessEventPublisher = publisher
+
+    /**
+     * 可靠事件序号分配器。
+     *
+     * **生命周期长于桥连接**：`stop()` 不重置它——序号必须跨"桥内部重启"（配置重载、
+     * 连接自愈触发的 stop/start）续接，否则一次重连就会让所有域的序号回到 1。
+     * 落盘目录在 [doStart] 才知道，故在那里 [EventSeqAllocator.bind]。
+     */
+    val seqAllocator: EventSeqAllocator = EventSeqAllocator()
+
+    /**
+     * 主题订阅注册表（进程内**唯一**实例）。
+     *
+     * 生命周期刻意长于桥连接：订阅只存内存、**跨重连保留**（探针重启才清空），
+     * 因此在字段初始化处创建一次，`start()`/`stop()` 都不重建。
+     * 上限从 [BridgeConfigSource.subscribe] 现取，故配置重载后无需重建注册表。
+     */
+    private val subscriptions = TopicSubscriptionRegistry { configSource.subscribe() }
+
+    /** 配置读取接缝：默认读 [ProbeConfigBridgeConfigSource]，单测可替换。 */
+    @Volatile
+    var configSource: BridgeConfigSource = ProbeConfigBridgeConfigSource
+
+    /**
+     * 启动插件桥客户端。
+     *
+     * 开关关闭或 url/token 未配置则跳过；否则建组件、起线程。
+     *
+     * **整体绝不抛**：本方法由 IoC 的 `@PostEnable` 反射调用，那里只会记一行
+     * `bridgeClient.start - null` 就继续往下走——异常消息会丢失、桥静默不起、
+     * 而服务器照常启动，排障成本极高（E2E 曾因此整场失败而日志无有效线索）。
+     * 因此这里自己兜住并打印类名与堆栈前几帧，把"静默失败"变成"可诊断的降级"。
+     */
+    @PostEnable
+    fun start() {
+        runCatching { doStart() }.onFailure { e ->
+            ProbeLogger.warn("桥客户端启动失败(${e.javaClass.name}:${e.message}),本次不建立连接")
+            e.stackTrace.take(START_FAILURE_TRACE_FRAMES).forEach { ProbeLogger.warn("  at $it") }
+        }
+    }
+
+    private fun doStart() {
+        // 订阅接线与桥开关无关：`hello.subscriptions` 的唯一取值口必须先指向本进程的注册表，
+        // 否则对端永远看到空数组，而实际仍有订阅（可观测性失效）。
+        wireSubscriptions()
+        val settings = configSource
+        if (!settings.enabled()) {
+            ProbeLogger.info("插件桥未开启(bridge.enabled=false),已跳过反向 WS 连接")
+            return
+        }
+        if (settings.url().isEmpty() || settings.token().isEmpty()) {
+            ProbeLogger.warn("插件桥已开启但 bridge.url 或 bridge.token 为空,已跳过(请检查 JianManager 下发的探针配置)")
+            return
+        }
+        if (running.getAndSet(true)) return
+
+        val line = settings.line()
+        val store = if (line.spillEnabled) EventSpillStore(line).also { it.load() } else null
+        //：序号状态与事件缓冲同目录、同开关（见 EventSpillStore.seqState 的说明）。
+        // 绑定后立刻装载：必须在任何事件上报之前完成，否则首个事件会从兜底起点起号。
+        seqAllocator.bind(store?.seqState)
+        seqAllocator.load()
+        // 分片需求 = 阈值与单组上限（`bridge.chunk.*`）；信封里的 instance/timestamp 不属于
+        // OutboundFrame 的权威字段集，只能由装配处提供，故以供应器注入。
+        val chunker = FrameChunker(settings.chunk()) { chunkEnvelope() }
+        val frameSender = FrameSender(line, store, chunker)
+        // 主题滤镜：必须在容量判定之前（FrameSender.submit 的固定顺序，见事件主题订阅规格 §3.5）。
+        frameSender.addFilter(TopicFilter(subscriptions))
+        val bridgePools = BridgePools(line)
+        val bridgeKernel = BridgeKernel(frameSender, bridgePools)
+        // 重载 worker 池与上面 BridgePools 里的 reload 协调池是**两个池**（规格 §3.1 的硬要求）。
+        // 停机时与 reload 池同批 shutdownNow（在 [stop] 里）。
+        reloadRuntime = ReloadRuntime.of(settings.reload())
+        registerRoutes(bridgeKernel, frameSender)
+        // 按**实际接线情况**声明能力：只声明真的能处理的，避免面板下发后才发现不支持。
+        // 分片能力（分片规格 §3.6）：对端据此决定是否下发需要分片的大数据请求。
+        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CHUNK)
+        // 主题订阅能力：对端据此判断可否下发 `core.subscribe`。
+        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_TOPIC)
+        // 配置重载能力、健康状态查询能力：只在对应路由真的挂上时声明
+        // （二者都依赖可选的注入项，见 registerRoutes 的 let 分支）。
+        if (reloadRuntime != null) {
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CONFIG_RELOAD)
+        }
+        if (healthRegistryOrNull() != null) {
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_BUSINESS_STATUS)
+        }
+
+        spill = store
+        sender = frameSender
+        pools = bridgePools
+        kernel = bridgeKernel
+        BridgeStatusRoute.CURRENT_POOLS = bridgePools
+
+        startThreads(line, store, frameSender, bridgeKernel)
+        // Provider 健康刷新线程与桥同生命周期：桥不开时没有任何消费者，多起两条线程只是白烧 CPU
+        // （且会进第三方 health()）。start/stop 均幂等。
+        healthRegistryOrNull()?.start()
+        ProbeLogger.info("插件桥反向 WS 客户端已启动,目标 ${safeAuthority(settings.url())}")
+    }
+
+    /**
+     * 停止插件桥客户端（停机协议，见线路治理规格 §6.1）。
+     *
+     * 顺序：停读 → 打断重载池 → 优雅停命令/事件池 → 停发送 → 停落盘 → 关连接。
+     * 重载池用 `shutdownNow` 是因为其任务会回调外部插件的配置加载，
+     * 而那些插件可能已在自身 `onDisable` 里关掉资源。
      */
     @PreDestroy
     fun stop() {
+        // 解绑全局接线：停机后不应再对外声明"当前订阅"（也避免全局状态残留到下一次装配）。
+        BridgeCapabilities.setSubscriptionSource(null)
         if (!running.getAndSet(false)) return
         runCatching { client?.close() }
         client = null
-        thread?.let { t ->
-            runCatching { t.join(JOIN_TIMEOUT_MS) }
-        }
-        thread = null
+        sender?.shutdown()
+        spill?.shutdown()
+        //：正常停机把"未落盘的号段"刷进 seq.state，抹平崩溃才会有的续接缺口。
+        // 放在 spill 关闭之后：序号状态与事件缓冲同目录，但两者互不依赖写入顺序；
+        // 放在这里只是因为"停机收尾"是唯一能保证各域最大值都已确定的位置。
+        seqAllocator.shutdown()
+        // 停机协议 ②：health 刷新线程与 reload 池**同批** shutdownNow。
+        // 理由与 reload 池相同——health() 是只读上报，打断无副作用，且停用后不该再进第三方代码。
+        healthRegistryOrNull()?.stop()
+        pools?.shutdown()
+        // 重载 worker 池与协调池同批 shutdownNow：在途的监听器回调没有理由继续
+        // （目标插件可能已在自身 onDisable 里关掉资源）。
+        reloadRuntime?.shutdownNow()
+        reloadRuntime = null
+        runCatching { readThread?.join(JOIN_TIMEOUT_MS) }
+        runCatching { senderThread?.join(JOIN_TIMEOUT_MS) }
+        runCatching { spillThread?.join(JOIN_TIMEOUT_MS) }
+        runCatching { heartbeatThread?.interrupt() }
+        runCatching { heartbeatThread?.join(JOIN_TIMEOUT_MS) }
+        readThread = null
+        senderThread = null
+        spillThread = null
+        heartbeatThread = null
+        kernel = null
+        sender = null
+        spill = null
+        pools = null
+        BridgeStatusRoute.CURRENT_POOLS = null
         ProbeLogger.info("插件桥反向 WS 客户端已停止")
     }
 
     /**
-     * 连接-读-重连主循环(跑在后台线程)。
+     * 上报一个玩家事件（可丢）。
      *
-     * 每轮:建一条连接 → 握手 → 发 hello + demo connected 事件 → 读循环(内部按节奏发 ping 心跳);
-     * 连接异常/断开后,若仍 running 则按指数退避(上限 [MAX_BACKOFF_MS])后重连。
-     * 成功连上后退避重置为初始值。
+     * 未连接或队列满时**静默丢弃**（玩家事件是实时增量，漏一两条由后续事件与名册重置自愈）。
+     * 绝不抛、可在任意线程调用（含主线程）。
      */
-    // 连接/握手/读全过程必须广捕兜底:任何异常都只降级重连、绝不让后台线程挂掉(桥的韧性设计),
-    // 故此处 catch(Exception) 是有意为之。
-    @Suppress("TooGenericExceptionCaught")
-    private fun runLoop(url: String, token: String) {
-        val instance = resolveInstance()
-        var backoff = INITIAL_BACKOFF_MS
+    fun emitPlayerEvent(eventType: String, fields: Map<String, String>) {
+        val frame = OutboundFrame(
+            type = OutboundFrame.TYPE_EVENT,
+            event = eventType,
+            payload = playerEventJson(eventType, fields),
+            priority = OutboundFrame.Priority.BEST_EFFORT_EVENT,
+        )
+        sender?.submit(frame)
+    }
+
+    /**
+     * 上报一个业务域事件（**不可丢**）。
+     *
+     * 与玩家事件同走 `event` 帧，但带顶层 `domain` + `dedupKey`，Worker 按
+     * `(domain, dedupKey)` 幂等落库。队列满时落盘兜底，重连后回放（至少一次）。
+     *
+     * 保留本方法是为了**调用方兼容**（平台模块与 E2E harness 仍按三参调用）；
+     * 它等价于"未声明主题的可靠事件"。需要带主题或需要拿到受理结果时，走
+     * `ServerProbeAPI.eventSink()`（`emit` / `emitReliable`）。
+     *
+     * @param domain 业务域。
+     * @param dedupKey 去重键；空串会被可靠通道拒绝（见 `BusinessEventSink.emitReliable`）。
+     * @param fields 结构化字段。
+     */
+    fun emitBusinessEvent(domain: String, dedupKey: String, fields: Map<String, String>) {
+        if (domain.isEmpty()) return
+        // 主题一次算出：payload 与帧字段共用同一个值（未声明主题即 null）。
+        val topic: String? = null
+        val frame = OutboundFrame(
+            type = OutboundFrame.TYPE_EVENT,
+            event = "${domain}_change",
+            domain = domain,
+            payload = businessEventJson(domain, dedupKey, topic, fields),
+            priority = OutboundFrame.Priority.RELIABLE_EVENT,
+            topic = topic,
+        )
+        sender?.submit(frame)
+    }
+
+    /**
+     * 注册全部下行路由（序位见线路治理规格的 order 表）。
+     *
+     * @param frameSender 本次启动新建的发送器。**必须显式传入**：`sender` 字段要到
+     *   [doStart] 后段才赋值，此处若走 `requireSender()` 会抛"发送器尚未初始化"，
+     *   而该异常会被 IoC 的 `@PostEnable` 兜住并只记一行 WARN —— 表现为桥整个没起来、
+     *   日志里却只有一句 `bridgeClient.start - null`（曾因此让 E2E 静默失败）。
+     */
+    private fun registerRoutes(bridgeKernel: BridgeKernel, frameSender: FrameSender) {
+        bridgeKernel.addRoute(ManifestRoute { businessHost })
+        // 序位 100：配置重载，跑在 reload **协调池**上（子任务另走 reload-worker 池）。
+        // 监听器来源未注入（单测直接构造本类）时跳过，其余路由照常工作。
+        reloadListenersOrNull()?.let { bridgeKernel.addRoute(ConfigReloadRoute(newCoordinator(it))) }
+        bridgeKernel.addRoute(
+            BridgeStatusRoute(frameSender, bridgeKernel, topics = ::currentTopics) { link.snapshot() },
+        )
+        // 序位 110：`config_reload`(100) 之后、`subscribe`(120) 与 `bridge_status`(130) 之前。
+        // 只读健康缓存，绝不在命令线程上调 Provider。注册表未注入（单测直接构造本类）时跳过。
+        healthRegistryOrNull()?.let { bridgeKernel.addRoute(BusinessStatusRoute(it)) }
+        // 序位 120：早于 `bridge_status`(130) 与业务域兜底(500)，且只认领 core.subscribe/unsubscribe。
+        bridgeKernel.addRoute(SubscribeRoute(subscriptions))
+        bridgeKernel.addRoute(BusinessDomainRoute { businessHost })
+        bridgeKernel.addRoute(GovernanceRoute { commandRegistry.handler })
+    }
+
+    /** 取健康注册表；未注入（单测直接构造本类）时返回 null。 */
+    private fun healthRegistryOrNull(): ProviderHealthRegistry? =
+        if (::healthRegistry.isInitialized) healthRegistry else null
+
+    /** 取重载监听器来源；未注入（单测直接构造本类）时返回 null。 */
+    private fun reloadListenersOrNull(): ReloadListenerSource? =
+        if (::reloadListeners.isInitialized) reloadListeners else null
+
+    /**
+     * 组装重载编排器。
+     *
+     * 阈值取 [configSource] 的 `bridge.reload.*`（**不直读 `ProbeConfig`**）；其中 `timeout-ms`
+     * 与 `max-paths-per-request` 每次请求现读，而 `stuck-after-ms` 与熔断五项在 [ReloadRuntime.of]
+     * 里**启动时固化**——它们是在途表与熔断表的构造参数，运行期变更需重连或重启才生效。
+     */
+    private fun newCoordinator(source: ReloadListenerSource): ConfigReloadCoordinator = ConfigReloadCoordinator(
+        runtime = requireReloadRuntime(),
+        listeners = source,
+        settings = { configSource.reload() },
+    )
+
+    /** 取已创建的重载运行时（仅在 start 内部使用）。 */
+    private fun requireReloadRuntime(): ReloadRuntime = reloadRuntime ?: error("重载运行时尚未初始化")
+
+    /**
+     * 当前生效订阅表达式（`bridge_status.topics.expressions` 的唯一取值口）。
+     *
+     * 与 `hello.subscriptions` 同源：两者都调本方法，因而**必然同值**——
+     * 各自拼装会漂移，而这正是 JM 用来判断"探针是否仍在用旧订阅"的依据。
+     */
+    private fun currentTopics(): List<String> = subscriptions.snapshot().toList()
+
+    /**
+     * 接线订阅来源：`hello.subscriptions` 读它，`bridge_status` 也读同一份注册表。
+     *
+     * 见事件主题订阅规格 §3.8 的接线义务；漏接的表现是 `hello.subscriptions` 恒为空数组
+     * 而实际仍有订阅，故装配单测断言"两者相等"。
+     */
+    private fun wireSubscriptions() {
+        BridgeCapabilities.setSubscriptionSource(::currentTopics)
+    }
+
+    /** 起全部后台线程。 */
+    private fun startThreads(
+        line: top.wcpe.mc.plugin.serverprobe.core.config.LineSettings,
+        store: EventSpillStore?,
+        frameSender: FrameSender,
+        bridgeKernel: BridgeKernel,
+    ) {
+        readThread = daemon("ServerProbe-Bridge") { runLoop(line, bridgeKernel) }
+        senderThread = daemon("ServerProbe-Sender") { frameSender.runLoop() }
+        heartbeatThread = daemon("ServerProbe-Heartbeat") { heartbeatLoop() }
+        if (store != null) {
+            spillThread = daemon("ServerProbe-Spill") { store.drainLoop() }
+        }
+    }
+
+    /** 创建并启动一个守护线程。 */
+    private fun daemon(name: String, body: () -> Unit): Thread =
+        Thread(body, name).apply {
+            isDaemon = true
+            start()
+        }
+
+    /**
+     * 连接-读-重连主循环。
+     *
+     * 每轮：重读配置 → 建连 → 握手 → 发 hello → 读循环 → 断开后退避重连。
+     * 整体不抛：任何异常都只降级重连（探针不成事故源）。
+     */
+    // 连接/握手/读全过程必须广捕兜底:任何异常都只降级重连、绝不让后台线程挂掉(桥的韧性设计)。
+    // 循环里的多处 continue/break 是"配置缺失→退避重连 / 链路超时→退出本轮"这两个早退路径，
+    // 抽成状态机只会让线性流程变绕，故只抑制跳转数检查。
+    @Suppress("TooGenericExceptionCaught", "LoopWithTooManyJumpStatements")
+    private fun runLoop(line: top.wcpe.mc.plugin.serverprobe.core.config.LineSettings, bridgeKernel: BridgeKernel) {
+        var backoff = configSource.reconnect().initialBackoffMs
         while (running.get()) {
+            // 重连前从磁盘重读:token 轮换后无需重启服务器。
+            ProbeConfigBridgeConfigSource.refreshFromDisk()
+            val url = configSource.url()
+            val token = configSource.token()
+            if (url.isEmpty() || token.isEmpty()) {
+                link.markDisconnected(BridgeLinkState.REASON_CONFIG_EMPTY, "bridge.url 或 bridge.token 未配置", backoff)
+                backoff = sleepBackoff(backoff)
+                continue
+            }
+            val instance = resolveInstance()
             try {
-                val target = URI("$url?token=$token&instance=$instance")
-                val ws = MinimalWebSocketClient(target, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                link.markConnecting()
+                val target = buildTargetUri(url, token, instance)
+                val ws = MinimalWebSocketClient(
+                    uri = target,
+                    connectTimeoutMs = CONNECT_TIMEOUT_MS,
+                    readTimeoutMs = line.readTimeoutMs.toInt(),
+                    writeDeadlineMs = line.writeDeadlineMs,
+                    maxInboundBytes = line.maxInboundBytes,
+                )
                 ws.connect()
                 client = ws
-                backoff = INITIAL_BACKOFF_MS // 连上即重置退避
-                ProbeLogger.info("插件桥已连入 Worker(instance=$instance)")
-
-                onConnected(ws, instance)
-                readLoop(ws)
+                onConnected(ws, frameSenderOrNull())
+                readLoop(ws, bridgeKernel)
             } catch (e: EOFException) {
-                ProbeLogger.info("插件桥连接关闭:${e.message}")
+                link.markDisconnected(BridgeLinkState.REASON_PEER_CLOSED, e.message ?: "", backoff)
+                logConnectFailure(BridgeLinkState.REASON_PEER_CLOSED, e.message ?: "对端关闭")
             } catch (e: Exception) {
-                // 连接/握手/读失败:降级,不抛
-                ProbeLogger.warn("插件桥连接异常,将重连:${e.message}")
+                val reason = classify(e)
+                link.markDisconnected(reason, e.message ?: "", backoff)
+                logConnectFailure(reason, e.message ?: e.javaClass.simpleName)
             } finally {
+                frameSenderOrNull()?.detach()
                 runCatching { client?.close() }
                 client = null
             }
             if (!running.get()) break
-            // 指数退避后重连(静默休眠,被打断即返回)
-            runCatching { Thread.sleep(backoff) }
-            backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
+            backoff = sleepBackoff(backoff)
         }
     }
 
-    /**
-     * 连接建立后的初始上行:发 hello(自报平台/版本/实例)+ 一个 `connected`业务事件。
-     */
-    private fun onConnected(ws: MinimalWebSocketClient, instance: String) {
+    /** 连接建立后的初始上行：hello + connected 事件。 */
+    private fun onConnected(ws: MinimalWebSocketClient, sender: FrameSender?) {
+        val instance = resolveInstance()
         ws.sendText(helloJson(instance))
-        ws.sendText(eventJson("connected", instance))
+        link.markConnected()
+        sender?.attach(ws)
+        // 重连后把落盘未确认的可靠事件回放出去。
+        spill?.resetReplay()
+        sender?.replaySpill()
     }
 
     /**
-     * 上报一个玩家/跨服业务事件。供平台监听器(Bukkit join/quit/chat、BC 跨服路由)调用。
+     * 读循环：阻塞读 → 交给内核 → **每次迭代**检查写侧 watchdog 与心跳。
      *
-     * 线程安全且**绝不抛**:未连接(探针独立使用或正在重连)时静默丢弃该事件——玩家事件是实时增量,
-     * 漏一两条不影响整体(连上后由后续事件与名册重置自愈);[MinimalWebSocketClient.sendText] 的写
-     * 已由其内部写锁串行化,可被任意线程(含 Bukkit 主线程、BC 事件线程)安全调用。失败仅 WARN 降级。
-     *
-     * @param eventType 事件子类型:player_join | player_quit | chat | cross_server。
-     * @param fields 结构化字段(playerName/playerUuid/message/server/fromServer/toServer 等),空值不发。
+     * 写侧检查必须每次都做（读到帧后 + 读超时后），否则"对端持续下行但停止读取"
+     * 这个最真实的拥塞形态永远检测不到。
      */
-    fun emitPlayerEvent(eventType: String, fields: Map<String, String>) {
-        val ws = client ?: return // 未连接:静默丢弃(实时事件,漏即弃)
-        runCatching { ws.sendText(playerEventJson(eventType, fields)) }
-            .onFailure { ProbeLogger.warn("插件桥上报事件失败($eventType),已丢弃:${it.message}") }
-    }
-
-    /**
-     * 上报一个 JBIS 业务域事件(见 ADR-027/028)。供平台业务监听器(如经济变更监听器)调用。
-     *
-     * 与 [emitPlayerEvent] 同走 `event`帧,但额外带顶层 `domain`(业务域命名空间)与 `dedupKey`(去重锚点):
-     * Worker 透传两字段,CP 按 `(domain, dedupKey)`幂等落库(至少一次投递去重)。`fields`为信封载荷
-     * (键名须与 Worker/CP 解析约定一致),空值字段不发。
-     *
-     * 线程安全且**绝不抛**:未连接(独立使用探针或重连中)静默丢弃——业务事件至少一次投递,断连缺口由
-     * 上线 catchup 补发兜底(经济域),漏发不致命;失败仅 WARN 降级。[MinimalWebSocketClient.sendText]
-     * 内部写锁串行化,可被任意线程(含 mce 异步事件线程)安全调用。
-     *
-     * @param domain 业务域(如 economy);空串视为非业务事件,直接丢弃(防误用)。
-     * @param dedupKey 去重键(经济域为 ledgerId 字符串);空串仍上报,CP 退化为不去重(由上层保证非空)。
-     * @param fields 业务信封结构化字段(currencyId→identifier、zoneId、signedAmount、balanceAfter…)。
-     */
-    fun emitBusinessEvent(domain: String, dedupKey: String, fields: Map<String, String>) {
-        if (domain.isEmpty()) return
-        val ws = client ?: return // 未连接:静默丢弃(至少一次投递,断连缺口由 catchup 补发)
-        runCatching { ws.sendText(businessEventJson(domain, dedupKey, fields)) }
-            .onSuccess { sent -> if (!sent) ProbeLogger.warn("插件桥业务事件($domain/$dedupKey)因写锁忙/写超时被丢弃,下游以 dedupKey 幂等容忍缺口") }
-            .onFailure { ProbeLogger.warn("插件桥上报业务事件失败(domain=$domain),已丢弃:${it.message}") }
-    }
-
-    /**
-     * 读循环:阻塞读服务端帧(welcome/pong/command),按心跳间隔在读超时后补发 ping。
-     *
-     * [MinimalWebSocketClient.readMessage] 的 socket soTimeout 即心跳间隔:超时(无下行)时抛
-     * SocketTimeoutException,本循环借此节律发 ping;有下行则按帧类型处理。`command`帧
-     * 解析后交平台执行器执行并回 `command_result`;其余帧(welcome/pong)仅记录。
-     */
-    // 读超时(SocketTimeoutException)是预期的心跳节拍、非错误,捕获后补发 ping 即可,异常对象无需保留,
-    // 故有意不记录该异常。
     @Suppress("SwallowedException")
-    private fun readLoop(ws: MinimalWebSocketClient) {
+    private fun readLoop(
+        ws: MinimalWebSocketClient,
+        bridgeKernel: BridgeKernel,
+    ) {
+        // 每次进读循环重读，重载 pongTimeout 后下一轮即生效（不缓存到字段，避免重载后不更新）。
+        val pongTimeout = configSource.reconnect().pongTimeoutMs
         while (running.get()) {
             try {
                 val msg = ws.readMessage()
-                val frame = runCatching { Json.parse(msg) }.getOrNull()
-                if (frame != null && frame.getString("type") == "command") {
-                    handleCommand(ws, frame)
-                } else {
-                    ProbeLogger.debug("插件桥下行:$msg")
-                }
-            } catch (e: java.net.SocketTimeoutException) {
-                // 读超时即心跳节拍:补发一个 ping 维持连接与活性探测
-                ws.sendPing()
+                if (checkLinkHealth(ws, pongTimeout)) return
+                bridgeKernel.onFrame(msg)
+            } catch (e: FrameTooLargeException) {
+                bridgeKernel.onInboundTooLarge(e.payloadSkipped)
+                if (!e.payloadSkipped) throw e
+                if (checkLinkHealth(ws, pongTimeout)) return
+            } catch (_: java.net.SocketTimeoutException) {
+                // 读超时是预期的心跳节拍，不是错误：只借它驱动一次链路健康检查。
+                if (checkLinkHealth(ws, pongTimeout)) return
             }
         }
     }
 
     /**
-     * 处理一帧治理 / 业务指令:解析 → 按 domain 分流执行 → 回 `command_result`(带回 requestId)。
+     * 检查写侧 watchdog 与心跳；返回 true 表示连接已不可用、应退出读循环。
      *
-     * domain 空 / core(治理)交平台治理执行器 [commandRegistry];domain 非空(业务,JBIS / ADR-0015)
-     * 路由到 [businessHost] 对应 Provider(事故域隔离派发)。整体**绝不抛**(读循环不得因单条指令异常中断):
-     * 平台未注册执行器、域不可用、执行抛错 / 超时均转为 success=false 的回执。执行在桥读线程串行等待
-     * (治理可能切回主线程、业务跑独立线程池,均有界超时),等待期间不处理后续下行——指令为低频管理动作,
-     * 可接受;Worker 侧对每条指令有 5s 超时兜底,不会永久阻塞。
-     *
-     * @param ws 当前连接,用于回写 command_result。
-     * @param frame 已解析的 command 帧只读树。
+     * **每次读循环迭代都要调用**（读到帧后 + 读超时后）：
+     * - 写侧：只在一处检查会漏掉"对端持续下行但停止读取"；
+     * - 心跳：只在一处检查会漏掉"持续有下行流量、但 pong 从不来"。
      */
-    private fun handleCommand(ws: MinimalWebSocketClient, frame: JsonObject) {
-        val requestId = frame.getString("requestId")
-        val command = BridgeCommand(
-            action = frame.getString("action"),
-            target = frame.getString("target"),
-            reason = frame.getString("reason"),
-            requestId = requestId,
-            domain = frame.getString("domain"),
-            payload = frame.getString("payloadJson"),
-        )
-        val result = when {
-            // JBIS 元查询:返回各业务 Provider 汇总的能力清单(供 JianManager 动态发现业务能力)。
-            isManifestQuery(command) ->
-                runCatching { BridgeCommandResult.ok(businessHost.manifest()) }
-                    .getOrElse { BridgeCommandResult.fail("业务能力清单获取失败:${it.message}") }
-            // 业务命令(JBIS):路由到对应业务域 Provider,事故域隔离派发(超时 / 异常自降级,绝不拖垮读线程)。
-            isBusinessDomain(command.domain) ->
-                runCatching { businessHost.dispatch(command.domain, command.action, command.payload) }
-                    .getOrElse { BridgeCommandResult.fail("业务执行异常:${it.message}") }
-            // 治理命令:交平台治理执行器;未注册则降级。
-            else ->
-                runCatching {
-                    val handler = commandRegistry.handler
-                        ?: return@runCatching BridgeCommandResult.fail("本平台未实现治理执行")
-                    handler.handle(command)
-                }.getOrElse { BridgeCommandResult.fail("治理执行异常:${it.message}") }
+    private fun checkLinkHealth(ws: MinimalWebSocketClient, pongTimeoutMs: Long): Boolean {
+        if (ws.checkWriteDeadline()) return true
+        val now = System.currentTimeMillis()
+        if (ws.isHeartbeatTimedOut(now, pongTimeoutMs)) {
+            throw HeartbeatTimeout("已发出 ping 但 ${pongTimeoutMs}ms 内未收到 pong")
         }
-
-        runCatching { ws.sendText(commandResultJson(requestId, result)) }
-            .onFailure { ProbeLogger.warn("插件桥回 command_result 失败(requestId=$requestId):${it.message}") }
+        return false
     }
-
-    /** JBIS 元查询判定:保留元域 [JBIS_META_DOMAIN] + [ACTION_MANIFEST],返回业务能力清单而非派发到 Provider。 */
-    private fun isManifestQuery(command: BridgeCommand): Boolean =
-        command.domain == JBIS_META_DOMAIN && command.action == ACTION_MANIFEST
-
-    /** 业务域判定:非空、非内建治理域([BUSINESS_CORE_DOMAIN])、非元域([JBIS_META_DOMAIN])即业务命令,路由到 [BusinessHost]。 */
-    private fun isBusinessDomain(domain: String): Boolean =
-        domain.isNotEmpty() && domain != BUSINESS_CORE_DOMAIN && domain != JBIS_META_DOMAIN
-
-    /** 解析实例标识:优先用 JianManager 下发的 bridge.instance;为空时回退探针自身实例 ID。 */
-    private fun resolveInstance(): String {
-        val configured = ProbeConfig.bridgeInstance()
-        return if (configured.isNotEmpty()) configured else InstanceId.resolve(ProbeConfig.configuredServerName())
-    }
-
-    /** 构造 hello 帧 JSON(经统一 [Json] 适配器,ADR-14)。 */
-    private fun helloJson(instance: String): String = Json.encode(
-        linkedMapOf(
-            "type" to "hello",
-            "instance" to instance,
-            "platform" to platformName(),
-            "version" to PROBE_BRIDGE_VERSION,
-        )
-    )
-
-    /** 构造业务事件帧 JSON(type=event + 子类型 event)。 */
-    private fun eventJson(event: String, instance: String): String = Json.encode(
-        linkedMapOf(
-            "type" to "event",
-            "event" to event,
-            "instance" to instance,
-            "timestamp" to System.currentTimeMillis(),
-        )
-    )
 
     /**
-     * 构造带结构化载荷的玩家事件帧 JSON(手拼零依赖)。
+     * 周期心跳：**不依赖读超时**，直接向连接发 ping 控制帧。
      *
-     * 形态与 Worker 侧 [bridgeMessage] 约定一致:顶层 `type=event` + `event`子类型 + `instance` + `timestamp`,
-     * 结构化字段统一放在嵌套 `data`对象内(Worker 仅解析 `data`填充 workerpb.PluginEvent)。空值字段不写入,
-     * 减小帧体并避免下游误判。
-     *
-     * @param event 事件子类型。
-     * @param fields 结构化字段(键名须与 Worker 解析约定一致:playerName/playerUuid/message/server/fromServer/toServer)。
+     * 必须走 `ws.sendPing()` 而不是经发送器提交文本帧：只有前者会记录 `lastPingSentAtMs`，
+     * 而心跳判定依赖该时间戳做门控。旧实现只在读超时时发 ping，忙连接（持续有下行流量）
+     * 永远不读超时 → 从不发 ping → 对端没机会回 pong → 被误判心跳超时、周期性假重连。
      */
+    private fun heartbeatLoop() {
+        val interval = configSource.reconnect().pingIntervalMs.coerceAtLeast(MIN_PING_INTERVAL_MS)
+        while (running.get()) {
+            runCatching { Thread.sleep(interval) }
+                .onFailure {
+                    Thread.currentThread().interrupt()
+                    return
+                }
+            if (!running.get()) return
+            val ws = client ?: continue
+            runCatching { ws.sendPing() }
+                .onFailure { ProbeLogger.debug("桥心跳 ping 发送失败:${it.javaClass.simpleName}") }
+        }
+    }
+
+    /**
+     * 退避休眠；返回下一轮退避值。
+     *
+     * 三条策略：
+     * - 常规：指数翻倍，封顶 `maxBackoffMs`；
+     * - **认证失败**：封顶 `authFailedMaxBackoffMs`（比常规小），因为 token 轮换后应尽快恢复；
+     * - **连续认证失败超过阈值**：降频到 `authFailedDegradedBackoffMs`，避免对一个明确无效的
+     *   凭据持续冲击（同时保留恢复可能，不是彻底放弃）。
+     *
+     * 成功连着时由 [BridgeLinkState.markConnected] 清零 `consecutiveFailures`，退避自动恢复常规节奏。
+     */
+    private fun sleepBackoff(current: Long): Long {
+        val reconnect = configSource.reconnect()
+        runCatching { Thread.sleep(current) }
+
+        val snapshot = link.snapshot()
+        val authFailed = snapshot.lastDisconnectReason == BridgeLinkState.REASON_AUTH_FAILED
+        if (!authFailed) {
+            return (current * 2).coerceAtMost(reconnect.maxBackoffMs)
+        }
+        if (snapshot.consecutiveFailures >= reconnect.authFailedDegradeThreshold) {
+            return reconnect.authFailedDegradedBackoffMs
+        }
+        return (current * 2).coerceAtMost(reconnect.authFailedMaxBackoffMs)
+    }
+
+    /**
+     * 记录连接类日志，并对同一原因做限频。
+     *
+     * Worker 长期不可达时，每次重连都打 WARN 会把日志刷爆；同一原因连续出现时只在首条 WARN，
+     * 其后降为 DEBUG；原因变化或连接成功时重置。恢复为 WARN 时带上"期间已抑制 N 条"。
+     */
+    private fun logConnectFailure(reason: String, detail: String) {
+        val suppressed = if (reason == lastLoggedReason) {
+            suppressedFailures.incrementAndGet()
+            return
+        } else {
+            val previous = suppressedFailures.getAndSet(0)
+            lastLoggedReason = reason
+            previous
+        }
+        val suffix = if (suppressed > 0) "（此前已抑制 $suppressed 条同类日志）" else ""
+        ProbeLogger.warn("插件桥连接异常（$reason）,将重连:$detail$suffix")
+    }
+
+    /** 断开原因归类（据握手状态码精确区分认证失败与服务不可用）。 */
+    private fun classify(e: Throwable): String = when (e) {
+        is BridgeHandshakeException -> if (e.statusCode in AUTH_FAILED_CODES) {
+            BridgeLinkState.REASON_AUTH_FAILED
+        } else {
+            BridgeLinkState.REASON_UNREACHABLE
+        }
+        is HeartbeatTimeout -> BridgeLinkState.REASON_HEARTBEAT_TIMEOUT
+        is java.net.ConnectException, is java.net.UnknownHostException -> BridgeLinkState.REASON_UNREACHABLE
+        is java.net.SocketTimeoutException -> BridgeLinkState.REASON_UNREACHABLE
+        is EOFException -> BridgeLinkState.REASON_PEER_CLOSED
+        else -> BridgeLinkState.REASON_UNKNOWN
+    }
+
+    /**
+     * 构造握手目标 URI，**对 query 参数做编码**。
+     *
+     * 安全要点：token 是凭据，含 `&`/`#`/空格时若不编码，会污染 query 并在
+     * `URISyntaxException` 的消息里泄漏。这里用 7 参构造 + 显式编码规避。
+     *
+     * 【为什么不直接用 URI.base.host】`java.net.URI` 只对 RFC 2396 的「服务器型」scheme
+     * 白名单（http/https/ftp 等）填充 host；`ws` / `wss` 不在其列，
+     * `URI("ws://127.0.0.1:9102/x").host` 返回 **null**。若照抄 base.host，
+     * 构造出的握手 URI 就是 `ws:null:9102/...`（真机复现：日志打印 `目标 null:80`）。
+     * 这里改为手工切出 authority 再拼装，绕开该白名单。
+     *
+     * @throws java.net.URISyntaxException 地址非法（上层会兜住并归为不可达）。
+     */
+    internal fun buildTargetUri(url: String, token: String, instance: String): URI {
+        val trimmed = url.trim()
+        val scheme = when {
+            trimmed.contains("://") -> trimmed.substringBefore("://")
+            else -> ""  // 无 scheme 时交给 URI 解析报错，保持原有失败语义
+        }
+        if (scheme.isEmpty()) return URI(url)  // 保持原有行为（非法地址抛 URISyntaxException）
+
+        val afterScheme = trimmed.substringAfter("://")
+        val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
+        val pathRaw = afterScheme.substring(authority.length).substringBefore('?').substringBefore('#')
+        val path = if (pathRaw.isEmpty()) "" else pathRaw
+
+        // authority 拆 host / port（兼容 IPv6 字面量）
+        val (host, port) = splitAuthority(authority)
+        val query = "token=${encode(token)}&instance=${encode(instance)}"
+        return URI(scheme, null, host, port, path, query, null)
+    }
+
+    /** 把 authority 拆成 host + port；无端口返回 -1。IPv6 字面量形如 `[::1]:9102`。 */
+    private fun splitAuthority(authority: String): Pair<String, Int> {
+        if (authority.isEmpty()) return "" to -1
+        if (authority.startsWith("[")) {
+            val close = authority.indexOf(']')
+            if (close < 0) return authority to -1
+            val host = authority.substring(0, close + 1)
+            val portPart = authority.substring(close + 1).removePrefix(":")
+            return host to (portPart.toIntOrNull() ?: -1)
+        }
+        val colons = authority.count { it == ':' }
+        return when {
+            colons == 1 -> {
+                val host = authority.substringBefore(':')
+                val port = authority.substringAfter(':').toIntOrNull() ?: -1
+                host to port
+            }
+            colons == 0 -> authority to -1
+            else -> authority to -1  // 多冒号但不是 IPv6 字面量：原样当 host，不猜端口
+        }
+    }
+
+    /** URL 编码（RFC 3986 的 query 安全子集）。 */
+    private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+
+    private fun frameSenderOrNull(): FrameSender? = sender
+
+    /** 解析实例标识：优先配置，为空回退探针自身实例 ID。 */
+    private fun resolveInstance(): String {
+        val configured = configSource.instance()
+        return if (configured.isNotEmpty()) configured else InstanceId.resolve(null)
+    }
+
+    /**
+     * 构造 hello 帧。
+     *
+     * `subscriptions` 取自 [BridgeCapabilities]（与 `bridge_status.topics.expressions` 同源）：
+     * 让 JM 在连上瞬间就能发现"探针仍在用旧订阅"并重下发，不必先发一条 `bridge_status`。
+     */
+    private fun helloJson(instance: String): String = Json.encode(
+        linkedMapOf(
+            "type" to OutboundFrame.TYPE_HELLO,
+            "instance" to instance,
+            "platform" to platformName(),
+            "version" to BridgeCapabilities.VERSION,
+            "capabilities" to BridgeCapabilities.snapshot(),
+            "subscriptions" to BridgeCapabilities.subscriptions(),
+        ),
+    )
+
+    /** 构造玩家事件帧。 */
     private fun playerEventJson(event: String, fields: Map<String, String>): String = Json.encode(
         linkedMapOf(
-            "type" to "event",
+            "type" to OutboundFrame.TYPE_EVENT,
             "event" to event,
             "instance" to resolveInstance(),
             "timestamp" to System.currentTimeMillis(),
-            "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
-        )
+            "data" to fields.filterValues { it.isNotEmpty() },
+        ),
     )
 
     /**
-     * 构造 JBIS 业务域事件帧 JSON(手拼零依赖)。
+     * 构造业务事件帧（带 domain/dedupKey/可选 topic）。
      *
-     * 形态在 [playerEventJson] 基础上加顶层 `domain` + `dedupKey`(与 Worker `bridgeMessage`的同名字段对齐):
-     * `event`取业务事件子类型(如 economy_change),业务信封字段统一放嵌套 `data`内。Worker 透传 domain/dedupKey、
-     * 并把整帧原文带给 CP(raw),CP 据此按 (domain,dedupKey) 去重落库并解析 data 为经济镜像。空值字段不写入。
-     *
-     * @param domain 业务域(economy…)。
-     * @param dedupKey 去重键(经济域为 ledgerId 字符串)。
-     * @param fields 业务信封结构化字段。
+     * @param topic 与帧上的 `OutboundFrame.topic` **必须同源**——由调用方一次算出后两处写入，
+     *   不允许本方法自行推导（滤镜读帧字段、对端读 payload，不一致时过滤行为无法解释）。
      */
-    private fun businessEventJson(domain: String, dedupKey: String, fields: Map<String, String>): String = Json.encode(
-        linkedMapOf(
-            "type" to "event",
+    private fun businessEventJson(
+        domain: String,
+        dedupKey: String,
+        topic: String?,
+        fields: Map<String, String>,
+    ): String {
+        val payload = linkedMapOf<String, Any?>(
+            "type" to OutboundFrame.TYPE_EVENT,
             "event" to "${domain}_change",
             "instance" to resolveInstance(),
             "timestamp" to System.currentTimeMillis(),
             "domain" to domain,
             "dedupKey" to dedupKey,
-            "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
         )
-    )
+        // 缺失 topic = 非主题事件（与规格 §3.1 一致）。
+        if (topic != null) payload["topic"] = topic
+        payload["data"] = fields.filterValues { it.isNotEmpty() }
+        return Json.encode(payload)
+    }
 
-    /**
-     * 构造治理指令回执帧 JSON(手拼零依赖)。
-     *
-     * 形态与 Worker 侧 [bridgeMessage] / [commandResultData] 约定一致:顶层 `type=event` +
-     * `event=command_result`,结构化字段放在嵌套 `data`对象内(requestId/success/output/error)。
-     * success 为布尔字面量;output/error 为字符串(空值仍写入,便于 Worker 明确取到字段)。
-     * requestId 须与下发指令一致,Worker 据此把回执路由给同步等待的调用方。
-     *
-     * @param requestId 关联回执标识(来自下发的 command 帧)。
-     * @param result 平台执行结果。
-     */
-    private fun commandResultJson(requestId: String, result: BridgeCommandResult): String = Json.encode(
-        linkedMapOf(
-            "type" to "event",
-            "event" to "command_result",
-            "instance" to resolveInstance(),
-            "timestamp" to System.currentTimeMillis(),
-            "data" to linkedMapOf(
-                "requestId" to requestId,
-                "success" to result.success,
-                "output" to result.output,
-                "error" to result.error,
-            ),
-        )
-    )
-
-    /**
-     * 推断平台名(bukkit/bungee/unknown):探针单 jar 多端,以类是否可加载粗判,
-     * 不引平台 API 依赖到 core(core 平台无关)。
-     */
+    /** 推断平台名（不把平台 API 引到 core）。 */
     private fun platformName(): String = when {
         canLoad("org.bukkit.Bukkit") -> "bukkit"
         canLoad("net.md_5.bungee.api.ProxyServer") -> "bungee"
         else -> "unknown"
     }
 
-    /** 类是否可加载(用于平台粗判),异常即视为不可加载。 */
+    /**
+     * 分片信封的公共字段（实例标识与时间戳）。
+     *
+     * `OutboundFrame` 的字段集是唯一权威且**不允许**为分片加字段，故这两项由装配处按片注入；
+     * 分片器会把它计入信封开销测量，预算因此始终精确。
+     */
+    private fun chunkEnvelope(): Map<String, Any?> = linkedMapOf(
+        "instance" to resolveInstance(),
+        "timestamp" to System.currentTimeMillis(),
+    )
+
+    /** 类是否可加载。 */
     private fun canLoad(name: String): Boolean = runCatching { Class.forName(name, false, javaClass.classLoader) }.isSuccess
 
-    /** 从 ws URL 提取仅 host:port 的可记日志权威部分(去掉 query,避免 token 入日志)。 */
-    private fun safeAuthority(url: String): String = runCatching {
-        val u = URI(url)
-        "${u.host}:${if (u.port > 0) u.port else 80}"
-    }.getOrDefault("(地址解析失败)")
+    /**
+     * 从 ws URL 提取仅 host:port 的可记日志部分（去掉 query，避免 token 入日志）。
+     *
+     * 【为什么不直接用 URI.host】`java.net.URI` 只对 RFC 2396 的「服务器型」scheme
+     * （http/https/ftp 等白名单）填充 host；`ws` / `wss` 不在其列，`URI("ws://127.0.0.1:9102/x").host`
+     * 返回 null，导致日志打印成 `null:80` —— 真机排障时极易被误读成「配置没生效」。
+     * 这里手工切 authority，不依赖 URI 的 scheme 白名单。
+     *
+     * 安全约束：只输出 host:port，**query 与 path 一律丢弃**（query 里带 token）。
+     */
+    internal fun safeAuthority(url: String): String {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return "(未配置)"
+        // 切掉 scheme:// 或 // 前缀
+        val afterScheme = when {
+            trimmed.contains("://") -> trimmed.substringAfter("://")
+            trimmed.startsWith("//") -> trimmed.removePrefix("//")
+            else -> trimmed
+        }
+        // authority 到第一个 / ? # 为止；query 与 path 由此丢弃
+        val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
+        if (authority.isEmpty()) return "(地址解析失败)"
+        // 兼容 IPv6 字面量 [::1]:port（冒号多于一个且以 ] 结尾的 host 段）
+        return when {
+            authority.startsWith("[") -> {
+                val close = authority.indexOf(']')
+                if (close < 0) "(地址解析失败)"
+                else {
+                    val hostPart = authority.substring(0, close + 1)
+                    val portPart = authority.substring(close + 1).removePrefix(":")
+                    if (portPart.isEmpty()) "$hostPart:80" else "$hostPart:$portPart"
+                }
+            }
+            authority.count { it == ':' } == 1 -> {
+                val host = authority.substringBefore(':')
+                val port = authority.substringAfter(':')
+                if (port.isEmpty()) "$host:80" else "$host:$port"
+            }
+            authority.contains(':') -> authority  // 多冒号但非 IPv6 字面量：原样输出，不猜
+            else -> "$authority:80"
+        }
+    }
 
     private companion object {
+        const val CONNECT_TIMEOUT_MS = 5_000
+        const val JOIN_TIMEOUT_MS = 3_000L
 
-        /** 内建治理域(JBIS,见 ADR-0015):domain 空或为此值即治理命令,走既有平台治理执行器;其余为业务命令。 */
-        private const val BUSINESS_CORE_DOMAIN = "core"
+        /** 心跳最小间隔:避免配置成 0/负数导致忙等。 */
+        const val MIN_PING_INTERVAL_MS = 1_000L
 
-        /** JBIS 元域:保留域,配 [ACTION_MANIFEST] 动作返回业务能力清单,不派发到任何业务 Provider。 */
-        private const val JBIS_META_DOMAIN = "jbis"
+        /** 启动失败时打印的堆栈帧数：足够定位到具体调用点，又不至于刷屏。 */
+        const val START_FAILURE_TRACE_FRAMES = 8
 
-        /** 业务能力清单查询动作(配 [JBIS_META_DOMAIN])。 */
-        private const val ACTION_MANIFEST = "manifest"
+        /** 视为认证失败的握手状态码。 */
+        val AUTH_FAILED_CODES = setOf(401, 403)
 
-        /** 连接超时(毫秒)。 */
-        private const val CONNECT_TIMEOUT_MS = 5_000
+    }
+}
 
-        /**
-         * 读超时(毫秒),兼作心跳间隔:无下行时每此时长发一次 ping。
-         * 须明显小于 Worker 侧读超时(bridgePongWait=90s),确保 Worker 在判定断线前能收到心跳。
-         */
-        private const val READ_TIMEOUT_MS = 30_000
+/**
+ * 连接状态持有者（批次 0 最小实现）。
+ *
+ * 用**整体替换的不可变快照**而非多个 `@Volatile` 字段：后者在 `bridge_status` 序列化时
+ * 会读到撕裂组合（`state=CONNECTED` 但原因来自上一次断开）。
+ */
+class BridgeLinkState {
 
-        /** 重连初始退避(毫秒)。 */
-        private const val INITIAL_BACKOFF_MS = 1_000L
+    @Volatile
+    private var current: BridgeLinkSnapshot = BridgeLinkSnapshot()
 
-        /** 重连退避上限(毫秒)。 */
-        private const val MAX_BACKOFF_MS = 30_000L
+    /** 当前快照。 */
+    fun snapshot(): BridgeLinkSnapshot = current
 
-        /** stop 时等待后台线程退出的上限(毫秒)。 */
-        private const val JOIN_TIMEOUT_MS = 3_000L
+    fun markConnecting() {
+        current = current.copy(state = STATE_CONNECTING, currentBackoffMs = 0)
+    }
 
-        /** 探针桥协议版本(随 hello 上报,供 Worker/CP 展示)。 */
-        private const val PROBE_BRIDGE_VERSION = "1"
+    fun markConnected() {
+        current = current.copy(
+            connected = true,
+            state = STATE_CONNECTED,
+            lastConnectedAtMs = System.currentTimeMillis(),
+            consecutiveFailures = 0,
+            currentBackoffMs = 0,
+            lastDisconnectReason = "",
+            lastDisconnectDetail = "",
+        )
+    }
+
+    fun markDisconnected(reason: String, detail: String, backoffMs: Long) {
+        current = current.copy(
+            connected = false,
+            state = STATE_BACKOFF,
+            reconnects = current.reconnects + 1,
+            lastDisconnectReason = reason,
+            lastDisconnectDetail = detail.take(MAX_DETAIL_CHARS),
+            lastDisconnectAtMs = System.currentTimeMillis(),
+            currentBackoffMs = backoffMs,
+            consecutiveFailures = current.consecutiveFailures + 1,
+        )
+    }
+
+    companion object {
+        const val STATE_STOPPED = "STOPPED"
+        const val STATE_CONNECTING = "CONNECTING"
+        const val STATE_CONNECTED = "CONNECTED"
+        const val STATE_BACKOFF = "BACKOFF"
+
+        const val REASON_CONFIG_EMPTY = "CONFIG_EMPTY"
+        const val REASON_UNREACHABLE = "UNREACHABLE"
+        const val REASON_PEER_CLOSED = "PEER_CLOSED"
+        const val REASON_AUTH_FAILED = "AUTH_FAILED"
+        const val REASON_HEARTBEAT_TIMEOUT = "HEARTBEAT_TIMEOUT"
+        const val REASON_UNKNOWN = "UNKNOWN"
+
+        /** 断开说明长度上限（会进回执并展示）。 */
+        private const val MAX_DETAIL_CHARS = 512
     }
 }

@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.e2e.network;
 
-import top.wcpe.mc.plugin.serverprobe.ServerProbeApi;
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi;
+import top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI;
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage;
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery;
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketRecord;
@@ -82,7 +82,7 @@ public final class NetworkForensicsE2eSupport {
                 Thread.sleep(1_000L);
             }
         }
-        throw new IllegalStateException("等待取证数据超时：" + lastFailure.getMessage(), lastFailure);
+        throw new IllegalStateException("等待 取证数据超时：" + lastFailure.getMessage(), lastFailure);
     }
 
     private static void verify(
@@ -92,8 +92,8 @@ public final class NetworkForensicsE2eSupport {
         String expectedPacketType,
         String expectedChannel
     ) throws Exception {
-        ProbeReadApi api = ServerProbeApi.INSTANCE.read();
-        require(api != null, "ServerProbe API 尚未就绪");
+        ProbeReadApi api = ServerProbeAPI.read();
+        require(ServerProbeAPI.isAvailable(), "ServerProbe API 尚未就绪");
         require(api.networkForensicsStatus().getAvailable(), "SQLite 取证存储未就绪");
 
         long now = System.currentTimeMillis();
@@ -105,7 +105,7 @@ public final class NetworkForensicsE2eSupport {
             .build());
         List<NetworkPacketRecord> records = page.getRecords();
         require(!records.isEmpty(), "未查询到真实协议记录");
-        require(records.stream().anyMatch(record -> record.getPacketType().startsWith(platformPrefix)), "未记录 " + platformPrefix + "包类型");
+        require(records.stream().anyMatch(record -> record.getPacketType().startsWith(platformPrefix)), "未记录 " + platformPrefix + " 包类型");
         require(records.stream().anyMatch(record -> "127.0.0.1".equals(record.getIp())), "未返回完整回环 IP");
         require(records.stream().anyMatch(record ->
             record.getPayloadCaptured() && (expectedChannel == null || expectedChannel.equals(record.getChannel()))

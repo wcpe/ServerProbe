@@ -1,14 +1,14 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
-import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
-import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.LibraryTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.TimelineEvent
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 
 /**

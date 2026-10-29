@@ -51,11 +51,48 @@ class JvmMetricsCollectorTest {
         assertTrue(metrics.systemCpuLoad >= -1.0, "系统 CPU 占用率应不小于 -1.0")
     }
 
-    /** 连续两次采集均不应抛出异常。 */
+    /**
+     * 连续两次采集必须都返回可用的快照，且第二次的运行时指标不得倒退。
+     *
+     * <p>这条测试原先只调用两次 `collect()` 不断言任何东西——它只能证明“没抛异常”，
+     * 而“不抛”本来就是这个方法的正常行为，等于什么都没验证。
+     * 现在改成检查“可重复采集”真正该保证的东西：两次都拿到快照，且单调量不倒退。</p>
+     */
     @Test
-    fun `连续两次 collect 不抛异常`() {
+    fun `连续两次 collect 都返回快照且单调量不倒退`() {
         val collector = JvmMetricsCollector()
-        collector.collect()
-        collector.collect()
+
+        val first = collector.collect()
+        val second = collector.collect()
+
+        assertNotNull(first, "首次采集不得返回 null")
+        assertNotNull(second, "第二次采集不得返回 null")
+
+        // uptime 是单调递增量：第二次不得小于第一次。
+        // 若采集器内部复用了已被清空的中间状态，这里会立刻暴露。
+        assertTrue(
+            second.uptimeMs >= first.uptimeMs,
+            "运行时长应单调不降，实际 ${first.uptimeMs} -> ${second.uptimeMs}",
+        )
+
+        // 已加载类计数同样是累计量，不允许倒退。
+        assertTrue(
+            second.loadedClassCount >= first.loadedClassCount - FIRST_RUN_CLASS_DELTA_TOLERANCE,
+            "已加载类数不得明显倒退，实际 ${first.loadedClassCount} -> ${second.loadedClassCount}",
+        )
+
+        // 两次都必须真的采到了内存池与 GC 明细（不是第二次返回空壳）。
+        assertTrue(second.memoryPools.isNotEmpty(), "第二次采集仍应有内存池明细")
+        assertTrue(second.gcCollectors.isNotEmpty(), "第二次采集仍应有 GC 收集器明细")
+    }
+
+    private companion object {
+        /**
+         * 已加载类数的容差。
+         *
+         * 类卸载（很少见但可能发生）会让计数微小下降，也可能有类被延迟加载——
+         * 这里只防「倒退一大截」这种采集器状态被破坏的情形，不把正常波动当失败。
+         */
+        const val FIRST_RUN_CLASS_DELTA_TOLERANCE = 50
     }
 }

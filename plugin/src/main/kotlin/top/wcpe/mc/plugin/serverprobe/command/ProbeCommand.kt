@@ -9,18 +9,18 @@ import taboolib.common.platform.function.getDataFolder
 import taboolib.module.lang.asLangText
 import taboolib.module.lang.sendLang
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.PingBucket
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PingBucket
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
@@ -716,7 +716,7 @@ object ProbeCommand {
      * @return 可读的速率文案。
      */
     private fun gcRateText(rate: Double?, na: String): String =
-        rate?.let { String.format("%.2f", it) } ?: na
+        rate?.let { String.format(java.util.Locale.ROOT, "%.2f", it) } ?: na
 
     /**
      * 渲染 world 详情:逐世界输出已加载区块数、实体数、方块实体数。

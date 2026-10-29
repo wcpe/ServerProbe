@@ -240,6 +240,48 @@ class MetricHistoryFileTest {
         assertEquals(listOf(inRange), files, "范围外文件不应被包含")
     }
 
+    /** resolveRange:无下界哨兵 Long.MIN_VALUE 只枚举实际存在文件,不按超长日期跨度逐日空转。 */
+    @Test
+    fun `resolveRange 无下界哨兵返回上界内全部既有文件`() {
+        val root = Files.createTempDirectory("probe-range-unbounded")
+        val serverId = "srv"
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val threeDaysAgo = writeHistoryFile(root, serverId, today.minusDays(3), sizeBytes = 10)
+        val yesterday = writeHistoryFile(root, serverId, today.minusDays(1), sizeBytes = 10)
+        // 上界之后的文件不得纳入
+        writeHistoryFile(root, serverId, today.plusDays(1), sizeBytes = 10)
+
+        val end = epochAtStartOfDay(today) + 12L * 60 * 60 * 1000
+        val files = MetricHistoryFile.resolveRange(root, serverId, Long.MIN_VALUE, end)
+
+        assertEquals(listOf(threeDaysAgo, yesterday), files, "无下界时应返回上界内全部既有文件并按日期升序")
+    }
+
+    /** resolveRange:原始文件缺失时回退 gzip 归档;两者并存时优先原始文件。 */
+    @Test
+    fun `resolveRange gzip 归档回退且原始文件优先`() {
+        val root = Files.createTempDirectory("probe-range-gzip")
+        val serverId = "srv"
+        val today = LocalDate.now(ZoneId.systemDefault())
+        val dir = root.resolve("metrics").resolve(serverId)
+        Files.createDirectories(dir)
+        val dayFormat = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+        // 仅存在 gzip 归档的那一天
+        val archivedDay = today.minusDays(2)
+        val archived = dir.resolve("metrics-${archivedDay.format(dayFormat)}.jsonl.gz")
+        Files.write(archived, ByteArray(4))
+
+        // 原始文件与归档并存的那一天:应优先返回原始文件
+        val raw = writeHistoryFile(root, serverId, today.minusDays(1), sizeBytes = 10)
+        Files.write(dir.resolve(raw.fileName.toString() + ".gz"), ByteArray(4))
+
+        val end = epochAtStartOfDay(today) + 12L * 60 * 60 * 1000
+        val files = MetricHistoryFile.resolveRange(root, serverId, Long.MIN_VALUE, end)
+
+        assertEquals(listOf(archived, raw), files, "缺原始文件应回退归档,两者并存应优先原始文件")
+    }
+
     /** resolveRange:sinceMs > untilMs(空范围)应返回空列表。 */
     @Test
     fun `resolveRange 空范围返回空`() {

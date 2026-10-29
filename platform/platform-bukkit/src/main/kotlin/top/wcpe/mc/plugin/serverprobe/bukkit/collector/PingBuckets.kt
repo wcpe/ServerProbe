@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.collector
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PingBucket
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PingBucket
 
 /**
  * 在线玩家 ping 分布分桶器。

@@ -5,7 +5,7 @@
 
 ## 1. 分层与依赖方向（核心边界）
 
-- 模块依赖**单向向下**：`plugin → platform-* / integration-* / diagnostics-* / nms-* → core → api`。**严禁反向或环形依赖。**
+- 模块依赖**单向向下**：`plugin → platform-* / diagnostics-* / nms-* → core → api`。**严禁反向或环形依赖。** 探针不内置业务域实现（无 `integration-*` 层）；业务插件经 `api` 的 `ServerProbeAPI.businessHost()` 自注册。
 - `api`（契约：采集器接口 + 指标/启动画像模型）与 `core`（通用采集编排/JMX/聚合/告警/呈现/本地存储+开放接口）**不依赖任何平台 API**（无 Bukkit/BungeeCord 符号）。
 - 平台实现（`platform-bukkit` / `platform-bungee`）实现 `api` 的接口，并标 `@PlatformSide(Platform.BUKKIT|BUNGEE)`；`core` 经运行时装配拿到实现，**编译期不依赖具体实现**。
 - 跨 toolchain 方向：高版本 NMS 胶水模块可 `compileOnly` Java 8 模块；**Java 8 核心绝不反向依赖高版本模块产物**，只经接口 + 运行时反射装配。

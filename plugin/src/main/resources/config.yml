@@ -185,7 +185,126 @@ bridge:
   # 实例标识(JianManager 实例 UUID),作为握手 ?instance= 参数,须与 token 内 instanceId 一致。
   instance: ""
   # 连接 token(实例级 HS256 JWT,scope=plugin-bridge),作为握手 ?token= 参数。留空=不连。
+  # 轮换 token 后无需重启:桥在每次重连前会重读本文件。
   token: ""
+  # 业务命令派发:超时后动作可能仍生效,故写动作必须自带幂等键(见 api 的 BusinessProvider 约定)。
+  dispatch:
+    timeout-ms: 5000
+    pool-size: 8
+  # 线路治理:池容量与背压。全部有界,队列满时按可丢性降级(可丢丢、可靠拒)。
+  line:
+    # 读超时兼心跳节拍;须 <= write-deadline-ms,否则写侧检测下限被拉长。
+    read-timeout-ms: 5000
+    # 写侧 watchdog:对端不读导致写阻塞超过此值则强关连接解阻塞(Java 无写超时)。
+    write-deadline-ms: 10000
+    # 入站单帧硬上限(字节):超限丢帧,可安全跳过时保持连接。
+    max-inbound-bytes: 1048576
+    cmd-pool-size: 4
+    cmd-queue-capacity: 64
+    event-pool-size: 2
+    event-queue-capacity: 512
+    # 重载协调池(与 worker 池分离,防池内自锁)。
+    reload-pool-size: 4
+    reload-queue-capacity: 32
+    best-effort-capacity: 2048
+    reliable-capacity: 1024
+    receipt-capacity: 256
+    # 池线程提交回执时的有界阻塞预算;读线程不用它(走非阻塞入口)。
+    receipt-offer-budget-ms: 500
+    # 不可丢事件落盘兜底:队列满时写盘,重连后回放(至少一次,由 dedupKey 去重)。
+    spill-enabled: true
+    spill-dir: data/bridge-spill
+    spill-max-files: 8
+    spill-max-bytes: 8388608
+  # 大数据帧分片:单个上行帧的【整帧 JSON UTF-8 字节】超过阈值时,自动切成若干 chunk 帧
+  # (event=chunk + groupId/seq/total/ofType,data 为原始帧字节的 base64 切片)。整组原子入队:
+  # 容量不够时整组放弃,绝不发出前缀片。对端须支持 chunk 才收得到(见 hello 的 capabilities)。
+  chunk:
+    # 是否启用分片。默认 true。
+    # 关闭后【不分片也不放行超大帧】:超过 max-frame-bytes 的帧一律拒绝(宁可明确失败,也不发巨帧)。
+    enabled: true
+    # 单帧【整帧 JSON】的 UTF-8 字节上限(不是业务载荷上限)。默认 262144(256 KiB)。
+    # 超限即切片;片数由 base64 后长度与信封开销算出。
+    max-frame-bytes: 262144
+    # 单组片数上限。默认 64,超过则整组拒绝(硬错误,与可丢性无关)。
+    # 估算:一组最坏独占发送 = max-chunks-per-group × max-frame-bytes ≈ 64 × 256 KiB ≈ 16 MiB;
+    # 折算到有效带宽:1 Mbps 约 134s、10 Mbps 约 13s、100 Mbps 约 1.3s。
+    # 即"一个超大片组独占写锁的最长时间",故勿随意调大(心跳走控制旁路不受影响,其它帧会排队)。
+    max-chunks-per-group: 64
+  # 事件主题订阅:JM 经 core.subscribe 下发订阅表达式后,探针只上送匹配主题的业务事件。
+  # 无订阅时保持全量上报(向后兼容);被过滤的事件【不占上行队列容量、不计失败】——滤镜先于容量判定。
+  # 注意:未声明 topic 的业务事件【仍然放行】(宁可多传,也不静默丢事件)。
+  subscribe:
+    # 订阅表达式数量上限。默认 256。
+    # 超限【整批拒绝】并在回执里逐条列出越界表达式,绝不静默截断(否则 JM 会以为全部订阅成功)。
+    max-topics: 256
+    # 单个订阅表达式的字符长度上限。默认 256。
+    max-expression-chars: 256
+  # Provider 健康状态:各业务域经 BusinessProvider.health 自报可用性,
+  # 探针在【独立刷新线程】上采集并缓存,core.business_status 只读缓存(绝不在命令线程上调 health())。
+  # 某域超时/抛异常只会把该域记为 DEGRADED 并短期隔离,其它域与本段回执仍正常(success=true)。
+  health:
+    # 健康快照刷新周期(毫秒)。默认 10000。
+    # 周期 sweep 会刷新【全部已注册域】;此外每次业务 dispatch 结束后也会请求一次单域刷新。
+    refresh-interval-ms: 10000
+    # 单次 health() 调用的有界等待上限(毫秒)。默认 1000。
+    # 超时 → 该域记为 DEGRADED("health() 超时") 并进入隔离窗口,绝不会无限等下去。
+    timeout-ms: 1000
+    # 超时/异常后该域的隔离窗口(毫秒)。默认 60000。
+    # 窗口内不再调用其 health()(直接沿用上次结论),避免对一个已卡住的 Provider 反复施压。
+    quarantine-ms: 60000
+    # 注销后健康状态保留时长(毫秒)。默认 300000。
+    # 保留期内该域仍出现在 business_status 里(registered=false),便于排查"插件刚被卸载"。
+    retain-after-unregister-ms: 300000
+    # 健康状态表条目上限。默认 256。超限按"已注销且最久未刷新"淘汰;【已注册条目永不淘汰】。
+    max-entries: 256
+    # 每域 reason 的截断长度(字符)。默认 512。
+    # 【存储时即截断】:防恶意/失控 Provider 用超长字符串撑爆回执与内存。
+    reason-max-chars: 512
+    # 每域 detailJson 的截断长度(字符)。默认 2048。
+    detail-max-chars: 2048
+  # 配置重载通知:JM 经 core.config_reload 下发路径后,探针只【通知真正关心这份配置的插件】
+  # (监听器按精确路径或目录前缀声明),并如实回传结果。探针【不做推断】:reload 成功 ≠ 配置已生效,
+  # 需要强保证请用重启。本段只管重载自身的语义参数与 worker 池;
+  # 协调池容量归 bridge.line.reload-pool-size(两处同义配置会互相覆盖,故此处不重复定义)。
+  reload:
+    # 单次重载总预算(毫秒)。默认 5000。
+    # 从进入 reload 协调池开始计;超时只标记 TIMEOUT,【不强杀】插件任务(Java 无法强杀线程),
+    # 该次重载自生自灭,其迟到结果被丢弃。
+    timeout-ms: 5000
+    # 单次请求路径数上限。默认 32。
+    # 超限【整请求拒绝】(不静默截断),回执 success=false、error 非空、failed 为空。
+    max-paths-per-request: 32
+    # 监听器子任务 worker 池并发位。默认 8。
+    # 【必须与协调池分离】:若与 bridge.line.reload-pool-size 共用同一个有界池,
+    # 4 个并发重载各占 1 个协调槽后再把 16~32 个子任务推进同一队列,队列一满即无空闲线程
+    # (所有线程都在等自己提交的子任务)→ 全部误判 TIMEOUT。"轮转收割"救不了池内自锁。
+    worker-pool-size: 8
+    # 在途超过此时长(毫秒)即判定为卡死。默认 30000。
+    # 卡死后回执改用 STUCK(而不是 IN_FLIGHT),message 写明"疑似卡死",避免运维误判为"只是慢"。
+    # 取值须与 timeout-ms 联动(建议 ≥ 6 × timeout-ms)。
+    stuck-after-ms: 30000
+    # 超时熔断:超时路径在窗口内不再自动重试,避免病态插件被周期性反复触发。
+    # 仅 TIMEOUT 触发熔断;FILE_NOT_FOUND / PARSE_ERROR / PLUGIN_REJECTED / PATH_ESCAPE /
+    # IN_FLIGHT / STUCK 都是确定性结果,重试有意义,不熔断。
+    circuit-breaker:
+      # 是否启用熔断。默认 true。
+      enabled: true
+      # 统计窗口(毫秒)。默认 60000。窗口内超时次数达 failure-threshold 即熔断。
+      # 与 open-duration-ms【是两个独立参数】:前者管"多久内累计",后者管"熔断多久";
+      # 用同一个值承担两种语义时,阈值一调大就会语义分裂。
+      failure-window-ms: 60000
+      # 首次熔断打开时长(毫秒,指数退避基数)。默认 60000。
+      # 连续超时 N 次时实际打开时长 = min(open-duration-ms × 2^(N-1), max-open-duration-ms)。
+      open-duration-ms: 60000
+      # 熔断打开时长上限(毫秒)。默认 600000(10 分钟)。
+      max-open-duration-ms: 600000
+      # 窗口内超时次数达到即熔断。默认 1(首次超时即熔断)。
+      failure-threshold: 1
+      # 熔断表条目上限。默认 256。
+      # 满则【拒绝新条目】并计入 rejectedEntries,【不淘汰已有条目】——
+      # 淘汰最旧等于"用大量不同 path 就能悄悄解除熔断",那是错误方向。
+      max-entries: 256
 
 # 告警引擎:每个采集周期对照规则判定指标是否越线,经各通道(日志/游戏内/Webhook)推送。
 # 安全/降噪默认:告警引擎默认【关闭】,需显式开启。

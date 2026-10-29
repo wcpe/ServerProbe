@@ -7,10 +7,10 @@ import taboolib.common.platform.function.server
 import taboolib.common.platform.function.submit
 import taboolib.common.platform.service.PlatformExecutor
 import top.wcpe.mc.plugin.serverprobe.api.collector.ProxyMetricsCollector
-import top.wcpe.mc.plugin.serverprobe.api.model.BackendServer
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerPing
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerRoute
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.player.BackendServer
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerPing
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerRoute
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger

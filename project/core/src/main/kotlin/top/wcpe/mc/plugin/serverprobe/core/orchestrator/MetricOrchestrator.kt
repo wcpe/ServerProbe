@@ -4,7 +4,7 @@ import taboolib.common.platform.Platform
 import taboolib.common.platform.function.submit
 import taboolib.common.platform.service.PlatformExecutor
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.alert.AlertEngine
 import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer

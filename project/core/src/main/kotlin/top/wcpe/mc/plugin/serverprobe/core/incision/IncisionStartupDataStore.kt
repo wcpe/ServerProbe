@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.incision
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit

@@ -351,6 +351,203 @@ object ProbeConfig {
      */
     fun bridgeToken(): String = conf.getString(KEY_BRIDGE_TOKEN)?.trim() ?: DEFAULT_BRIDGE_TOKEN
 
+    // ---------------------------------------------------------------------------
+    // 插件桥运行参数(bridge.line/dispatch/reload/chunk/subscribe/health/reconnect.*)
+    //
+    // 这些方法只由 [ProbeConfigBridgeConfigSource] 组装成各 Settings,业务组件经
+    // [BridgeConfigSource] 接缝取值,不直接读本类(单测 classpath 无 basic-configuration,
+    // 且 [conf] 为 lateinit)。默认值须与 BridgeConfigSource.kt 中各 Settings 数据类的
+    // 默认参数保持一致,缺失时回退到此处的常量。
+    // ---------------------------------------------------------------------------
+
+    // ----- 线路治理参数(bridge.line.*)-----
+
+    /** 读超时兼心跳节拍(毫秒),默认 5000;须不大于 [bridgeLineWriteDeadlineMs]。 */
+    fun bridgeLineReadTimeoutMs(): Long = conf.getLong(KEY_BRIDGE_LINE_READ_TIMEOUT_MS, DEFAULT_BRIDGE_LINE_READ_TIMEOUT_MS)
+
+    /** 写侧 watchdog 上限(毫秒),默认 10000;超时强关 socket 解阻塞。 */
+    fun bridgeLineWriteDeadlineMs(): Long = conf.getLong(KEY_BRIDGE_LINE_WRITE_DEADLINE_MS, DEFAULT_BRIDGE_LINE_WRITE_DEADLINE_MS)
+
+    /** 入站单帧硬上限(字节),默认 1 MiB;超限丢帧但保持连接。 */
+    fun bridgeLineMaxInboundBytes(): Int = conf.getInt(KEY_BRIDGE_LINE_MAX_INBOUND_BYTES, DEFAULT_BRIDGE_LINE_MAX_INBOUND_BYTES)
+
+    /** 命令池并发位,默认 4。 */
+    fun bridgeLineCmdPoolSize(): Int = conf.getInt(KEY_BRIDGE_LINE_CMD_POOL_SIZE, DEFAULT_BRIDGE_LINE_CMD_POOL_SIZE)
+
+    /** 命令池队列容量,默认 64。 */
+    fun bridgeLineCmdQueueCapacity(): Int = conf.getInt(KEY_BRIDGE_LINE_CMD_QUEUE_CAPACITY, DEFAULT_BRIDGE_LINE_CMD_QUEUE_CAPACITY)
+
+    /** 事件池并发位,默认 2。 */
+    fun bridgeLineEventPoolSize(): Int = conf.getInt(KEY_BRIDGE_LINE_EVENT_POOL_SIZE, DEFAULT_BRIDGE_LINE_EVENT_POOL_SIZE)
+
+    /** 事件池队列容量,默认 512。 */
+    fun bridgeLineEventQueueCapacity(): Int = conf.getInt(KEY_BRIDGE_LINE_EVENT_QUEUE_CAPACITY, DEFAULT_BRIDGE_LINE_EVENT_QUEUE_CAPACITY)
+
+    /** 重载协调池并发位(与 reload worker 池分离),默认 4。 */
+    fun bridgeLineReloadPoolSize(): Int = conf.getInt(KEY_BRIDGE_LINE_RELOAD_POOL_SIZE, DEFAULT_BRIDGE_LINE_RELOAD_POOL_SIZE)
+
+    /** 重载协调池队列容量,默认 32。 */
+    fun bridgeLineReloadQueueCapacity(): Int =
+        conf.getInt(KEY_BRIDGE_LINE_RELOAD_QUEUE_CAPACITY, DEFAULT_BRIDGE_LINE_RELOAD_QUEUE_CAPACITY)
+
+    /** 可丢事件队列容量,默认 2048。 */
+    fun bridgeLineBestEffortCapacity(): Int =
+        conf.getInt(KEY_BRIDGE_LINE_BEST_EFFORT_CAPACITY, DEFAULT_BRIDGE_LINE_BEST_EFFORT_CAPACITY)
+
+    /** 不可丢事件队列容量,默认 1024。 */
+    fun bridgeLineReliableCapacity(): Int =
+        conf.getInt(KEY_BRIDGE_LINE_RELIABLE_CAPACITY, DEFAULT_BRIDGE_LINE_RELIABLE_CAPACITY)
+
+    /** 命令回执队列容量,默认 256。 */
+    fun bridgeLineReceiptCapacity(): Int = conf.getInt(KEY_BRIDGE_LINE_RECEIPT_CAPACITY, DEFAULT_BRIDGE_LINE_RECEIPT_CAPACITY)
+
+    /** 池线程提交回执时的有界阻塞预算(毫秒),默认 500。 */
+    fun bridgeLineReceiptOfferBudgetMs(): Long =
+        conf.getLong(KEY_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS, DEFAULT_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS)
+
+    /** 是否启用不可丢事件落盘兜底,默认 true。 */
+    fun bridgeLineSpillEnabled(): Boolean = conf.getBoolean(KEY_BRIDGE_LINE_SPILL_ENABLED, DEFAULT_BRIDGE_LINE_SPILL_ENABLED)
+
+    /** 落盘目录,默认 `data/bridge-spill`;空白时回退默认值(避免写进进程工作目录)。 */
+    fun bridgeLineSpillDir(): String =
+        conf.getString(KEY_BRIDGE_LINE_SPILL_DIR)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_BRIDGE_LINE_SPILL_DIR
+
+    /** 落盘文件数上限,默认 8。 */
+    fun bridgeLineSpillMaxFiles(): Int = conf.getInt(KEY_BRIDGE_LINE_SPILL_MAX_FILES, DEFAULT_BRIDGE_LINE_SPILL_MAX_FILES)
+
+    /** 落盘总字节上限,默认 8 MiB。 */
+    fun bridgeLineSpillMaxBytes(): Long = conf.getLong(KEY_BRIDGE_LINE_SPILL_MAX_BYTES, DEFAULT_BRIDGE_LINE_SPILL_MAX_BYTES)
+
+    // ----- 业务命令派发参数(bridge.dispatch.*)-----
+
+    /** 单次派发有界等待上限(毫秒),默认 5000;超时后动作可能仍生效。 */
+    fun bridgeDispatchTimeoutMs(): Long = conf.getLong(KEY_BRIDGE_DISPATCH_TIMEOUT_MS, DEFAULT_BRIDGE_DISPATCH_TIMEOUT_MS)
+
+    /** 业务线程池并发位,默认 8。 */
+    fun bridgeDispatchPoolSize(): Int = conf.getInt(KEY_BRIDGE_DISPATCH_POOL_SIZE, DEFAULT_BRIDGE_DISPATCH_POOL_SIZE)
+
+    // ----- 配置重载参数(bridge.reload.*)-----
+
+    /** 单次重载总预算(毫秒),默认 5000。 */
+    fun bridgeReloadTimeoutMs(): Long = conf.getLong(KEY_BRIDGE_RELOAD_TIMEOUT_MS, DEFAULT_BRIDGE_RELOAD_TIMEOUT_MS)
+
+    /** 单次请求路径数上限,默认 32;超限整请求拒绝(不静默截断)。 */
+    fun bridgeReloadMaxPathsPerRequest(): Int =
+        conf.getInt(KEY_BRIDGE_RELOAD_MAX_PATHS_PER_REQUEST, DEFAULT_BRIDGE_RELOAD_MAX_PATHS_PER_REQUEST)
+
+    /** 监听器子任务 worker 池并发位(与协调池分离,防池内自锁),默认 8。 */
+    fun bridgeReloadWorkerPoolSize(): Int =
+        conf.getInt(KEY_BRIDGE_RELOAD_WORKER_POOL_SIZE, DEFAULT_BRIDGE_RELOAD_WORKER_POOL_SIZE)
+
+    /** 在途超过此时长(毫秒)判定为卡死,默认 30000。 */
+    fun bridgeReloadStuckAfterMs(): Long = conf.getLong(KEY_BRIDGE_RELOAD_STUCK_AFTER_MS, DEFAULT_BRIDGE_RELOAD_STUCK_AFTER_MS)
+
+    /** 是否启用重载熔断,默认 true。 */
+    fun bridgeReloadBreakerEnabled(): Boolean =
+        conf.getBoolean(KEY_BRIDGE_RELOAD_BREAKER_ENABLED, DEFAULT_BRIDGE_RELOAD_BREAKER_ENABLED)
+
+    /** 熔断统计窗口(毫秒),默认 60000。 */
+    fun bridgeReloadBreakerFailureWindowMs(): Long =
+        conf.getLong(KEY_BRIDGE_RELOAD_BREAKER_FAILURE_WINDOW_MS, DEFAULT_BRIDGE_RELOAD_BREAKER_FAILURE_WINDOW_MS)
+
+    /** 首次熔断打开时长(毫秒,指数退避基数),默认 60000。 */
+    fun bridgeReloadBreakerOpenDurationMs(): Long =
+        conf.getLong(KEY_BRIDGE_RELOAD_BREAKER_OPEN_DURATION_MS, DEFAULT_BRIDGE_RELOAD_BREAKER_OPEN_DURATION_MS)
+
+    /** 熔断打开时长上限(毫秒),默认 600000。 */
+    fun bridgeReloadBreakerMaxOpenDurationMs(): Long =
+        conf.getLong(KEY_BRIDGE_RELOAD_BREAKER_MAX_OPEN_DURATION_MS, DEFAULT_BRIDGE_RELOAD_BREAKER_MAX_OPEN_DURATION_MS)
+
+    /** 窗口内超时次数达到即熔断,默认 1。 */
+    fun bridgeReloadBreakerFailureThreshold(): Int =
+        conf.getInt(KEY_BRIDGE_RELOAD_BREAKER_FAILURE_THRESHOLD, DEFAULT_BRIDGE_RELOAD_BREAKER_FAILURE_THRESHOLD)
+
+    /** 熔断表条目上限,默认 256;满则拒绝新条目,不淘汰已有。 */
+    fun bridgeReloadBreakerMaxEntries(): Int =
+        conf.getInt(KEY_BRIDGE_RELOAD_BREAKER_MAX_ENTRIES, DEFAULT_BRIDGE_RELOAD_BREAKER_MAX_ENTRIES)
+
+    // ----- 帧分片参数(bridge.chunk.*)-----
+
+    /** 是否启用帧分片,默认 true。 */
+    fun bridgeChunkEnabled(): Boolean = conf.getBoolean(KEY_BRIDGE_CHUNK_ENABLED, DEFAULT_BRIDGE_CHUNK_ENABLED)
+
+    /** 单帧整帧序列化后的字节上限,默认 262144;超限才切分。 */
+    fun bridgeChunkMaxFrameBytes(): Int = conf.getInt(KEY_BRIDGE_CHUNK_MAX_FRAME_BYTES, DEFAULT_BRIDGE_CHUNK_MAX_FRAME_BYTES)
+
+    /** 单组片数上限,默认 64;超限整组拒绝。 */
+    fun bridgeChunkMaxChunksPerGroup(): Int =
+        conf.getInt(KEY_BRIDGE_CHUNK_MAX_CHUNKS_PER_GROUP, DEFAULT_BRIDGE_CHUNK_MAX_CHUNKS_PER_GROUP)
+
+    // ----- 主题订阅参数(bridge.subscribe.*)-----
+
+    /** 订阅表达式数量上限,默认 256;超限整批拒绝。 */
+    fun bridgeSubscribeMaxTopics(): Int = conf.getInt(KEY_BRIDGE_SUBSCRIBE_MAX_TOPICS, DEFAULT_BRIDGE_SUBSCRIBE_MAX_TOPICS)
+
+    /** 单个订阅表达式长度上限,默认 256。 */
+    fun bridgeSubscribeMaxExpressionChars(): Int =
+        conf.getInt(KEY_BRIDGE_SUBSCRIBE_MAX_EXPRESSION_CHARS, DEFAULT_BRIDGE_SUBSCRIBE_MAX_EXPRESSION_CHARS)
+
+    // ----- Provider 健康参数(bridge.health.*)-----
+
+    /** 健康快照刷新周期(毫秒),默认 10000。 */
+    fun bridgeHealthRefreshIntervalMs(): Long =
+        conf.getLong(KEY_BRIDGE_HEALTH_REFRESH_INTERVAL_MS, DEFAULT_BRIDGE_HEALTH_REFRESH_INTERVAL_MS)
+
+    /** 单次 `health()` 调用的有界等待上限(毫秒),默认 1000。 */
+    fun bridgeHealthTimeoutMs(): Long = conf.getLong(KEY_BRIDGE_HEALTH_TIMEOUT_MS, DEFAULT_BRIDGE_HEALTH_TIMEOUT_MS)
+
+    /** 超时/异常后该域的隔离窗口(毫秒),默认 60000;窗口内不再调用其 `health()`。 */
+    fun bridgeHealthQuarantineMs(): Long =
+        conf.getLong(KEY_BRIDGE_HEALTH_QUARANTINE_MS, DEFAULT_BRIDGE_HEALTH_QUARANTINE_MS)
+
+    /** 注销后健康状态保留时长(毫秒),默认 300000。 */
+    fun bridgeHealthRetainAfterUnregisterMs(): Long =
+        conf.getLong(KEY_BRIDGE_HEALTH_RETAIN_AFTER_UNREGISTER_MS, DEFAULT_BRIDGE_HEALTH_RETAIN_AFTER_UNREGISTER_MS)
+
+    /** 健康状态表条目上限,默认 256。 */
+    fun bridgeHealthMaxEntries(): Int = conf.getInt(KEY_BRIDGE_HEALTH_MAX_ENTRIES, DEFAULT_BRIDGE_HEALTH_MAX_ENTRIES)
+
+    /** 每域 `reason` 的截断长度(字符),默认 512。 */
+    fun bridgeHealthReasonMaxChars(): Int =
+        conf.getInt(KEY_BRIDGE_HEALTH_REASON_MAX_CHARS, DEFAULT_BRIDGE_HEALTH_REASON_MAX_CHARS)
+
+    /** 每域 `detailJson` 的截断长度(字符),默认 2048。 */
+    fun bridgeHealthDetailMaxChars(): Int =
+        conf.getInt(KEY_BRIDGE_HEALTH_DETAIL_MAX_CHARS, DEFAULT_BRIDGE_HEALTH_DETAIL_MAX_CHARS)
+
+    // ----- 连接自愈与心跳参数(bridge.reconnect.*)-----
+
+    /** 周期 ping 间隔(毫秒),默认 20000;不依赖读超时,忙连接也要发。 */
+    fun bridgeReconnectPingIntervalMs(): Long =
+        conf.getLong(KEY_BRIDGE_RECONNECT_PING_INTERVAL_MS, DEFAULT_BRIDGE_RECONNECT_PING_INTERVAL_MS)
+
+    /** pong 等待上限(毫秒),默认 60000;配置为 0 表示关闭该判定。 */
+    fun bridgeReconnectPongTimeoutMs(): Long =
+        conf.getLong(KEY_BRIDGE_RECONNECT_PONG_TIMEOUT_MS, DEFAULT_BRIDGE_RECONNECT_PONG_TIMEOUT_MS)
+
+    /** 首次重连退避(毫秒),默认 1000。 */
+    fun bridgeReconnectInitialBackoffMs(): Long =
+        conf.getLong(KEY_BRIDGE_RECONNECT_INITIAL_BACKOFF_MS, DEFAULT_BRIDGE_RECONNECT_INITIAL_BACKOFF_MS)
+
+    /** 常规退避上限(毫秒),默认 30000。 */
+    fun bridgeReconnectMaxBackoffMs(): Long =
+        conf.getLong(KEY_BRIDGE_RECONNECT_MAX_BACKOFF_MS, DEFAULT_BRIDGE_RECONNECT_MAX_BACKOFF_MS)
+
+    /** 认证失败时的退避上限(毫秒),默认 10000;比常规小,便于 token 轮换后快速恢复。 */
+    fun bridgeReconnectAuthFailedMaxBackoffMs(): Long =
+        conf.getLong(KEY_BRIDGE_RECONNECT_AUTH_FAILED_MAX_BACKOFF_MS, DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_MAX_BACKOFF_MS)
+
+    /** 连续认证失败达到此次数后降频,默认 10。 */
+    fun bridgeReconnectAuthFailedDegradeThreshold(): Int =
+        conf.getInt(KEY_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADE_THRESHOLD, DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADE_THRESHOLD)
+
+    /** 降频后的退避(毫秒),默认 60000。 */
+    fun bridgeReconnectAuthFailedDegradedBackoffMs(): Long =
+        conf.getLong(
+            KEY_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADED_BACKOFF_MS,
+            DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADED_BACKOFF_MS
+        )
+
     /**
      * 是否开启告警引擎,默认 false(关闭)。
      *
@@ -712,6 +909,164 @@ object ProbeConfig {
     /** 配置键名:插件桥连接 token。 */
     private const val KEY_BRIDGE_TOKEN = "bridge.token"
 
+    // ----- 插件桥线路治理键名(bridge.line.*)-----
+
+    /** 配置键名:桥读超时兼心跳节拍(毫秒)。 */
+    private const val KEY_BRIDGE_LINE_READ_TIMEOUT_MS = "bridge.line.read-timeout-ms"
+
+    /** 配置键名:桥写侧 watchdog 上限(毫秒)。 */
+    private const val KEY_BRIDGE_LINE_WRITE_DEADLINE_MS = "bridge.line.write-deadline-ms"
+
+    /** 配置键名:入站单帧硬上限(字节)。 */
+    private const val KEY_BRIDGE_LINE_MAX_INBOUND_BYTES = "bridge.line.max-inbound-bytes"
+
+    /** 配置键名:命令池并发位。 */
+    private const val KEY_BRIDGE_LINE_CMD_POOL_SIZE = "bridge.line.cmd-pool-size"
+
+    /** 配置键名:命令池队列容量。 */
+    private const val KEY_BRIDGE_LINE_CMD_QUEUE_CAPACITY = "bridge.line.cmd-queue-capacity"
+
+    /** 配置键名:事件池并发位。 */
+    private const val KEY_BRIDGE_LINE_EVENT_POOL_SIZE = "bridge.line.event-pool-size"
+
+    /** 配置键名:事件池队列容量。 */
+    private const val KEY_BRIDGE_LINE_EVENT_QUEUE_CAPACITY = "bridge.line.event-queue-capacity"
+
+    /** 配置键名:重载协调池并发位。 */
+    private const val KEY_BRIDGE_LINE_RELOAD_POOL_SIZE = "bridge.line.reload-pool-size"
+
+    /** 配置键名:重载协调池队列容量。 */
+    private const val KEY_BRIDGE_LINE_RELOAD_QUEUE_CAPACITY = "bridge.line.reload-queue-capacity"
+
+    /** 配置键名:可丢事件队列容量。 */
+    private const val KEY_BRIDGE_LINE_BEST_EFFORT_CAPACITY = "bridge.line.best-effort-capacity"
+
+    /** 配置键名:不可丢事件队列容量。 */
+    private const val KEY_BRIDGE_LINE_RELIABLE_CAPACITY = "bridge.line.reliable-capacity"
+
+    /** 配置键名:命令回执队列容量。 */
+    private const val KEY_BRIDGE_LINE_RECEIPT_CAPACITY = "bridge.line.receipt-capacity"
+
+    /** 配置键名:回执有界阻塞预算(毫秒)。 */
+    private const val KEY_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS = "bridge.line.receipt-offer-budget-ms"
+
+    /** 配置键名:不可丢事件落盘兜底开关。 */
+    private const val KEY_BRIDGE_LINE_SPILL_ENABLED = "bridge.line.spill-enabled"
+
+    /** 配置键名:落盘目录。 */
+    private const val KEY_BRIDGE_LINE_SPILL_DIR = "bridge.line.spill-dir"
+
+    /** 配置键名:落盘文件数上限。 */
+    private const val KEY_BRIDGE_LINE_SPILL_MAX_FILES = "bridge.line.spill-max-files"
+
+    /** 配置键名:落盘总字节上限。 */
+    private const val KEY_BRIDGE_LINE_SPILL_MAX_BYTES = "bridge.line.spill-max-bytes"
+
+    // ----- 业务命令派发键名(bridge.dispatch.*)-----
+
+    /** 配置键名:业务命令派发超时(毫秒)。 */
+    private const val KEY_BRIDGE_DISPATCH_TIMEOUT_MS = "bridge.dispatch.timeout-ms"
+
+    /** 配置键名:业务线程池并发位。 */
+    private const val KEY_BRIDGE_DISPATCH_POOL_SIZE = "bridge.dispatch.pool-size"
+
+    // ----- 配置重载键名(bridge.reload.*)-----
+
+    /** 配置键名:单次重载总预算(毫秒)。 */
+    private const val KEY_BRIDGE_RELOAD_TIMEOUT_MS = "bridge.reload.timeout-ms"
+
+    /** 配置键名:单次请求路径数上限。 */
+    private const val KEY_BRIDGE_RELOAD_MAX_PATHS_PER_REQUEST = "bridge.reload.max-paths-per-request"
+
+    /** 配置键名:重载监听器 worker 池并发位。 */
+    private const val KEY_BRIDGE_RELOAD_WORKER_POOL_SIZE = "bridge.reload.worker-pool-size"
+
+    /** 配置键名:在途判定卡死时长(毫秒)。 */
+    private const val KEY_BRIDGE_RELOAD_STUCK_AFTER_MS = "bridge.reload.stuck-after-ms"
+
+    /** 配置键名:重载熔断开关。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_ENABLED = "bridge.reload.circuit-breaker.enabled"
+
+    /** 配置键名:重载熔断统计窗口(毫秒)。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_FAILURE_WINDOW_MS = "bridge.reload.circuit-breaker.failure-window-ms"
+
+    /** 配置键名:重载熔断首次打开时长(毫秒)。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_OPEN_DURATION_MS = "bridge.reload.circuit-breaker.open-duration-ms"
+
+    /** 配置键名:重载熔断打开时长上限(毫秒)。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_MAX_OPEN_DURATION_MS = "bridge.reload.circuit-breaker.max-open-duration-ms"
+
+    /** 配置键名:重载熔断触发阈值(窗口内超时次数)。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_FAILURE_THRESHOLD = "bridge.reload.circuit-breaker.failure-threshold"
+
+    /** 配置键名:重载熔断表条目上限。 */
+    private const val KEY_BRIDGE_RELOAD_BREAKER_MAX_ENTRIES = "bridge.reload.circuit-breaker.max-entries"
+
+    // ----- 帧分片键名(bridge.chunk.*)-----
+
+    /** 配置键名:帧分片开关。 */
+    private const val KEY_BRIDGE_CHUNK_ENABLED = "bridge.chunk.enabled"
+
+    /** 配置键名:单帧整帧字节上限。 */
+    private const val KEY_BRIDGE_CHUNK_MAX_FRAME_BYTES = "bridge.chunk.max-frame-bytes"
+
+    /** 配置键名:单组片数上限。 */
+    private const val KEY_BRIDGE_CHUNK_MAX_CHUNKS_PER_GROUP = "bridge.chunk.max-chunks-per-group"
+
+    // ----- 主题订阅键名(bridge.subscribe.*)-----
+
+    /** 配置键名:订阅表达式数量上限。 */
+    private const val KEY_BRIDGE_SUBSCRIBE_MAX_TOPICS = "bridge.subscribe.max-topics"
+
+    /** 配置键名:单个订阅表达式长度上限。 */
+    private const val KEY_BRIDGE_SUBSCRIBE_MAX_EXPRESSION_CHARS = "bridge.subscribe.max-expression-chars"
+
+    // ----- Provider 健康键名(bridge.health.*)-----
+
+    /** 配置键名:健康快照刷新周期(毫秒)。 */
+    private const val KEY_BRIDGE_HEALTH_REFRESH_INTERVAL_MS = "bridge.health.refresh-interval-ms"
+
+    /** 配置键名:单次 health() 有界等待上限(毫秒)。 */
+    private const val KEY_BRIDGE_HEALTH_TIMEOUT_MS = "bridge.health.timeout-ms"
+
+    /** 配置键名:超时/异常后该域的隔离窗口(毫秒)。 */
+    private const val KEY_BRIDGE_HEALTH_QUARANTINE_MS = "bridge.health.quarantine-ms"
+
+    /** 配置键名:注销后健康状态保留时长(毫秒)。 */
+    private const val KEY_BRIDGE_HEALTH_RETAIN_AFTER_UNREGISTER_MS = "bridge.health.retain-after-unregister-ms"
+
+    /** 配置键名:健康状态表条目上限。 */
+    private const val KEY_BRIDGE_HEALTH_MAX_ENTRIES = "bridge.health.max-entries"
+
+    /** 配置键名:每域 reason 的截断长度(字符)。 */
+    private const val KEY_BRIDGE_HEALTH_REASON_MAX_CHARS = "bridge.health.reason-max-chars"
+
+    /** 配置键名:每域 detailJson 的截断长度(字符)。 */
+    private const val KEY_BRIDGE_HEALTH_DETAIL_MAX_CHARS = "bridge.health.detail-max-chars"
+
+    // ----- 连接自愈与心跳键名(bridge.reconnect.*)-----
+
+    /** 配置键名:周期 ping 间隔(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_PING_INTERVAL_MS = "bridge.reconnect.ping-interval-ms"
+
+    /** 配置键名:pong 等待上限(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_PONG_TIMEOUT_MS = "bridge.reconnect.pong-timeout-ms"
+
+    /** 配置键名:首次重连退避(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_INITIAL_BACKOFF_MS = "bridge.reconnect.initial-backoff-ms"
+
+    /** 配置键名:常规退避上限(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_MAX_BACKOFF_MS = "bridge.reconnect.max-backoff-ms"
+
+    /** 配置键名:认证失败退避上限(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_AUTH_FAILED_MAX_BACKOFF_MS = "bridge.reconnect.auth-failed-max-backoff-ms"
+
+    /** 配置键名:认证失败降频阈值(连续失败次数)。 */
+    private const val KEY_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADE_THRESHOLD = "bridge.reconnect.auth-failed-degrade-threshold"
+
+    /** 配置键名:认证失败降频后的退避(毫秒)。 */
+    private const val KEY_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADED_BACKOFF_MS = "bridge.reconnect.auth-failed-degraded-backoff-ms"
+
     /** 配置键名:告警总开关。 */
     private const val KEY_ALERT_ENABLED = "alert.enabled"
 
@@ -906,6 +1261,164 @@ object ProbeConfig {
 
     /** 默认插件桥连接 token:空串(未配置)。 */
     private const val DEFAULT_BRIDGE_TOKEN = ""
+
+    // ----- 插件桥线路治理默认值(bridge.line.*)-----
+
+    /** 默认桥读超时兼心跳节拍(毫秒)。 */
+    private const val DEFAULT_BRIDGE_LINE_READ_TIMEOUT_MS = 5_000L
+
+    /** 默认桥写侧 watchdog 上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_LINE_WRITE_DEADLINE_MS = 10_000L
+
+    /** 默认入站单帧硬上限(字节),1 MiB。 */
+    private const val DEFAULT_BRIDGE_LINE_MAX_INBOUND_BYTES = 1_048_576
+
+    /** 默认命令池并发位。 */
+    private const val DEFAULT_BRIDGE_LINE_CMD_POOL_SIZE = 4
+
+    /** 默认命令池队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_CMD_QUEUE_CAPACITY = 64
+
+    /** 默认事件池并发位。 */
+    private const val DEFAULT_BRIDGE_LINE_EVENT_POOL_SIZE = 2
+
+    /** 默认事件池队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_EVENT_QUEUE_CAPACITY = 512
+
+    /** 默认重载协调池并发位。 */
+    private const val DEFAULT_BRIDGE_LINE_RELOAD_POOL_SIZE = 4
+
+    /** 默认重载协调池队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_RELOAD_QUEUE_CAPACITY = 32
+
+    /** 默认可丢事件队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_BEST_EFFORT_CAPACITY = 2_048
+
+    /** 默认不可丢事件队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_RELIABLE_CAPACITY = 1_024
+
+    /** 默认命令回执队列容量。 */
+    private const val DEFAULT_BRIDGE_LINE_RECEIPT_CAPACITY = 256
+
+    /** 默认回执有界阻塞预算(毫秒)。 */
+    private const val DEFAULT_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS = 500L
+
+    /** 默认启用不可丢事件落盘兜底。 */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_ENABLED = true
+
+    /** 默认落盘目录。 */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_DIR = "data/bridge-spill"
+
+    /** 默认落盘文件数上限。 */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_MAX_FILES = 8
+
+    /** 默认落盘总字节上限(8 MiB)。 */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_MAX_BYTES = 8_388_608L
+
+    // ----- 业务命令派发默认值(bridge.dispatch.*)-----
+
+    /** 默认派发有界等待上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_DISPATCH_TIMEOUT_MS = 5_000L
+
+    /** 默认业务线程池并发位。 */
+    private const val DEFAULT_BRIDGE_DISPATCH_POOL_SIZE = 8
+
+    // ----- 配置重载默认值(bridge.reload.*)-----
+
+    /** 默认单次重载总预算(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_TIMEOUT_MS = 5_000L
+
+    /** 默认单次请求路径数上限。 */
+    private const val DEFAULT_BRIDGE_RELOAD_MAX_PATHS_PER_REQUEST = 32
+
+    /** 默认重载监听器 worker 池并发位。 */
+    private const val DEFAULT_BRIDGE_RELOAD_WORKER_POOL_SIZE = 8
+
+    /** 默认在途判定卡死时长(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_STUCK_AFTER_MS = 30_000L
+
+    /** 默认启用重载熔断。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_ENABLED = true
+
+    /** 默认熔断统计窗口(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_FAILURE_WINDOW_MS = 60_000L
+
+    /** 默认熔断首次打开时长(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_OPEN_DURATION_MS = 60_000L
+
+    /** 默认熔断打开时长上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_MAX_OPEN_DURATION_MS = 600_000L
+
+    /** 默认熔断触发阈值(窗口内超时次数)。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_FAILURE_THRESHOLD = 1
+
+    /** 默认熔断表条目上限。 */
+    private const val DEFAULT_BRIDGE_RELOAD_BREAKER_MAX_ENTRIES = 256
+
+    // ----- 帧分片默认值(bridge.chunk.*)-----
+
+    /** 默认启用帧分片。 */
+    private const val DEFAULT_BRIDGE_CHUNK_ENABLED = true
+
+    /** 默认单帧整帧字节上限(256 KiB)。 */
+    private const val DEFAULT_BRIDGE_CHUNK_MAX_FRAME_BYTES = 262_144
+
+    /** 默认单组片数上限。 */
+    private const val DEFAULT_BRIDGE_CHUNK_MAX_CHUNKS_PER_GROUP = 64
+
+    // ----- 主题订阅默认值(bridge.subscribe.*)-----
+
+    /** 默认订阅表达式数量上限。 */
+    private const val DEFAULT_BRIDGE_SUBSCRIBE_MAX_TOPICS = 256
+
+    /** 默认单个订阅表达式长度上限。 */
+    private const val DEFAULT_BRIDGE_SUBSCRIBE_MAX_EXPRESSION_CHARS = 256
+
+    // ----- Provider 健康默认值(bridge.health.*)-----
+
+    /** 默认健康快照刷新周期(毫秒)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_REFRESH_INTERVAL_MS = 10_000L
+
+    /** 默认单次 health() 有界等待上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_TIMEOUT_MS = 1_000L
+
+    /** 默认隔离窗口(毫秒)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_QUARANTINE_MS = 60_000L
+
+    /** 默认注销后健康状态保留时长(毫秒)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_RETAIN_AFTER_UNREGISTER_MS = 300_000L
+
+    /** 默认健康状态表条目上限。 */
+    private const val DEFAULT_BRIDGE_HEALTH_MAX_ENTRIES = 256
+
+    /** 默认 reason 截断长度(字符)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_REASON_MAX_CHARS = 512
+
+    /** 默认 detailJson 截断长度(字符)。 */
+    private const val DEFAULT_BRIDGE_HEALTH_DETAIL_MAX_CHARS = 2_048
+
+    // ----- 连接自愈与心跳默认值(bridge.reconnect.*)-----
+
+    /** 默认周期 ping 间隔(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_PING_INTERVAL_MS = 20_000L
+
+    /** 默认 pong 等待上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_PONG_TIMEOUT_MS = 60_000L
+
+    /** 默认首次重连退避(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_INITIAL_BACKOFF_MS = 1_000L
+
+    /** 默认常规退避上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_MAX_BACKOFF_MS = 30_000L
+
+    /** 默认认证失败退避上限(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_MAX_BACKOFF_MS = 10_000L
+
+    /** 默认认证失败降频阈值(连续失败次数)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADE_THRESHOLD = 10
+
+    /** 默认认证失败降频后的退避(毫秒)。 */
+    private const val DEFAULT_BRIDGE_RECONNECT_AUTH_FAILED_DEGRADED_BACKOFF_MS = 60_000L
 
     /** 默认告警总开关:关闭(需显式开启)。 */
     private const val DEFAULT_ALERT_ENABLED = false

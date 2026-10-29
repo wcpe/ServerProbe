@@ -9,10 +9,10 @@ import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.submit
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
@@ -76,6 +76,36 @@ object StartupLoadListener {
     /** 装配触发防重标记：1.12+ 走 ServerLoadEvent,1.11- 走 ACTIVE 兜底,两条路径仅一条生效。 */
     private val assemblyTriggered = AtomicBoolean(false)
 
+    /**
+     * 采集一次性装配输入的接缝。
+     *
+     * 生产实现读 Bukkit API（世界名）与 JVM 启动时刻；测试可替换，
+     * 从而在没有 Bukkit 的环境里验证“防重”这条真正的不变量。
+     */
+    internal var snapshotInputs: () -> Triple<Long, List<String>, String> = {
+        // 总时长须在就绪时刻立即测得(延迟任务稍后才执行,届时 currentTimeMillis 已漂移)。
+        // 口径:仅覆盖「JVM 进程拉起 → 服务就绪」串行链,不含 JVM 进程拉起前的外部耗时。
+        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
+        val worldNames = Bukkit.getWorlds().map { it.name }
+        Triple(totalMs, worldNames, resolveMcVersion())
+    }
+
+    /**
+     * 重置防重标记（仅供测试）。
+     *
+     * 本类是 Kotlin `object`，`assemblyTriggered` 是进程级状态。
+     * 多个测试用例共享同一 JVM，若不能重置，第一条用例装配后其余用例永远拿到 0，
+     * 看起来像“防重失效”而实际只是状态残留。
+     */
+    internal fun resetAssemblyTriggeredForTest() {
+        assemblyTriggered.set(false)
+    }
+
+    /** 延迟异步派发的接缝；生产走 TabooLib submit，测试可替换成同步直接执行。 */
+    internal var dispatchAssembly: ((() -> Unit) -> Unit) = { task ->
+        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) { task() }
+    }
+
     /** ServerLoadEvent 是否存在;1.12 才引入该事件,旧版本经 ACTIVE 首帧兜底装配。 */
     private val serverLoadEventPresent: Boolean by lazy {
         runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isSuccess
@@ -104,16 +134,10 @@ object StartupLoadListener {
         if (!assemblyTriggered.compareAndSet(false, true)) {
             return
         }
-        // 总时长须在就绪时刻立即测得(延迟任务稍后才执行,届时 currentTimeMillis 已漂移)。
-        // 口径:仅覆盖「JVM 进程拉起(RuntimeMXBean.startTime)→ 服务就绪」串行链,
-        // 不含 JVM 进程拉起前的外部(启动脚本/容器)耗时——那部分发生在 JVM 计时起点之前,无从测量。
-        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
-        // 世界名快照亦在主线程取(Bukkit API 应在主线程访问),耗时来源 M1 暂缺,见 worldTimings 说明
-        val worldNames = Bukkit.getWorlds().map { it.name }
-        val mcVersion = resolveMcVersion()
+        val (totalMs, worldNames, mcVersion) = snapshotInputs()
 
         // 延迟 2 tick 且异步:确保 ACTIVE 已打点(首 tick),且读日志不阻塞主线程
-        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
+        dispatchAssembly {
             runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
                 .onFailure { ProbeLogger.error("装配启动画像失败", it) }
         }
@@ -132,10 +156,8 @@ object StartupLoadListener {
         if (!assemblyTriggered.compareAndSet(false, true)) {
             return
         }
-        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
-        val worldNames = Bukkit.getWorlds().map { it.name }
-        val mcVersion = resolveMcVersion()
-        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
+        val (totalMs, worldNames, mcVersion) = snapshotInputs()
+        dispatchAssembly {
             runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
                 .onFailure { ProbeLogger.error("装配启动画像失败", it) }
         }
@@ -162,7 +184,7 @@ object StartupLoadListener {
      */
     private fun buildAndStore(totalMs: Long, worldNames: List<String>, mcVersion: String) {
         // 旧版本类加载器(1.8.8 真机已证)上 @Inject 字段注入可能未生效;
-        // 装配路径经 BeanContainer 容错取 bean(ServerProbeApi 同款模式),确保画像仍能产出。
+        // 装配路径经 BeanContainer 容错取 bean(与门面装配同一容错口径),确保画像仍能产出。
         val builder = bean(StartupProfileBuilder::class.java) ?: return
         val holder = bean(StartupProfileHolder::class.java) ?: return
         val metricStore = bean(MetricStore::class.java) ?: return
@@ -196,7 +218,7 @@ object StartupLoadListener {
         metricStore.saveStartupProfile(profile)
     }
 
-    /** 容错取 IOC bean:字段注入未生效时按类型从容器解析(ServerProbeApi 同款模式),异常收敛为 null。 */
+    /** 容错取 IOC bean:字段注入未生效时按类型从容器解析,异常收敛为 null。 */
     private fun <T : Any> bean(type: Class<T>): T? =
         runCatching { BeanContainer.getBean(type) }.getOrNull()
 

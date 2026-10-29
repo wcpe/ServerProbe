@@ -82,8 +82,99 @@
 
 ## [0.5.0] - 2026-09-21
 
+### 新增（接口语义强化）
+
+- **事件受理凭据 `EmitReceipt`**：`BusinessEventSink` 新增 `emitReceipt` / `emitReliableReceipt` 两个 `default` 方法，把原来的 `boolean` 返回值升级为**带原因、可重试标记与序号**的凭据。目的：`boolean` 说不出「为什么没受理」，而四种情形的处置完全不同——
+  - `REJECTED_SATURATED`（**唯一可重试**）：退避后重试；
+  - `PROBE_UNAVAILABLE`：插件先于探针加载是常态，重试无意义，静默忽略；
+  - `INVALID_DOMAIN` / `MISSING_DEDUP_KEY` / `INVALID_SEQUENCE`：调用方 bug，重试一万次也不会成功。
+  - **回灌场景下这个差别是致命的**：把永久失败当成暂时饱和，循环会陷入「退避→重试→再退避」而永远推进不下去。`isRetryable()` 直接给出判据。
+  - **可靠通道额外回传 `seq`/`seqEpoch`**：业务侧可拿它做本地水位线，不必再跨线程查 `bridge_status`。
+  - **零破坏**：两个新方法都是 `default`，第三方既有实现升级后无需改动；`boolean` 形式的 `emit`/`emitReliable` 行为完全不变。未覆写时从参数反推原因，只能分辨「空域」与「缺去重键」，其余**保守归为可重试的饱和**（宁可多试一次，也不误报永久失败）。探针自己的实现覆写两者，给出精确原因与序号；降级单例显式报 `PROBE_UNAVAILABLE`（此处必须覆写，否则会把「探针永久缺失」误报成可重试）。
+- **`ActionRequest.of(domain, action, Map, ...)`**：用结构化参数直接构造请求，免去手拼 JSON 字符串。`payloadJson` 仍是字符串（api 模块零运行期依赖，不引入 JSON 库），但程序内构造请求不必再自己保证引号与逗号正确——工厂走 `Payloads.toJson` 的规范化规则（数字不走科学计数法、金额不失精度）。
+- **旧派发入口与旧计数字段标记弃用**：`BusinessHost` 的 `dispatch(domain, action, payloadJson)` / `dispatch(..., Map)` / `dispatch(..., Fields)` / `dispatchAsync(..., Map)` 四个重载加 `@Deprecated`，理由统一写进 javadoc：**它们拿不到 `errorCode` 与 `metadata`**。`DomainStatus.getDispatchTotal()` / `getDispatchFailed()` 同样弃用，替代品 `getDispatchCount()` / `getFailureCount()`（两者取值恒等）。**弃用不等于移除**：四个重载与两个 getter 行为不变，已编译的旧插件不受影响。
+
+### 破坏性变更
+
+- **业务桥契约强类型化（FR-33 / FR-34）**：`BusinessProvider` 的两个方法换了签名，`BusinessHost.manifest()` 的返回结构也变了。**旧契约的插件不会静默降级**——它们会在新方法上撞 `AbstractMethodError`，因此必须显式迁移：
+  - `Map<String,Object> manifest()` → `DomainManifest manifest()`
+  - `BridgeCommandResult dispatch(String action, String payloadJson)` → `ActionResult dispatch(ActionRequest request)`
+  - `BusinessHost.manifest()` 从 `Map<String, Map<String,Object>>` 改为聚合信封 `Map<String,Object>`（`{"apiVersion":1,"domains":{...}}`）
+  - **迁移只需改一个词**：不想一次改完的插件把 `implements BusinessProvider` 改成 `implements LegacyBusinessProvider`（裸 Map manifest + 旧 dispatch 原样保留），再用 `host.registerLegacy(provider)` 注册即可继续工作。该域会在 manifest 里标 `specDeclared=false`，动作风险一律按 `WRITE` 保守处理。
+  - **注册期新增校验**：`domain` 必须匹配 `^[a-z0-9-]{1,32}$`（大写、下划线、超长、空串都会被拒并记 ERROR）；本域内动作名不得重复（拒绝并记 ERROR）。`apiVersion` 不受支持**不拒绝**，降级为 legacy 规格并记 WARN。
+  - **旧派发入口保留**：`dispatch(domain, action, payloadJson)` 等字符串重载仍在，语义等价于「无 `requestId`、无 `Principal` 的请求」，但**拿不到 `errorCode` 与 `metadata`**——需要按错误码分流请改用强类型入口。
+- **移除内置业务集成模块（FR-32，取代 FR-10）**：删除仓内 `integration-multicurrencyeconomy` 与 `integration-allininventorysync` 两个模块，探针不再内置任何业务域实现，只做「业务面板（JM CP）↔ 插件」的路由中介。升级影响与顺序见下：
+  - **业务域会短暂消失**：升级后 `jbis/manifest` 将不再包含 `economy` / `inventory` 域，直到对应业务插件自行注册。空 manifest（`{"domains":{}}`）是正常态，不是故障。
+  - **升级顺序**：首选「探针与新插件在同一次重启中一起替换」；只能分批时必须**先升探针、后升插件**——旧插件不自注册，域短期缺失但服务不崩；反序会让旧插件引用到已被删除的 API 类型而 `NoClassDefFoundError`。
+  - **第三方接入方式**：依赖 `ServerProbe-api`（`compileOnly`），调用 `ServerProbeAPI.businessHost().register(...)` 自注册业务域，见 [spec](docs/specs/business-self-registration.md)。`api` 模块只提供通用协议词汇（`api.protocol`），**不含任何第三方私有格式**。
+  - 删除面同时覆盖 E2E：`integrations-both` / `integrations-mce-only` / `integrations-ais-only` / `integrations-none` 四个场景及其 `paper-integrations` 后端、FR10 离线 TabooLib 运行时闭包一并移除；`built-in-integrations` spec 删除，ADR-0016/0017/0018 标记为被 FR-32 取代。
+
 ### 新增
 
+- **FR-35 已注册业务域可视化数据面**：`DomainStatus` 增加 `manifestDigest`（规格指纹）、`lastDispatchAt`、`dispatchCount`/`failureCount`、`degradedReason`、`available`，`core.business_status` 逐域回执同步输出。目的是让 JM 的业务插件面板能一眼看出「这台服装了哪些业务插件、哪些可用、哪些降级、最近有没有被调用」，无需业务台参与。要点：
+  - **`manifestDigest` 在注册时算一次并缓存**，查询路径绝不重新调 `Provider.manifest()`——那会占住命令槽，并让「只读快照」这一条彻底失效。指纹是规范化 JSON 的 sha256 前 16 位：动作按名称排序、`attributes`/`errorCodes` 按字典序、去除空白差异，因此同一份语义内容在任何声明顺序下都得到同一个值。
+  - **null 表示没有可比对指纹**（未注册、或旧契约适配域），不是空指纹。旧契约的清单由适配器合成，算出的指纹没有可比性，给出来只会让面板误判「规格变了」。
+  - **计数是运行期指标，重启归零**；`dispatchCount`/`failureCount` 与既有的 `dispatchTotal`/`dispatchFailed` 取值恒等（后者为历史命名，保留以兼容）。
+  - **`DomainStatus` 的旧 10 参构造器保留**并转调新构造器，外部实现自行 `new DomainStatus(...)` 不会因升级而编译不过。
+  - 验收覆盖：0 域 / N 域 / 降级域 / 指纹随内容变化 / 用「构造时抛异常的 Provider」证明查询不触发初始化 / 100 域响应 < 100ms。
+- **FR-36 可靠事件传输层序号**：`BusinessEventSink.emitReliable` 增加带 `seq` 的重载，探针为可靠事件分配 **per-domain** 序号并随帧透传（`seq` + `seqEpoch`），使下游能凭单一序号判断缺口。要点：
+  - **`dedupKey` 与 `seq` 互补**：前者解决「同一条重复到达」（幂等），后者解决「两条之间有没有少」（完整性）。
+  - **可丢事件不占序列**（`emit` 一个号都不分配）：否则可丢事件一被丢弃，可靠序列里就会留下永远补不上的空洞，「有缺口 = 真的漏了」这条判据立刻失效。
+  - **重启按「续接」处理（方案 B）**：每域已分配的最大序号持久化在落盘目录的 `seq.state`，重启后从 `max + 1` 继续；**全新安装从 1 开始**（spec §3.2），**持久化丢失/损坏才从 `(当前时间戳毫秒 << 20)` 起跳并递增 `seqEpoch`**。三种情形必须分开——否则要么全新服务器上「seq 1..100」永远不成立，要么一次磁盘故障就让序号静默回退。
+  - **落盘行格式扩展为 8 列**（新增 `eventSeq`/`seqEpoch`），补发沿用原序号；FR-36 之前的 6 列旧行仍可读出（位点为 0），升级不会让待回放事件失效。
+  - **调用方指定的 `seq` 不推进探针的分配序列**：过去回填的号不能让下一个新事件撞进历史区间；只有当它大于当前上限时才把上限抬高到 `seq + 1`，避免下游看到序号倒退。
+  - 分配点在「确认发布器可用」之后求值：探针未就绪时一个号都不消耗，否则每次失败的早期上报都会在序列里留一个假空洞。
+  - `emitReliable(..., seq)` 与 `BusinessEventPublisher.publishReliable` 都提供 **default 实现**，第三方既有实现升级后不会 `AbstractMethodError`。
+
+- **FR-33 manifest 强类型化与动作规格**：`BusinessProvider.manifest()` 返回 `DomainManifest`（`apiVersion` / `domain` / `displayName` / `description` / `actions: List<ActionSpec>` / `attributes`），`ActionSpec` 声明 `name`/`description`/`risk`（`READ`/`WRITE`/`DESTRUCTIVE`）/`idempotent`/`inputSchema`/`outputSchema`/`errorCodes`。下游业务台据此渲染表单、前置校验、按风险决定二次确认，而不必硬编码每个动作。要点：
+  - **`attributes` 是刻意的逃生舱**：业务特有信息放这里，探针与业务面板都不解释、原样透传，新增业务元信息不需要改 api 契约。
+  - **`risk` 未声明时按 `WRITE` 生效并记 WARN**，而不是 `READ`：安全优先。标 `READ` 却写数据会让下游的风险控制彻底失效。
+  - **`specDeclared=false` 的双重含义**：既覆盖「旧契约适配」，也覆盖「`apiVersion` 不受支持被降级」。后者在**聚合期再判一次**——Provider 的 manifest 每次现算，只在注册期判定会让"注册后才开始返回新版本号"的实现绕过降级，正是 spec 要防的静默失败。
+  - **动作名重复才拒绝，空名不算重复**：替 Provider 判定空名非法，会让一个只是漏填名字的域整体不可用，代价远大于收益。
+  - **`manifest()` 抛异常不再阻止注册**：一个 manifest 写坏的域，其动作往往仍然可用；该域在聚合清单里呈现为 `{"error": "..."}`，不影响其它域。
+- **FR-34 强类型分发入参与结果**：`dispatch(ActionRequest)` 携带 `domain`/`action`/`payloadJson`/`requestId`/**`Principal`**（`operator`/`operatorId`/`nodeId`/`reason`），返回 `ActionResult`（`success`/`outputJson`/**`errorCode`**/`errorMessage`/`metadata`）。目的：业务台能按错误码分流处理（`PLAYER_NOT_FOUND` 提示拼错、`ALREADY_RUNNING` 提示重复操作），而不是只能把一段中文丢给用户看；操作者上下文可透传进插件的审计流水。要点：
+  - **`requestId` 恒非空**：调用方没给就由探针补一个（UUID，跨重启不撞号），Provider 无需判空。声明 `idempotent=true` 的动作必须用它做本地去重——"没收到回执"不等于"没执行"。
+  - **`principal` 是下行帧新增的可选段**：缺失时降级为 `Principal.unknown()`，不是错误（治理命令与旧 JM 就是这样）。字段解析失败逐项回退，绝不因审计缺字段把整条命令判为坏帧。
+  - **`errorCode` 拼进回执失败原因**：`BusinessDomainRoute` 把失败输出写成 `[CODE] message`，旧消费方不受影响，新消费方能读到码。
+  - **`metadata` 只放诊断信息**（耗时、影响行数等），下游可以不读，不读也不算失败。
+
+- **FR-26 桥线路治理**：把上行链路从"一帧一队列"重构为**读线程只解析投池、三池有界隔离、发送器优先级轮询**，解决单条慢业务拖住整条下行链路的结构性缺陷（原先业务派发同步跑在 WebSocket 读线程上，内部 `future.get(5s)`）。要点：
+  - 命令回执 / 不可丢事件 / 可丢事件三条有界队列，回执绝不因事件积压而排队；可靠事件满了先落盘兜底，落盘也接不下才拒绝。
+  - `Priority.CONTROL`（`ping`/`hello`）走旁路直写，不入队——否则一个大数据帧或一阵事件就能把心跳挤到队尾，让对端误判失联。
+  - 入站帧上限分级处置：小幅超限跳过该帧但保持连接，对超大声明长度直接重连——对 2 GiB 声明长度做"跳过"等于放大 DoS。
+  - 事件落盘位点用**对象引用相等 + 绝对文件偏移**绑定，只推进连续已确认前缀；按字节数推断会跳过未确认记录而丢数据。
+  - 新增 `core.bridge_status`（`bridge_status` 能力）暴露队列深度、拒绝/丢弃/落盘/写超时等计数。
+- **FR-25 桥对外契约下沉 `api`**：业务 Provider / 命令 / 结果 / 注册句柄 / 健康状态迁入**纯 Java 8** 的 `api` 模块（可独立发布 Maven 制品），新增 `ServerProbeAPI` 稳定门面：返回**稳定委派代理**（永不 `null`、可缓存为字段），探针后加载也生效；**绝不抛异常**，失效原因用 `InactiveReason` 枚举而非自由文本。第三方从此可 `ServerProbeAPI.businessHost().register(...)` 自注册、持句柄 `close()` 注销，不再需要反射内部 IoC 容器。见 [ADR-0029](docs/adr/0029-bridge-contract-into-api-module.md)。
+- **FR-31 桥连接自愈与状态**：重连前从磁盘重读 token（**轮换即自愈，无需重启服务器**）；断开原因分类为认证失败 / 不可达 / 对端关闭 / 心跳超时；`core.bridge_status` 暴露重连次数与最近断开原因（已脱敏）。要点：
+  - 心跳改为**独立的周期线程**发送，不再只在读超时分支发——忙连接原先永不发 ping。
+  - 存活判定改为三条件门控（已发出 ping + 超过 pong 超时 + 期间无任何入站），避免把"对端持续下行但慢"误判成失联。
+  - 认证失败单独退避（封顶 10s，连续 10 次后降频 60s），比常规退避更激进，便于 token 轮换后快速恢复。
+  - 写侧 watchdog 在超时后**强关 socket** 解阻塞，避免写锁被一个卡死的对端永久占住。
+  - token 经 7 参 `URI` 构造 + URL 编码，修复查询串拼接导致的泄漏。
+  - 新增 `Hello.capabilities` 作为能力声明唯一真源（`version`/`capabilities` 只在 `BridgeCapabilities` 一处定义）。
+- **FR-28 事件主题订阅**：`event` 帧新增可选顶层字段 `topic`（如 `activity.12345`），JM 经 `core.subscribe` 下发订阅表达式后，探针**只上送匹配主题的业务事件**，其余在进入上行队列之前拦截（不做正则，纯字符串前缀，`activity.*` 同时匹配 `activity.12345` 与 `activity.12345.sub`）。要点：
+  - **滤镜位于容量判定之前**：被拦截的帧不占队列容量、不计失败，`emitReliable` 仍返回"已受理"。写反的后果是"订阅越多、无关事件越先占满可靠队列"，于是结算类命令报错——监控特征是 `topics.count`↑ + `reliableRejected`↑ 而 `filteredOut` 恒 0。
+  - **无订阅时全量上报**（向后兼容）：`bridge_status.topics.count == 0` 明确表示"没有订阅"，不是"订阅了空集所以什么都不发"。
+  - **业务侧新增统一上报入口** `ServerProbeAPI.eventSink()`：`emit`（可丢：进度、排行榜快照、玩家事件）与 `emitReliable`（不可丢：结算、状态变更，**强制非空 `dedupKey`**，空值直接拒绝且不静默降级为可丢）。可丢性由**调用方选择的入口**决定，探针不按域名推断——否则第三方 Provider 会在无意识中丢掉结算事件。
+  - **订阅整批原子**：任何一条不合格（超 `bridge.subscribe.max-topics`、超长、空、含空白）都整批拒绝，当前订阅不变、回执逐条列出被拒原因，**绝不静默截断**。`topics: []` 清空并恢复全量上报。
+  - **未声明 `topic` 的业务事件仍然放行**：拦截会让还没适配 topic 的 Provider 静默丢事件，比多传数据严重得多；本 `spec` 明确"想被过滤必须声明 topic"。
+  - **跨重连保留**（探针重启才清空），`hello` 新增 `subscriptions` 暴露当前表达式、与 `bridge_status.topics.expressions` 同源同值，让 JM 在连上瞬间就能发现"探针仍在用旧订阅"并重下发。
+  - 新增配置 `bridge.subscribe.max-topics`（默认 256）/ `max-expression-chars`（默认 256）。见 [spec](docs/specs/event-topic-subscription.md)。
+- **FR-29 大数据帧分片**：单帧整帧 JSON 超过 `bridge.chunk.max-frame-bytes`（默认 256 KiB）时自动切分为 `event=chunk` 多片（`groupId`/`seq`/`total`/`ofType`），载荷以 **base64** 切片而非直接切文本——直接切会让 JSON 里的 `"`/`\` 二次转义，"拼接后字节相同"落空且开销无法精确计算。要点：
+  - **同组原子入队**：按 `total` 一次性预留队列容量，要么整组进队、要么一片都不进。逐片 `offer` 会发出 `seq 0..2 / total 64` 这类前缀，对端将永久等待其余片且无超时能可靠回收。
+  - **同组连片写出**：发送线程按组取出，组内不可抢占；但 `ping`/`hello` 走 `CONTROL` 旁路，不被大组拖死，对端按 `groupId` 重组、不依赖连续性。
+  - **超限有明确出口**：片数超上限或分片关闭时返回 `TOO_LARGE`，命令池用 `requestId` 重写一条 `fail("回执过大无法分片传输")`（该失败回执本身极小，不会递归；再被拒只计数 + WARN 一次）。
+  - `groupId` 用完整 UUID（36 字符）——不接受"实例名 + 每连接递增计数"，重连后计数归零会与上一连接的残留分组撞号。
+  - 配置项注释给出临界区换算：64 × 256 KiB ≈ 16 MiB，1/10/100 Mbps 下约 134/13/1.3 秒，勿随意调大。
+  - **对端未升级时大帧会丢**（这是分片的固有代价）：默认阈值远高于正常帧，`hello` 的 `capabilities` 含 `chunk` 供 JM 提前判断。见 [spec](docs/specs/frame-chunking.md)。
+- **FR-30 Provider 健康状态**：`BusinessProvider` 新增 `default health()`（默认 `ProviderHealth.unknown()`，**旧实现零改动即兼容**），新增 `BusinessHost.healthOf(domain)` 与 `core.business_status`（`order=110`），让运维能区分「插件没装」「插件禁用了」还是「Provider 内部坏了」。要点：
+  - **`health()` 绝不在命令线程调用**：`business_status` 本身已占一个命令槽（池默认 4），若在查询路径上同步进第三方代码，两个慢域就能让整条命令通道饱和。改为**缓存 + 独立刷新线程**：`serverprobe-health`（调度 + 清理）决定查谁并施加超时，`serverprobe-health-probe`（单线程 + 队列 1 + `AbortPolicy`）是唯一进第三方代码的线程；查询只读内存快照。
+  - **单域失败不影响其它域**：超时 → `DEGRADED("health() 超时")` + 隔离窗口；抛异常 → `DEGRADED("health() 抛出异常：<类名>")`；返回 `null` → `DEGRADED("health() 返回 null")`。整段回执仍 `success=true`。
+  - **探针卡死有明确上限**：某 Provider 的 `health()` 不可中断地卡住后，唯一 probe 线程被占住，后续提交被拒 → `refresh.stalled=true` + WARN 一次 + 本轮剩余域沿用上次缓存（列在 `refresh.skippedThisSweep`）。代价是"其余域的健康值不再新鲜"，收益是**线程数恒定、不泄漏、命令通道不受影响**。
+  - **存储时即脱敏与限长**：`token=`/`password=`/`authorization:` 的值替换为 `***`，含 URL 的文本先去掉 query（凭据常在 query 里）；`reason` ≤ 512、`detailJson` ≤ 2048 字符，防失控 Provider 撑爆回执与内存。
+  - **两个时间戳语义分离**：`sinceMs` 是 Provider 自报的「自何时起如此」（探针不替它推断），`refreshedAtMs` 是探针采集时刻。
+  - 清理：注销超 `retain-after-unregister-ms` 整条删除；超 `max-entries` 按「已注销且最久未刷新」淘汰，**已注册条目永不淘汰**。
+  - 新增配置 `bridge.health.refresh-interval-ms`(10000) / `timeout-ms`(1000) / `quarantine-ms`(60000) / `retain-after-unregister-ms`(300000) / `max-entries`(256) / `reason-max-chars`(512) / `detail-max-chars`(2048)。见 [spec](docs/specs/provider-health.md) 与 [API](docs/API.md) 第 7 节。
 - **FR-24 MCP 控制面运行期两级开关**：新增控制台命令 `/probe mcp <on|off|status>` 运行期起停 MCP 端点、`/probe mcp arthas <on|off>` 运行期加载/卸载内嵌 Arthas 运行时。端点级开关起来后原生工具（状态/命令执行/线程转储/日志检索/插件与玩家诊断）立即可用、不付 Arthas 代价；Arthas 级开关才执行闭包解包与 Instrumentation 附加。**仅控制台/RCON 可执行**（开启 MCP 等于授予 JVM 完整控制权，游戏内即使持有权限节点也拒绝，防游戏内管理员提权）；开关只作用于当前运行期、不写回 `config.yml`，重启回到配置声明的姿态。`mcp.enabled` 的启动期语义保持不变（`true` 时仍自动开端点并加载 Arthas）。见 [ADR-0028](docs/adr/0028-mcp-runtime-toggle.md) 与 [spec](docs/specs/mcp-runtime-toggle.md)。
 - 新增 core 契约 `ArthasRuntime`（运行期启停）与装配点 `ArthasRuntimeRegistry`，与既有 `ArthasControl`（已加载运行时内的任务执行）职责分离；诊断模块经内部转发实现自注册，`core` 编译期不依赖任何 Arthas 类型（维持 ADR-0025 边界）。
 - **CI 质量门禁补齐**：新增字节码门禁（校验各业务模块与发行 jar 内 class 的 major version 不超过 52，保护“编译为 Java 8 字节码”这一关键不变量，此前完全无自动化保护）、OSV-Scanner 依赖漏洞扫描、Dependabot 周更新、CodeQL 代码扫描，以及 Windows runner 交叉验证 job（历史上出现过平台相关缺陷在 Windows 上被掩盖）。依赖扫描起步设为 continue-on-error 以先收集基线；CI 与字节码门禁另支持手动触发。
@@ -93,6 +184,15 @@
 ### 变更
 
 - **构建与依赖维护**：Gradle wrapper 8.9 → 9.7.1；随发行 jar 内嵌的 SQLite JDBC 驱动 3.53.2.1 → 3.53.4.0（版本抽到 `gradle.properties` 的 `sqlite.jdbc.version` 集中管理）与 agent 插桩闭包 ASM 9.7.1 → 9.10.1（relocate 隔离）；构建期 Lombok 1.18.34 → 1.18.48；测试侧 JUnit 5.11.4 → 5.14.4（按 JUnit 5.12+ 要求显式声明 `junit-platform-launcher`，否则 Gradle Test Executor 起不来）与 netty-transport 4.2.17.Final → 4.2.18.Final。移除未使用的 KSP 插件声明；Dependabot 忽略规则收敛到需人工判断的坐标（NMS 版本锁定 / 私有 fork / 服务端 API / JUnit 与 Kotlin 插件主版本 / detekt），并移除曾加的 Gradle 主版本忽略以接收 wrapper 9.x。均为维护性升级，发行 jar 行为不变。
+- **FR-32 配置重载通知**：新增 `core.config_reload`（`order=100`，reload 协调池）与对外契约 `ConfigReloadRegistry` / `ConfigReloadListener`（门面 `ServerProbeAPI.configReloads()`）。插件声明「精确路径」或「目录前缀（末尾 `/`）」后，JM 下发 `payload={"paths":[…]}`（空数组或省略 = 全量）即可只通知真正关心这份配置的插件。要点：
+  - **通知-认领模型，不推断生效**：探针只转发意图并收集插件**自报**结果（`md5`/`version`/`count` 经 `Optional`/`OptionalInt` 表达，未上报即缺席、不写 0）。`reload` 成功 ≠ 配置生效，需要强保证请用重启。见 [ADR-0031](docs/adr/0031-config-reload-notification-model.md)。
+  - **两池分离（硬要求）**：编排跑 `serverprobe-reload-N`，监听器子任务跑 `serverprobe-reload-worker-N`。共用同一个有界池会**池内自锁**——并发请求各占一个协调槽后把子任务推进同一队列，队列满即无空闲线程，编排线程全部阻塞在 `future.get`，于是全部误判 `TIMEOUT`；「轮转收割」解决不了池内自锁。
+  - **先全部提交、再轮转收割**：批量提交让总耗时等于「最慢的那个」；收割先非阻塞收全部已落定项，再对未完成项按剩余预算分片（≤10ms）轮询，绝不按顺序死等第一个——否则第一个卡住的项会吃光预算，把后面早已完成的项也误判成超时。
+  - **在途占用的 `release` 只由任务自身 `finally` 执行**：编排器超时后**不代它释放**（`Future.cancel(true)` 对不响应中断的任务无效，代释放会让同路径第二份重载与仍在跑的第一份并发写插件状态）。代价是长期占位，因此用独立错误码 **`STUCK`**（超过 `stuck-after-ms`）如实暴露卡死，而不是继续用 `IN_FLIGHT` 掩盖。全量重载占用全局哨兵键 `*`，与任何单路径互斥。
+  - **只有 `TIMEOUT` 触发熔断**，恢复用**指数退避** `min(base × 2^(N-1), max)`，成功一次即清零。确定性结果（`FILE_NOT_FOUND`/`PARSE_ERROR`/`PLUGIN_REJECTED`/`PATH_ESCAPE`/`IN_FLIGHT`/`STUCK`）重试有意义，不熔断。统计窗口与打开时长**是两个独立参数**（同一值承担两种语义在阈值调大后立刻分裂）。表满时**拒绝新条目**并计入 `rejectedEntries`，**不淘汰已有**——淘汰最旧等于给出「用大量不同 path 绕开熔断」的廉价手段。
+  - **回执唯一成败判定**：`success = failed.isEmpty() && error.isEmpty()`。无人认领的路径进 `bestEffort` 单列（算成功），同一路径既有成功又有失败按严格口径归入 `failed`，请求级错误（路径数超限、payload 非法）只写 `error` 且 `failed` 为空。三种「没有结果」分别可辨识：提交被拒 `INTERNAL_ERROR`（未进队列）/ 排队到超时 `TIMEOUT`（未轮到执行）/ 跑过没跑完 `TIMEOUT`（已执行未完成）。
+  - **路径安全**：相对路径、统一 `/`、折叠 `.`/`..`、必须落在工作目录 `plugins/` 子树内，且 canonical 化后仍须在 `plugins/` 内（防符号链接逃逸）；绝对路径与含 `NUL` 的输入直接拒绝。匹配是**纯字符串前缀**，不做 glob、不做正则（防 ReDoS 与歧义）。
+  - 新增配置 `bridge.reload.timeout-ms`(5000) / `max-paths-per-request`(32) / `worker-pool-size`(8) / `stuck-after-ms`(30000) / `circuit-breaker.enabled`(true) / `failure-window-ms`(60000) / `open-duration-ms`(60000) / `max-open-duration-ms`(600000) / `failure-threshold`(1) / `max-entries`(256)；协调池容量仍归 `bridge.line.reload-pool-size`（不重复定义）。见 [spec](docs/specs/config-reload.md) 与 [API](docs/API.md) 第 8 节。
 
 ### 修复
 

@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**

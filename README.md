@@ -16,7 +16,7 @@
 - **正确观测 Folia**：全局 TPS/MSPT 明确为 N/A；对含玩家的真实 region 输出 TPS/MSPT 分位、世界汇总与过期状态。
 - **网络取证**：Bukkit 系、BungeeCord 与 Velocity 全平台采集双向流量与包速率；本地 SQLite 保存重要包证据，Prometheus 只输出脱敏聚合，完整 IP/载荷仅经鉴权的 Web 面板与只读 API 可查。
 - **观测代理网络**：BungeeCord 与 Velocity 提供子服在线、RTT、可达性、玩家路由和玩家 ping。
-- **可选业务集成**：内置 MultiCurrencyEconomy 与 AllinInventorySync 对接模块；未安装对应插件时不加载、不影响探针。
+- **业务插件自助接入**：探针只做业务面板与业务插件之间的路由中介，不内置任何业务域实现；第三方插件经 `api` 的 `ServerProbeAPI.businessHost()` 自行注册命令与事件。
 - **事故诊断控制面（可选，默认关闭）**：手动开启后外部 MCP 客户端经 JSON-RPC 读取状态、执行服务器命令、查看线程/死锁，并驱动内嵌 Arthas Core（Java 8–16 用 3.1.1，Java 17+ 用 4.3.2）进行 watch/trace/类重定义等深度诊断；v0.5.0 起支持运行期开关——线上出问题时控制台 `/probe mcp on` / `arthas on`，处理完 `off`，不写回配置。
 - **多种查看方式**：游戏内 `/probe`、Prometheus `/metrics`、本地 JSON/JSONL、内置 Web 面板与告警。
 - **按需精确归因**：支持启动期 `-javaagent` 与 Bukkit/Paper 的 Incision 方法级归因；两者均为可选能力。
@@ -100,7 +100,10 @@ incision:
 .\gradlew.bat e2eReadApi
 .\gradlew.bat e2eStorageSpi
 .\gradlew.bat e2eBridgeFixture
-.\gradlew.bat e2eIntegrationsBoth        # 需设置 SERVERPROBE_E2E_CORELIB_JAR/MCE_JAR/AIS_JAR 真实插件路径
+.\gradlew.bat e2eChunkFixture
+.\gradlew.bat e2eTopicFixture
+.\gradlew.bat e2eHealthFixture
+.\gradlew.bat e2eReloadFixture
 .\gradlew.bat e2eNetworkForensicsPaperWithBot
 .\gradlew.bat e2eFoliaObservedRegionsWithBot
 .\gradlew.bat e2eMcpDiagnosticsPaper

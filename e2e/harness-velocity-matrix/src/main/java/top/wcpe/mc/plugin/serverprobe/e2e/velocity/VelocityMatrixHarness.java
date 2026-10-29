@@ -5,13 +5,13 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.proxy.ProxyServer;
-import top.wcpe.mc.plugin.serverprobe.ServerProbeApi;
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi;
-import top.wcpe.mc.plugin.serverprobe.api.model.BackendServer;
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot;
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerPing;
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerRoute;
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics;
+import top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI;
+import top.wcpe.mc.plugin.serverprobe.api.model.player.BackendServer;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot;
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerPing;
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerRoute;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics;
 
 import java.io.File;
 import java.io.IOException;
@@ -70,8 +70,8 @@ public final class VelocityMatrixHarness {
     }
 
     private void verifySnapshot(MatrixCase matrix) {
-        ProbeReadApi api = ServerProbeApi.INSTANCE.read();
-        require(api != null, "ServerProbe API 尚未就绪");
+        ProbeReadApi api = ServerProbeAPI.read();
+        require(ServerProbeAPI.isAvailable(), "ServerProbe API 尚未就绪");
         MetricSnapshot snapshot = api.latestSnapshot();
         require(snapshot != null && snapshot.getProxy() != null, "尚未采集到代理指标");
         ProxyMetrics proxy = snapshot.getProxy();

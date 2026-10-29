@@ -9,7 +9,7 @@ package top.wcpe.mc.plugin.serverprobe.core.alert
  * @property rule 触发本事件的规则(含类型/阈值/级别等)。
  * @property firing 是否为触发态;true=触发(越线),false=恢复(回落正常)。
  * @property value 产出事件时的观测值(触发时为越线值,恢复时为回落后的正常值)。
- * @property serverId 实例标识,与快照口径一致([top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot.serverId])。
+ * @property serverId 实例标识,与快照口径一致([top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot.serverId])。
  * @property timestampMs 事件产出时刻(epoch 毫秒)。
  */
 data class AlertEvent(

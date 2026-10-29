@@ -5,7 +5,7 @@ import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.function.submit
 import taboolib.common.platform.service.PlatformExecutor
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger

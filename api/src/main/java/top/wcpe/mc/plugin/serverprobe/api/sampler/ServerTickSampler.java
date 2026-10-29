@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.api.sampler;
 
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource;
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample;
 
 /**
  * 服务器 tick 采样器契约。

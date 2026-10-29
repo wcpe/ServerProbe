@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.buffer
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Service
 

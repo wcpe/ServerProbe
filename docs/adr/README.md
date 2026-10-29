@@ -21,9 +21,9 @@
 | ADR-13 | api 模块改用纯 Java（Lombok），支持任意 Kotlin/Java 消费方 | 已接受 | [0013](0013-api-pure-java-for-broad-consumer-compat.md) |
 | ADR-14 | JSON 编解码经可换适配器，默认 nightconfig 零依赖（细化 ADR-10） | 已接受 | [0014](0014-json-codec-adapter.md) |
 | ADR-15 | 监控探针演进为 JianManager 业务对接 agent | 已接受 | [0015](0015-business-integration-agent.md) |
-| ADR-16 | 背包业务对接的物品传输契约 | 决策 1/2 被 ADR-17 取代 | [0016](0016-inventory-business-item-transport.md) |
-| ADR-17 | 背包物品写随 AllinInventorySync 2.0.0 分区字节化调整 | 已接受 | [0017](0017-inventory-write-degraded-byte-facade.md) |
-| ADR-18 | 内置业务集成使用独立 Gradle 模块 | 已接受 | [0018](0018-built-in-business-integration-modules.md) |
+| ADR-16 | 背包业务对接的物品传输契约 | 已被 ADR-30 取代 | [0016](0016-inventory-business-item-transport.md) |
+| ADR-17 | 背包物品写随 AllinInventorySync 2.0.0 分区字节化调整 | 已被 ADR-30 取代 | [0017](0017-inventory-write-degraded-byte-facade.md) |
+| ADR-18 | 内置业务集成使用独立 Gradle 模块 | 已被 ADR-30 取代 | [0018](0018-built-in-business-integration-modules.md) |
 | ADR-19 | 数据包取证使用受限 SQLite 例外 | 已接受；驱动分发被 ADR-27 细化 | [0019](0019-network-forensics-sqlite-exception.md) |
 | ADR-20 | Folia 指标以已观测 region tick 事件采样 | 已被 ADR-23 取代 | [0020](0020-folia-observed-region-tick-events.md) |
 | ADR-21 | Velocity 采用双 API 兼容源集与 Java 8 入口 | 已被 ADR-26 取代 | [0021](0021-velocity-dual-api-compatibility.md) |
@@ -34,7 +34,10 @@
 | ADR-26 | Velocity 采用共享源码与双实际兼容编译门 | 已接受 | [0026](0026-velocity-shared-source-dual-compile-gates.md) |
 | ADR-27 | SQLite JDBC 驱动改为发行 jar 内嵌闭包 | 已接受 | [0027](0027-sqlite-jdbc-embedded-runtime-closure.md) |
 | ADR-28 | MCP 控制面支持运行期两级开关 | 已接受 | [0028](0028-mcp-runtime-toggle.md) |
+| ADR-29 | 业务桥契约下沉 `api` 模块，以静态门面供第三方自注册 | 已接受 | [0029](0029-bridge-contract-into-api-module.md) |
+| ADR-30 | 移除内置业务集成模块，改由插件自注册 | 已接受 | [0030](0030-remove-built-in-business-integrations.md) |
+| ADR-31 | 配置重载用「通知-认领」模型：探针只通知声明方并收集自报结果，不推断生效 | 已接受 | [0031](0031-config-reload-notification-model.md) |
 
-> 下一个 ADR 取号 **ADR-29**（编号 = 现有最大 + 1，永不复用、不补洞；现有最大看本目录，别硬记某个数）。新建复制 [`_template.md`](_template.md)。
+> 下一个 ADR 取号 **ADR-32**（编号 = 现有最大 + 1，永不复用、不补洞；现有最大看本目录，别硬记某个数）。新建复制 [`_template.md`](_template.md)。
 
 > **别慌通读**：ADR 有意稀少（只为重大决策写），理解现状看 [`../ARCHITECTURE.md`](../ARCHITECTURE.md)，ADR 只按需查"为什么"；被取代的归档不打扰，当前架构 = 未取代的活跃集。增长过快是滥写信号——日常变更归 PRD 状态列 + CHANGELOG。

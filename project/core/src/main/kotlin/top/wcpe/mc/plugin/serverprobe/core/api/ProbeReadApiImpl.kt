@@ -1,9 +1,9 @@
 package top.wcpe.mc.plugin.serverprobe.core.api
 
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery
@@ -28,15 +28,15 @@ import top.wcpe.taboolib.ioc.annotation.Service
  * - 历史启动画像(M2):委派 [MetricStore] 读归档,**可能读盘**(故接口 KDoc 约定调用方宜在异步上下文)。
  *
  * ## 对外暴露(第三方获取方式)
- * 本类以 `top.wcpe.taboolib.ioc`的 [Service] 纳入 IOC 容器,**容器内即可按接口类型取用**:
+ * 本类以 `top.wcpe.taboolib.ioc` 的 [Service] 纳入 IOC 容器,**容器内即可按接口类型取用**:
  * ```kotlin
  * val api = top.wcpe.taboolib.ioc.bean.BeanContainer.getBean(ProbeReadApi::class.java)
  * ```
- * 容器在 TabooLib `ACTIVE`生命周期完成初始化;调用方应在容器就绪后(如自身 `ENABLE`/`ACTIVE`之后)获取。
- * 本插件内部的 `/probe`命令即经此机制注入同一实例使用(见 `ProbeCommand`)。
+ * 容器在 TabooLib `ACTIVE` 生命周期完成初始化;调用方应在容器就绪后(如自身 `ENABLE`/`ACTIVE` 之后)获取。
+ * 本插件内部的 `/probe` 命令即经此机制注入同一实例使用(见 `ProbeCommand`)。
  *
  * 跨插件(独立 jar)无需依赖 IOC 内部细节即可获取本只读 API:见运行期静态门面
- * `top.wcpe.mc.plugin.serverprobe.ServerProbeApi`(对上述 `BeanContainer`取 bean 的容错封装)。
+ * `top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI#read()`(由装配器把本实例挂到稳定代理后面)。
  */
 @Service
 class ProbeReadApiImpl : ProbeReadApi {

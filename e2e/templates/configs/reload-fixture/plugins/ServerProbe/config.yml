@@ -1,0 +1,30 @@
+# 配置重载通知场景：ServerProbe 配置（一次性回环桥配置，token/端口由构建期随机生成）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"
+  # 显式写死重载相关参数：E2E 要验证的是"按配置在预算内编排并如实回执"，而不是"读默认值恰好也够用"。
+  line:
+    # 重载协调池（与 worker 池分离，见 config-reload.md §3.1）。
+    reload-pool-size: 4
+    reload-queue-capacity: 32
+  reload:
+    # 单次重载总预算：本场景没有卡死监听器，2000ms 只为覆盖首次派发的类加载与线程启动开销。
+    # 必须与 ReloadFixturePayload.TIMEOUT_MS 一致。
+    timeout-ms: 2000
+    # 单次请求路径数上限：本场景每条命令最多 2 条路径，远未触顶（超限判据由单测覆盖）。
+    max-paths-per-request: 32
+    # 监听器子任务 worker 池并发位（与协调池分离，防池内自锁）。
+    worker-pool-size: 8
+    stuck-after-ms: 30000
+    # 熔断保持生产默认（启用）：本场景不制造超时，熔断因此永不打开；
+    # 一旦某条命令真的超时，后续请求会如实报 TIMEOUT 而不是被静默重试掩盖。
+    circuit-breaker:
+      enabled: true
+      failure-window-ms: 60000
+      open-duration-ms: 60000
+      max-open-duration-ms: 600000
+      failure-threshold: 1
+      max-entries: 256

@@ -1,20 +1,20 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
-import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.LibraryTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.TimelineEvent
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 
 /**
  * 启动 agent 早期数据的 core 内部载体(A3/M5)。
  *
  * 由 [AgentDataReader.read] 经跨 ClassLoader 反射读出并解析得到,随后由
  * [top.wcpe.mc.plugin.serverprobe.core.startup.StartupProfileBuilder] 并入对外的
- * [top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile]。
+ * [top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile]。
  *
  * **未挂载语义**:agent 仅在启动加 `-javaagent:plugins/ServerProbe.jar`时挂载;未挂载时由
  * [notAttached] 产出 [attached] = false、其余为零值/空列表的实例。

@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 
 /**
  * [MetricAggregator] 核心纯函数 [MetricAggregator.aggregate](接收快照列表)单元测试。

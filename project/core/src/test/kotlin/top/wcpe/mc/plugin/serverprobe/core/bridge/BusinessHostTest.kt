@@ -1,10 +1,15 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
+import top.wcpe.mc.plugin.serverprobe.api.bridge.ActionResult
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BusinessProvider
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BusinessHost
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CountDownLatch
+import top.wcpe.mc.plugin.serverprobe.api.bridge.ActionRequest
+import top.wcpe.mc.plugin.serverprobe.api.bridge.DomainManifest
 
 /**
  * [BusinessHost] 单元测试(JBIS 业务对接派发 + 事故域隔离,见 ADR-0015)。
@@ -16,18 +21,20 @@ class BusinessHostTest {
 
     /** 行为可配置的桩 Provider。 */
     private class StubProvider(
-        override val domain: String,
-        private val behavior: (action: String, payload: String) -> BridgeCommandResult,
+        private val domainName: String,
+        private val behavior: (action: String, payload: String) -> ActionResult,
     ) : BusinessProvider {
-        override fun manifest(): Map<String, Any?> = mapOf("actions" to listOf("ping"))
-        override fun dispatch(action: String, payload: String): BridgeCommandResult = behavior(action, payload)
+        override fun domain(): String = domainName
+
+        override fun manifest(): DomainManifest = TestManifests.withActions(domain(), "ping")
+        override fun dispatch(request: ActionRequest): ActionResult = behavior(request.action, request.payloadJson)
     }
 
     /** 已注册域:dispatch 路由到对应 Provider 并回其结果。 */
     @Test
     fun `dispatch 路由到对应域 Provider 并回其结果`() {
-        val host = BusinessHost()
-        host.register(StubProvider("economy") { action, payload -> BridgeCommandResult.ok("$action|$payload") })
+        val host = BusinessHostImpl()
+        host.register(StubProvider("economy") { action, payload -> ActionResult.ok("$action|$payload") })
 
         val result = host.dispatch("economy", "balance", "alice")
 
@@ -38,7 +45,7 @@ class BusinessHostTest {
     /** 未注册域:dispatch 降级为「域不可用」,不抛。 */
     @Test
     fun `未注册的域 dispatch 降级为域不可用`() {
-        val host = BusinessHost()
+        val host = BusinessHostImpl()
 
         val result = host.dispatch("inventory", "view", "")
 
@@ -49,7 +56,7 @@ class BusinessHostTest {
     /** Provider 抛异常:被事故域隔离降级为失败,不向上传播。 */
     @Test
     fun `Provider 抛异常被事故域隔离降级为失败`() {
-        val host = BusinessHost()
+        val host = BusinessHostImpl()
         host.register(StubProvider("economy") { _, _ -> throw IllegalStateException("boom") })
 
         val result = host.dispatch("economy", "balance", "")
@@ -60,12 +67,12 @@ class BusinessHostTest {
     /** Provider 卡死:dispatch 有界超时降级,调用线程不被永久卡住(事故域隔离铁律)。 */
     @Test
     fun `Provider 卡死时 dispatch 有界超时降级且不永占调用线程`() {
-        val host = BusinessHost()
+        val host = BusinessHostImpl()
         host.dispatchTimeoutMs = TEST_TIMEOUT_MS
         val released = CountDownLatch(1)
         host.register(StubProvider("economy") { _, _ ->
             released.await()
-            BridgeCommandResult.ok("late")
+            ActionResult.ok("late")
         })
 
         val startNanos = System.nanoTime()
@@ -85,11 +92,11 @@ class BusinessHostTest {
      */
     @Test
     fun `domains 反映已注册的业务域`() {
-        val host = BusinessHost()
+        val host = BusinessHostImpl()
         assertTrue(host.domains().isEmpty(), "初始无注册域")
 
-        host.register(StubProvider("economy") { _, _ -> BridgeCommandResult.ok() })
-        host.register(StubProvider("inventory") { _, _ -> BridgeCommandResult.ok() })
+        host.register(StubProvider("economy") { _, _ -> ActionResult.ok() })
+        host.register(StubProvider("inventory") { _, _ -> ActionResult.ok() })
 
         val domains = host.domains()
         assertEquals(2, domains.size, "应有两个已注册域")
@@ -99,9 +106,9 @@ class BusinessHostTest {
     /** 指定实例卸载后不应误删同域后来注册的 Provider。 */
     @Test
     fun `unregister 仅撤销指定实例`() {
-        val host = BusinessHost()
-        val first = StubProvider("economy") { _, _ -> BridgeCommandResult.ok("first") }
-        val second = StubProvider("economy") { _, _ -> BridgeCommandResult.ok("second") }
+        val host = BusinessHostImpl()
+        val first = StubProvider("economy") { _, _ -> ActionResult.ok("first") }
+        val second = StubProvider("economy") { _, _ -> ActionResult.ok("second") }
         host.register(first)
         host.register(second)
 

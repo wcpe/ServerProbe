@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.startup
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
 
 /**
  * `logs/latest.log`逐插件 onEnable 耗时解析器(慢插件榜数据源)。

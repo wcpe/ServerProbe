@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.folia
 
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionWorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.aggregator.Percentiles
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
