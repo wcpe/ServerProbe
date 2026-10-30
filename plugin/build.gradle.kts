@@ -60,8 +60,8 @@ dependencies {
     // 启动期 agent 的字节码插桩依赖 ASM。用 taboo(...) 而非 compileOnly:
     // taboo 既加入编译类路径(agent 纯 Java 需编译期可见 ASM),又把 ASM 的 class 实打实合并进二合一 jar,
     // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。
-    taboo("org.ow2.asm:asm:9.10.1")
-    taboo("org.ow2.asm:asm-commons:9.10.1")
+    taboo("org.ow2.asm:asm:9.11.1")
+    taboo("org.ow2.asm:asm-commons:9.11.1")
     // plugin 模块的测试覆盖命令层纯函数（ProbeFormat 的单位换算与区域无关性）与 IoC 扫描契约。
     // TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突，故引擎与 launcher 版本配对显式锁死，
     // 保证 JUnit Platform 正常加载。
