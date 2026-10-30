@@ -68,6 +68,11 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private val foliaLoadRuns = AtomicInteger()
     private val foliaTargetRegionId = AtomicLong(UNKNOWN_REGION_ID)
     private val foliaControlRegionId = AtomicLong(UNKNOWN_REGION_ID)
+    /** 任务实际所在的 chunk 坐标；与 region id 一起构成唯一身份（一个 region 可覆盖多个 chunk）。 */
+    @Volatile private var foliaTargetChunkX = UNKNOWN_CHUNK_COORDINATE
+    @Volatile private var foliaTargetChunkZ = UNKNOWN_CHUNK_COORDINATE
+    @Volatile private var foliaControlChunkX = UNKNOWN_CHUNK_COORDINATE
+    @Volatile private var foliaControlChunkZ = UNKNOWN_CHUNK_COORDINATE
     // Folia 调度任务匣：io.papermc 类型只允许出现在嵌套类中，主类被旧版本服务器反射时不得触发类缺失。
     private var foliaTaskBox: Any? = null
     private var foliaBaseline: ReadApiConsumer.FoliaRegionPair? = null
@@ -311,12 +316,29 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         }
     }
 
-    /** 在目标位置铺设落脚点，避免协议 bot 从高空坠落后污染 region 稳定样本。 */
+    /**
+     * 在目标位置铺设落脚点，避免协议 bot 从高空坠落后污染 region 稳定样本。
+     *
+     * 必须**先清空玩家身体占据的两格**再垫脚：只 setblock 落脚点是不够的——
+     * 该坐标上方可能正好有世界生成的方块（悬空平台、洞穴顶），玩家 `tp` 进去会被卡在方块里，
+     * 几十秒后 `suffocated in a wall` 死亡。玩家一死，该 region 的 `playerCount` 归零，
+     * `ObservedRegionTracker.onTickStart` 会走 `pause()` 分支，这个 region 从此不再产生样本，
+     * 配对与隔离断言随之失败——“负载没抬起来”的真实原因其实是 bot 已经不在了。
+     */
     private fun placeAndTeleport(name: String, dimension: String, x: Int, z: Int) {
+        check(inDimension(dimension, "setblock $x ${FOLIA_TELEPORT_Y} $z minecraft:air")) {
+            "无法清空 Folia 验收点位（脚）:$name"
+        }
+        check(inDimension(dimension, "setblock $x ${FOLIA_TELEPORT_Y + 1} $z minecraft:air")) {
+            "无法清空 Folia 验收点位（头）:$name"
+        }
         check(inDimension(dimension, "setblock $x ${FOLIA_TELEPORT_Y - 1} $z minecraft:stone")) {
             "无法放置 Folia 验收落脚点:$name"
         }
         teleport(name, dimension, x, z)
+        // 兜底：即使世界生成出了意外，也让 bot 不至于因窒息/坠落而消失（存活才有样本）。
+        inDimension(dimension, "effect give $name minecraft:resistance 9999 4 true")
+        inDimension(dimension, "effect give $name minecraft:fire_resistance 9999 4 true")
     }
 
     private fun teleport(name: String, dimension: String, x: Int, z: Int) {
@@ -362,13 +384,26 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         regionId: AtomicLong,
         isTarget: Boolean,
     ) {
+        val chunkX = x shr CHUNK_COORDINATE_BITS
+        val chunkZ = z shr CHUNK_COORDINATE_BITS
         val task = server.regionScheduler.runAtFixedRate(
             this,
             world,
-            x shr CHUNK_COORDINATE_BITS,
-            z shr CHUNK_COORDINATE_BITS,
+            chunkX,
+            chunkZ,
             Consumer {
                 regionId.set(foliaRegionIdReader.currentId())
+                // 必须同时记住**实际坐标**：一个 Folia region 可覆盖多个 chunk，生产侧因此用
+                // (internalId, worldName, centerChunkX, centerChunkZ) 四元组做身份（见
+                // ObservedRegionTracker.RegionKey）。只用 id 匹配会撞到同一 region 里别的 chunk 条目，
+                // 拿到的是没被我们加载的那个 chunk 的样本——p95 抬升就被摊薄了。
+                if (isTarget) {
+                    foliaTargetChunkX = chunkX
+                    foliaTargetChunkZ = chunkZ
+                } else {
+                    foliaControlChunkX = chunkX
+                    foliaControlChunkZ = chunkZ
+                }
                 if (isTarget && foliaLoadEnabled.get()) {
                     consumeFoliaRegionCpu()
                     foliaLoadRuns.incrementAndGet()
@@ -397,6 +432,16 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         (foliaTaskBox as? FoliaTaskBox)?.stop(foliaLoadEnabled)
     }
 
+    /** 按任务实际所在的 region 身份（id + 坐标）取配对快照，避免拿到同一 region 里其他 chunk 的样本。 */
+    private fun currentFoliaPair(): ReadApiConsumer.FoliaRegionPair? = ReadApiConsumer.observedRegionPair(
+        foliaTargetRegionId.get(),
+        foliaControlRegionId.get(),
+        foliaTargetChunkX,
+        foliaTargetChunkZ,
+        foliaControlChunkX,
+        foliaControlChunkZ,
+    )
+
     /** 验收 Region 明细、真实样本与每世界加权汇总均通过公共读取接口可见。 */
     private fun checkObservedRegions(remaining: Int) {
         if (ReadApiConsumer.foliaGlobalTickUnavailable() == false) {
@@ -406,12 +451,12 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         val targetId = foliaTargetRegionId.get()
         val controlId = foliaControlRegionId.get()
         val evidence = ReadApiConsumer.readObservedRegionEvidence()
-        val pair = ReadApiConsumer.observedRegionPair(targetId, controlId)
+        val pair = currentFoliaPair()
         if (evidence != null && pair != null) {
-            foliaBaseline = pair
             smokeFoliaTpsCommand()
-            foliaLoadEnabled.set(true)
-            runLater(FOLIA_LOAD_SETTLE_TICKS) { checkFoliaRegionIsolation(FOLIA_LOAD_OBSERVE_ATTEMPTS) }
+            // 先静置，再采基线：此刻 bot 刚登录、刚传送、区块刚生成，region p95 正在高位。
+            // 若现在就把这个高位当成「无负载基线」，加压后服务器反而平稳下来，targetΔ 会为负。
+            runLater(FOLIA_BASELINE_SETTLE_TICKS) { captureFoliaBaseline(evidence, FOLIA_LOAD_OBSERVE_ATTEMPTS) }
             return
         }
         if (remaining == 0) {
@@ -421,21 +466,59 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         runLater { checkObservedRegions(remaining - 1) }
     }
 
-    /** 只在目标 region 的真实 tick 上运行有界 CPU 负载，以验证分区指标隔离。 */
-    private fun checkFoliaRegionIsolation(remaining: Int) {
-        val baseline = foliaBaseline ?: error("Folia 负载基线尚未形成")
-        val pair = ReadApiConsumer.observedRegionPair(foliaTargetRegionId.get(), foliaControlRegionId.get())
-        val evidence = pair?.let { regionIsolationEvidence(baseline, it) }
-        if (evidence != null && foliaLoadRuns.get() >= MIN_FOLIA_LOAD_RUNS) {
-            kickFoliaPlayers()
-            runLater(FOLIA_EXPIRE_SETTLE_TICKS) { checkObservedRegionsExpired(evidence, FOLIA_EXPIRE_ATTEMPTS) }
+    /** 静置之后才采基线：此时启动期的一次性开销已离开采样窗口，读数反映真实的空载水平。 */
+    private fun captureFoliaBaseline(evidence: Map<String, String>, remaining: Int) {
+        val pair = currentFoliaPair()
+        if (pair != null) {
+            foliaBaseline = pair
+            foliaLoadEnabled.set(true)
+            // 加压后必须跑满一个完整采样窗口，否则 p95 里仍混着基线样本，抬升会被稀释。
+            runLater(FOLIA_LOAD_SETTLE_TICKS) { checkFoliaRegionIsolation(FOLIA_LOAD_OBSERVE_ATTEMPTS, evidence) }
             return
         }
         if (remaining == 0) {
-            fail("Folia 受控 region 负载未形成隔离的 MSPT 证据")
+            fail("Folia 静置后未能重取基线样本")
             return
         }
-        runLater { checkFoliaRegionIsolation(remaining - 1) }
+        runLater { captureFoliaBaseline(evidence, remaining - 1) }
+    }
+
+    /** 只在目标 region 的真实 tick 上运行有界 CPU 负载，以验证分区指标隔离。 */
+    private fun checkFoliaRegionIsolation(remaining: Int, evidence: Map<String, String>) {
+        val baseline = foliaBaseline ?: error("Folia 负载基线尚未形成")
+        val pair = currentFoliaPair()
+        val isolation = pair?.let { regionIsolationEvidence(baseline, it) }
+        if (isolation != null && foliaLoadRuns.get() >= MIN_FOLIA_LOAD_RUNS) {
+            kickFoliaPlayers()
+            runLater(FOLIA_EXPIRE_SETTLE_TICKS) { checkObservedRegionsExpired(evidence + isolation, FOLIA_EXPIRE_ATTEMPTS) }
+            return
+        }
+        if (remaining == 0) {
+            fail("Folia 受控 region 负载未形成隔离的 MSPT 证据（${foliaIsolationDiagnostic(baseline)}）")
+            return
+        }
+        runLater { checkFoliaRegionIsolation(remaining - 1, evidence) }
+    }
+
+    /**
+     * 失败时的最小诊断：把“到底是负载没跑起来、还是被对照 region 的噪声压过去”一次说清。
+     *
+     * 没有这行信息时，失败只能看到一句笼统的结论，无法区分下面三种情形：
+     * ① 负载没跑（`loadRuns` 不足）；② 目标抬升不够（噪声/负载偏小）；③ 对照 region 也在被抬升（非隔离）。
+     */
+    private fun foliaIsolationDiagnostic(baseline: ReadApiConsumer.FoliaRegionPair): String {
+        val runs = foliaLoadRuns.get()
+        val pair = runCatching { currentFoliaPair() }.getOrNull()
+        val deltas = if (pair == null) {
+            "配对不可用(target=${foliaTargetRegionId.get()},control=${foliaControlRegionId.get()})"
+        } else {
+            val targetP95 = pair.target.msptP95 ?: 0.0
+            val controlP95 = pair.control.msptP95 ?: 0.0
+            val lateralGap = targetP95 - controlP95
+            "targetP95=$targetP95 controlP95=$controlP95 lateralGap=$lateralGap(需≥$MIN_TARGET_MSPT_DELTA) " +
+                "baselineTarget=${baseline.target.msptP95} baselineControl=${baseline.control.msptP95}"
+        }
+        return "loadRuns=$runs(需≥$MIN_FOLIA_LOAD_RUNS), $deltas"
     }
 
     /** 控制台命令仅作真实运行烟测，详细数值仍以公开 API 的强断言为准。 */
@@ -443,19 +526,42 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         check(Bukkit.dispatchCommand(server.consoleSender, "probe tps")) { "Folia /probe tps 命令执行失败" }
     }
 
-    /** 目标 p95 必须显著抬升，而控制 region 的变化不得达到目标变化的一半。 */
+    /**
+     * 判定分区隔离是否成立。
+     *
+     * ## 为什么用「加压后的横向差」而不是「加压前 vs 加压后的纵向差」
+     * 纵向差曾经是本用例的判据，但它**结构性不可靠**：目标 region 的 MSPT 在开局几十秒内本身就在快速下降
+     * （实测：玩家进服 7s 时 p95=102.84ms → 静置后 45.45ms → 加压 32s 后 20.65ms）。
+     * 这个下降幅度（-80ms）远大于一次 15ms 负载能造成的抬升，于是再大的静置都赌不赢——
+     * targetΔ 实测过 2.99 / 4.46 / -12.31 / -24.81 / 2.64，横跳两个数量级。
+     *
+     * 横向则不受趋势影响：同一时刻两个 region 共处同一台机器、同一个启动阶段，
+     * 唯一系统性差异就是“其中一个在跑我们注入的自旋”。判据仍保留一份基线差分，
+     * 用于排除“两边一起被抬高”的情形。
+     */
     private fun regionIsolationEvidence(
         baseline: ReadApiConsumer.FoliaRegionPair,
         current: ReadApiConsumer.FoliaRegionPair,
     ): Map<String, String>? {
-        val targetDelta = current.target.msptP95!! - baseline.target.msptP95!!
-        val controlDelta = current.control.msptP95!! - baseline.control.msptP95!!
-        if (targetDelta < MIN_TARGET_MSPT_DELTA || controlDelta > targetDelta / CONTROL_DELTA_DIVISOR) {
+        val targetP95 = current.target.msptP95 ?: return null
+        val controlP95 = current.control.msptP95 ?: return null
+        val targetDelta = targetP95 - (baseline.target.msptP95 ?: 0.0)
+        val controlDelta = controlP95 - (baseline.control.msptP95 ?: 0.0)
+        // 横向：加压后的目标 region 必须比对照 region 高出至少 MIN_TARGET_MSPT_DELTA。
+        val lateralGap = targetP95 - controlP95
+        if (lateralGap < MIN_TARGET_MSPT_DELTA) {
+            return null
+        }
+        // 纵向：两边同时被抬高（外部噪声）不算隔离证据。
+        if (controlDelta > targetDelta / CONTROL_DELTA_DIVISOR) {
             return null
         }
         return mapOf(
             "targetRegionId" to current.target.foliaRegionId.toString(),
             "controlRegionId" to current.control.foliaRegionId.toString(),
+            "targetP95" to targetP95.toString(),
+            "controlP95" to controlP95.toString(),
+            "lateralGap" to lateralGap.toString(),
             "targetP95Delta" to targetDelta.toString(),
             "controlP95Delta" to controlDelta.toString(),
             "loadRuns" to foliaLoadRuns.get().toString(),
@@ -1318,7 +1424,24 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         private const val REQUIRED_FOLIA_PLAYERS = 2
         private const val FOLIA_CHUNK_LOAD_TICKS = 40L
         private const val FOLIA_SETTLE_TICKS = 100L
-        private const val FOLIA_LOAD_SETTLE_TICKS = 120L
+
+        /**
+         * 采基线前的静置时长：必须让 bot 登录、传送、区块生成那阵的噪声先落下去。
+         *
+         * 这些动作会把 region 的 p95 顶到 30ms 以上，而负载开启、服务器平稳后反而回落到 20 多毫秒——
+         * 若在这些动作刚结束时采基线，“基线”会比“加压后”还高，targetΔ 直接为负。
+         * 200 ticks ≈ 10s，足以让启动期的一次性开销离开采样窗口。
+         */
+        private const val FOLIA_BASELINE_SETTLE_TICKS = 200L
+
+        /**
+         * 负载持续时间。
+         *
+         * 判据改成「加压后的横向差」之后，不再需要填满 600 样本窗口——横向比较只看同时刻两个 region
+         * 的相对位置，旧样本不会把差异稀释掉（反正两边都一样混着旧样本）。
+         * 160 ticks ≈ 8s，足够让两个 region 的滑动 p95 都刷新到含负载样本。
+         */
+        private const val FOLIA_LOAD_SETTLE_TICKS = 160L
         private const val FOLIA_EXPIRE_SETTLE_TICKS = 60L
         private const val FOLIA_TARGET_BLOCK = 0
         private const val FOLIA_TELEPORT_Y = 100
@@ -1334,6 +1457,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         private const val FIRST_REGION_TASK_DELAY_TICKS = 1L
         private const val REGION_TASK_PERIOD_TICKS = 1L
         private const val UNKNOWN_REGION_ID = -1L
+        private const val UNKNOWN_CHUNK_COORDINATE = Int.MIN_VALUE
         private const val MAX_MCP_ERROR_RESPONSE_CHARS = 512
         private const val ARTHAS_STATUS_ATTEMPTS = 50
         private const val ARTHAS_STATUS_INTERVAL_MILLIS = 100L

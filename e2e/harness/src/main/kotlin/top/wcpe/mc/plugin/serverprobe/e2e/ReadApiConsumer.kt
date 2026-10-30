@@ -125,16 +125,39 @@ object ReadApiConsumer {
         )
     }
 
-    /** 按 Folia 运行期 region id 读取两个稳定观测对象，避免用坐标猜测归属。 */
-    fun observedRegionPair(targetId: Long, controlId: Long): FoliaRegionPair? {
-        if (targetId == controlId) {
+    /**
+     * 按「运行期 region id + chunk 坐标」读取两个稳定观测对象。
+     *
+     * **不能只用 region id**：一个 Folia region 可以覆盖多 chunk，同一次 tick 会为它产生多条
+     * `ObservedRegionMetrics`（生产侧用 internalId+worldName+centerChunkX+centerChunkZ 四元组做身份，
+     * 见 `ObservedRegionTracker.RegionKey`）。只用 id 取 `firstOrNull` 会拿到任意一条—
+     * 很可能是别的 chunk 的样本，该 chunk 并未被我们的负载命中，p95 抬升就被摊薄。
+     */
+    fun observedRegionPair(
+        targetId: Long,
+        controlId: Long,
+        targetChunkX: Int = Int.MIN_VALUE,
+        targetChunkZ: Int = Int.MIN_VALUE,
+        controlChunkX: Int = Int.MIN_VALUE,
+        controlChunkZ: Int = Int.MIN_VALUE,
+    ): FoliaRegionPair? {
+        if (targetId == controlId && targetChunkX == controlChunkX && targetChunkZ == controlChunkZ) {
             return null
         }
         val regions = ServerProbeAPI.read().latestSnapshot()?.server?.observedRegions.orEmpty()
-        val target = regions.firstOrNull { it.foliaRegionId == targetId && it.isStableObservedRegion() } ?: return null
-        val control = regions.firstOrNull { it.foliaRegionId == controlId && it.isStableObservedRegion() } ?: return null
+        val target = regions.firstOrNull {
+            it.foliaRegionId == targetId && it.matchesChunk(targetChunkX, targetChunkZ) && it.isStableObservedRegion()
+        } ?: return null
+        val control = regions.firstOrNull {
+            it.foliaRegionId == controlId && it.matchesChunk(controlChunkX, controlChunkZ) && it.isStableObservedRegion()
+        } ?: return null
         return FoliaRegionPair(target, control)
     }
+
+    /** 未提供坐标（默认哨兵值）时退化为只比 id；提供了就必须严格匹配。 */
+    private fun ObservedRegionMetrics.matchesChunk(chunkX: Int, chunkZ: Int): Boolean =
+        (chunkX == Int.MIN_VALUE || centerChunkX == chunkX) &&
+            (chunkZ == Int.MIN_VALUE || centerChunkZ == chunkZ)
 
     /** 场景超时时输出最小化 region 状态，便于区分身份任务与公开快照未形成。 */
     fun observedRegionDiagnostic(targetId: Long, controlId: Long): String {
