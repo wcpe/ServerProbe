@@ -165,6 +165,13 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
      *
      * 用反射而非直接引用：`CraftEntityTypes` 是 CraftBukkit 内部类，
      * 编译期不应依赖 NMS 符号（本模块只面向 Bukkit API）。
+     *
+     * <h3>适用范围（重要）</h3>
+     * 只覆盖**本 harness 接管的场景**（目前仅 `folia-observed-regions`）。`mcp-diagnostics-folia`
+     * 与 `network-forensics-folia` 跑在各自独立的 harness（`harness-mcp-bukkit` /
+     * `harness-network-bukkit`）上，不经过本类，因此**不受此预热保护**。
+     * 它们目前实测通过，因为 bot 登录时机晚于该初始化；若将来它们开始报
+     * `Global region has not responded`，需在各自的 harness 里做同样的预热。
      */
     private fun prewarmEntityTypesForFolia() {
         val startedAt = System.currentTimeMillis()

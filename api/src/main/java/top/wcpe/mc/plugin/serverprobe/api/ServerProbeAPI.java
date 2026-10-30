@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import top.wcpe.mc.plugin.serverprobe.api.bridge.ActionRequest;
@@ -46,12 +46,15 @@ import top.wcpe.mc.plugin.serverprobe.api.reload.ConfigReloadRegistry;
  * 只读数据（快照／历史／启动画像／取证）一律走 {@link #read()}，业务注册走 {@link #businessHost()}。</p>
  *
  * <h2>探针后加载怎么办</h2>
- * <p>若注册时探针尚未就绪，句柄 {@code getActive()==false}、原因为
- * {@link Registration.InactiveReason#PROBE_UNAVAILABLE}。两种处理：</p>
- * <ul>
- *   <li>用 {@link #awaitAvailable(long)} 等待就绪后重试注册（推荐）；</li>
- *   <li>或直接忽略——探针不存在时也没有业务可接。</li>
- * </ul>
+ * <p><b>什么都不用做</b>：访问器返回的是稳定代理，探针 install 之后同一引用自动按真实实现工作。
+ * 唯一需要注意的是注册：若注册发生在探针就绪之前，句柄 {@code getActive()==false}、原因为
+ * {@link Registration.InactiveReason#PROBE_UNAVAILABLE}，而探针 install 时<b>不会</b>回头补注册，
+ * 因此需要在探针就绪之后重新注册一次。</p>
+ *
+ * <p><b>不要在主线程用 {@link #awaitAvailable(long)} 等它。</b>旧文档把"轮询等待就绪"写成推荐
+ * 用法，是错的：它会把调用线程睡满，而最自然的落点（{@code onEnable}）正是服务器主线程，
+ * 探针的 install 也需要主线程完成，于是主线程被占着 → 探针永远装不上 → 只能白等超时。
+ * 理由详见该方法的 javadoc。</p>
  *
  * <h2>生命周期</h2>
  * <p>探针 ENABLE 时 {@link #install(BridgeServices)}，DISABLE 时 {@link #uninstall()}。
@@ -86,6 +89,21 @@ public final class ServerProbeAPI {
 
     /**
      * 有界等待探针就绪。
+     *
+     * <h2>禁止在服务器主线程调用</h2>
+     * <p>本方法用 {@code Thread.sleep} 轮询，会把调用线程<b>实打实地睡满</b> {@code timeoutMs}。
+     * 而它最自然的落点是 {@code onEnable}——那就在<b>主线程</b>上。探针若在其后加载，
+     * 这里会把主线程堵满整个超时（TPS 直接归零），更糟的是<b>永远等不到</b>：
+     * 探针的 install 同样要在主线程完成，主线程被占着它就没有机会执行，只能白等到超时。</p>
+     *
+     * <p><b>推荐做法：不要等。</b>{@link #businessHost()} / {@link #read()} 等访问器返回的是
+     * <b>稳定代理</b>，本来就可以在 {@code onEnable} 里缓存成字段，探针后来就绪时同一引用
+     * 自动生效——这正是本类采用代理而非快照的初衷。确实需要"就绪后再做事"，请在
+     * <b>异步线程</b>（或调度器的下一 tick）里调用本方法。</p>
+     *
+     * <p>行为保持不变是刻意的：把"主线程调用"改成抛异常或直接返回 false 会打断已有的、
+     * 在异步线程上正确使用它的调用方（E2E harness、面板侧的就绪探测等）。
+     * 把坑写进文档、把误用的锅明确归到调用点，是影响面最小的做法。</p>
      *
      * @param timeoutMs 最长等待毫秒；{@code <= 0} 表示只查当前状态、不阻塞
      * @return true=已就绪；false=超时仍未就绪
@@ -191,6 +209,55 @@ public final class ServerProbeAPI {
         java.util.logging.Logger.getLogger(ServerProbeAPI.class.getName()).warning(message);
     }
 
+    /**
+     * 记录错误级日志（api 模块不依赖日志框架，走 JDK 日志的 SEVERE）。
+     *
+     * <p>与 {@link #warn(String)} 分开是因为两者要能<b>按级别筛</b>：实现侧抛 {@link Error}
+     * 说明它已经被打坏（JVM 级 / 类加载级），和"某个查询偶尔抛个 NPE"完全不是一回事。</p>
+     */
+    private static void severe(String message) {
+        java.util.logging.Logger.getLogger(ServerProbeAPI.class.getName()).severe(message);
+    }
+
+    /**
+     * 已告警过的降级点（去重键 = 方法名）。
+     *
+     * <p>用集合而不是布尔：一个实现坏掉时往往是"十个查询全抛"，只报一条会让人以为是单点故障。</p>
+     */
+    private static final Set<String> DEGRADED_REPORTED = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 委派实现违约、代理不得不降级时的<b>唯一</b>日志出口（按方法名去重）。
+     *
+     * <p>原来的写法是 17 处 {@code catch (Throwable ignored)}：日志零痕迹，面板只显示空列表/空值，
+     * 运维看到的是"探针没数据"，而真相是"实现每次调用都在抛"——这是本类注释自己担心的
+     * 那类静默失败，而且它会把实现侧的真 bug 伪装成"没有数据"。</p>
+     *
+     * <p>去重是必须的另一个方向：这些方法大多在面板轮询的热路径上（每秒数十次），
+     * 一次故障立刻演变成日志风暴，真正的原因反而被淹掉。故同一方法只报一次（不随故障次数放大）。</p>
+     *
+     * <p>{@link Error} 与 {@link Exception} 分级：前者记为 SEVERE，后者记为 WARNING，
+     * 之后都照常降级——契约是"绝不抛"，不能因为级别高就把异常放给调用方。</p>
+     *
+     * @param method  去重键，形如 {@code read.latestSnapshot}（不放方法签名：故障期换着花样抛不该绕过限频）
+     * @param failure 被吞掉的异常；null 表示实现违约返回了 null
+     */
+    private static void degraded(String method, Throwable failure) {
+        if (!DEGRADED_REPORTED.add(method)) {
+            return;
+        }
+        String detail = failure == null
+                ? "实现返回 null（违反接口契约）"
+                : failure.getClass().getName() + ": " + failure.getMessage();
+        String message = "ServerProbe 门面方法 " + method
+                + " 委派失败，已降级为安全值（同一方法不再重复告警）：" + detail;
+        if (failure instanceof Error) {
+            severe(message);
+        } else {
+            warn(message);
+        }
+    }
+
     /** 等待轮询间隔（毫秒）。 */
     private static final long AWAIT_POLL_MS = 20L;
 
@@ -206,45 +273,102 @@ public final class ServerProbeAPI {
 
         @Override
         public Registration register(BusinessProvider provider) {
-            return delegate().register(provider);
+            try {
+                return delegate().register(provider);
+            } catch (Throwable failure) {
+                // 原来这七个方法裸委派、无兜底，与 healthOf 的待遇完全不同：
+                // 实现一旦违约（典型：核心侧 @PreDestroy 已 shutdownNow 业务池，
+                // 而 services 尚未被 uninstall 置空这个窗口里调 dispatchAsync，
+                // CompletableFuture.supplyAsync 直接抛 RejectedExecutionException），
+                // 异常就穿透给外部插件——直接违反了类注释“均不抛异常”的承诺。
+                degraded("businessHost.register", failure);
+                return UnavailableRegistration.INSTANCE;
+            }
         }
 
         @Override
         public Registration registerLegacy(LegacyBusinessProvider provider) {
-            return delegate().registerLegacy(provider);
+            try {
+                return delegate().registerLegacy(provider);
+            } catch (Throwable failure) {
+                degraded("businessHost.registerLegacy", failure);
+                return UnavailableRegistration.INSTANCE;
+            }
         }
 
         @Override
         public boolean unregister(BusinessProvider provider) {
-            return delegate().unregister(provider);
+            try {
+                return delegate().unregister(provider);
+            } catch (Throwable failure) {
+                // 降级为 false：语义是“没移除”（该实例并非当前注册者）。
+                // 不能返回 true——那会让调用方误以为已注销而不再重试。
+                degraded("businessHost.unregister", failure);
+                return false;
+            }
         }
 
         @Override
         public Set<String> domains() {
-            return delegate().domains();
+            try {
+                return delegate().domains();
+            } catch (Throwable failure) {
+                // 契约是“永不为 null”：降级为不可变空集，调用方无需判空。
+                degraded("businessHost.domains", failure);
+                return Collections.emptySet();
+            }
         }
 
         @Override
         public Map<String, Object> manifest() {
-            return delegate().manifest();
+            try {
+                return delegate().manifest();
+            } catch (Throwable failure) {
+                // 降级形态与“未安装”一致（空映射）而不是自己拼一个 {"apiVersion":..,"domains":{}}：
+                // 编造一个看起来合法的信封会让人相信“已经查过了、确实没有域”，
+                // 而空映射配合 degraded 日志才诚实地表达“没拿到”。
+                degraded("businessHost.manifest", failure);
+                return Collections.emptyMap();
+            }
         }
 
         @Override
         public ActionResult dispatch(ActionRequest request) {
-            return delegate().dispatch(request);
+            try {
+                return delegate().dispatch(request);
+            } catch (Throwable failure) {
+                degraded("businessHost.dispatch", failure);
+                return ActionResult.fail("ServerProbe 业务派发异常（已降级为失败）");
+            }
         }
 
         @Override
         public CompletableFuture<ActionResult> dispatchAsync(ActionRequest request) {
-            return delegate().dispatchAsync(request);
+            try {
+                return delegate().dispatchAsync(request);
+            } catch (Throwable failure) {
+                degraded("businessHost.dispatchAsync", failure);
+                // 必须返回一个**已完成的失败 Future**，不能返回 null：调用方按契约直接
+                // thenApply/join，null 会把一次可控的降级变成它那边的 NPE。
+                // 也不能让 Future 异常完成——契约写明“以失败结果完成，而非异常完成”。
+                CompletableFuture<ActionResult> degradedFuture = new CompletableFuture<>();
+                degradedFuture.complete(ActionResult.fail("ServerProbe 业务派发异常（已降级为失败）"));
+                return degradedFuture;
+            }
         }
 
         @Override
         public DomainStatus healthOf(String domain) {
             try {
-                return delegate().healthOf(domain);
-            } catch (Throwable ignored) {
+                DomainStatus status = delegate().healthOf(domain);
+                if (status == null) {
+                    degraded("businessHost.healthOf", null);
+                    return UnavailableBusinessHost.unregistered(domain, "健康状态不可用");
+                }
+                return status;
+            } catch (Throwable failure) {
                 // 契约要求永不抛：实现违约时降级为"未注册"，绝不让异常冒到查询方。
+                degraded("businessHost.healthOf", failure);
                 return UnavailableBusinessHost.unregistered(domain, "健康状态不可用");
             }
         }
@@ -252,7 +376,14 @@ public final class ServerProbeAPI {
         /** 实时取当前实现；未安装时用降级实现（不返回 null）。 */
         private BusinessHost delegate() {
             BridgeServices current = services;
-            return current == null ? UnavailableBusinessHost.INSTANCE : current.businessHost();
+            if (current == null) {
+                return UnavailableBusinessHost.INSTANCE;
+            }
+            BusinessHost host = current.businessHost();
+            // 原来只兜 services == null：实现违约让 businessHost() 返回 null 时，
+            // 这里会把 null 原样交给上面的调用链，随后 NPE 从代理里冒出去——
+            // 和未安装完全是同一件事（没有宿主可用），故按同一套降级处理。
+            return host == null ? UnavailableBusinessHost.INSTANCE : host;
         }
     }
 
@@ -270,8 +401,11 @@ public final class ServerProbeAPI {
         public boolean emit(String domain, String dedupKey, String topic, Map<String, String> fields) {
             try {
                 return delegate().emit(domain, dedupKey, topic, fields);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
                 // 契约要求永不抛：实现违约时按"未受理"降级，绝不让异常冒到业务线程。
+                // 原来这里是 catch (Throwable ignored)：业务方只看到 emit 返回 false（和
+                // “队列满”一模一样），日志无任何痕迹，实现侧的真 bug 被伪装成背压。
+                degraded("eventSink.emit", failure);
                 return false;
             }
         }
@@ -280,7 +414,8 @@ public final class ServerProbeAPI {
         public boolean emitReliable(String domain, String dedupKey, String topic, Map<String, String> fields) {
             try {
                 return delegate().emitReliable(domain, dedupKey, topic, fields);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("eventSink.emitReliable", failure);
                 return false;
             }
         }
@@ -289,7 +424,8 @@ public final class ServerProbeAPI {
         public boolean emitReliable(String domain, String dedupKey, String topic, Map<String, String> fields, long seq) {
             try {
                 return delegate().emitReliable(domain, dedupKey, topic, fields, seq);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("eventSink.emitReliableSeq", failure);
                 return false;
             }
         }
@@ -305,7 +441,8 @@ public final class ServerProbeAPI {
         public EmitReceipt emitReceipt(String domain, String dedupKey, String topic, Map<String, String> fields) {
             try {
                 return delegate().emitReceipt(domain, dedupKey, topic, fields);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("eventSink.emitReceipt", failure);
                 return EmitReceipt.rejected(EmitReceipt.Reason.PROBE_UNAVAILABLE);
             }
         }
@@ -316,7 +453,8 @@ public final class ServerProbeAPI {
                 String domain, String dedupKey, String topic, Map<String, String> fields) {
             try {
                 return delegate().emitReliableReceipt(domain, dedupKey, topic, fields);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("eventSink.emitReliableReceipt", failure);
                 return EmitReceipt.rejected(EmitReceipt.Reason.PROBE_UNAVAILABLE);
             }
         }
@@ -324,7 +462,13 @@ public final class ServerProbeAPI {
         /** 实时取当前实现；未安装时用降级实现（不返回 null）。 */
         private BusinessEventSink delegate() {
             BridgeServices current = services;
-            return current == null ? UnavailableBusinessEventSink.INSTANCE : current.eventSink();
+            if (current == null) {
+                return UnavailableBusinessEventSink.INSTANCE;
+            }
+            BusinessEventSink sink = current.eventSink();
+            // 同 BusinessHostProxy.delegate()：实现违约返回 null 时按“未安装”处理，
+            // 而不是把 null 交给调用链、让 NPE 从代理里穿透出去。
+            return sink == null ? UnavailableBusinessEventSink.INSTANCE : sink;
         }
     }
 
@@ -366,8 +510,9 @@ public final class ServerProbeAPI {
         public Registration register(ConfigReloadListener listener) {
             try {
                 return delegate().register(listener);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
                 // 契约要求永不抛：实现违约时按"未就绪"降级，绝不让异常冒到插件 onEnable。
+                degraded("configReloads.register", failure);
                 return UNEXPECTED;
             }
         }
@@ -375,7 +520,12 @@ public final class ServerProbeAPI {
         /** 实时取当前实现；未安装时用降级实现（不返回 null）。 */
         private ConfigReloadRegistry delegate() {
             BridgeServices current = services;
-            return current == null ? UnavailableConfigReloadRegistry.INSTANCE : current.configReloads();
+            if (current == null) {
+                return UnavailableConfigReloadRegistry.INSTANCE;
+            }
+            ConfigReloadRegistry registry = current.configReloads();
+            // 同其他代理：实现违约返回 null 时按“未安装”处理，不让 NPE 穿透出去。
+            return registry == null ? UnavailableConfigReloadRegistry.INSTANCE : registry;
         }
     }
 
@@ -386,10 +536,14 @@ public final class ServerProbeAPI {
      * 探针的 install/uninstall。本代理<b>绝不抛异常</b>：委派实现违约抛出时，逐方法降级为
      * 该方法的"无数据"安全值（对象返回 null、列表返回空列表、聚合返回空窗口、取证返回空页）。</p>
      *
-     * <p>降级值之所以逐方法给出而不是统一返回 null，是因为 {@link ProbeReadApi} 的九个方法
-     * 返回契约各不相同：列表承诺空列表、{@link ProbeReadApi#aggregated(int)} 承诺恒非空、
+     * <p>降级值之所以逐方法给出而不是统一返回 null，是因为 {@link ProbeReadApi} 的各方法
+     * 返回契约互不相同：列表承诺空列表、{@link ProbeReadApi#aggregated(int)} 承诺恒非空、
      * {@link ProbeReadApi#networkForensicsStatus()} 承诺对象。统一 null 会让这些契约被破坏，
      * 调用方在"探针未就绪"这一最常见场景下直接 NPE。</p>
+     *
+     * <p><b>新增接口方法时必须同步补覆写</b>：接口上的 default 实现会静默返回空值，
+     * 漏覆写不会编译报错、也不会打日志，只会让该方法永远看不到真数据
+     * （`historySnapshots` 就踩过这个坑）。</p>
      */
     private static final class ProbeReadApiProxy implements ProbeReadApi {
 
@@ -399,7 +553,8 @@ public final class ServerProbeAPI {
         public MetricSnapshot latestSnapshot() {
             try {
                 return delegate().latestSnapshot();
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.latestSnapshot", failure);
                 return null;
             }
         }
@@ -408,7 +563,8 @@ public final class ServerProbeAPI {
         public List<MetricSnapshot> recentSnapshots(int limit) {
             try {
                 return delegate().recentSnapshots(limit);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.recentSnapshots", failure);
                 return Collections.emptyList();
             }
         }
@@ -417,7 +573,8 @@ public final class ServerProbeAPI {
         public List<MetricSnapshot> recentSnapshotsSince(long sinceMs) {
             try {
                 return delegate().recentSnapshotsSince(sinceMs);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.recentSnapshotsSince", failure);
                 return Collections.emptyList();
             }
         }
@@ -432,7 +589,8 @@ public final class ServerProbeAPI {
         public List<MetricSnapshot> historySnapshots(long sinceMs, long untilMs, int limit) {
             try {
                 return delegate().historySnapshots(sinceMs, untilMs, limit);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.historySnapshots", failure);
                 return Collections.emptyList();
             }
         }
@@ -441,8 +599,9 @@ public final class ServerProbeAPI {
         public AggregatedMetrics aggregated(int windowSize) {
             try {
                 return delegate().aggregated(windowSize);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
                 // 契约要求恒非空：违约时也要给出可读的空窗口，而不是 null。
+                degraded("read.aggregated", failure);
                 return UnavailableProbeReadApi.INSTANCE.aggregated(windowSize);
             }
         }
@@ -451,7 +610,8 @@ public final class ServerProbeAPI {
         public StartupProfile lastStartupProfile() {
             try {
                 return delegate().lastStartupProfile();
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.lastStartupProfile", failure);
                 return null;
             }
         }
@@ -460,7 +620,8 @@ public final class ServerProbeAPI {
         public List<StartupProfile> historyStartupProfiles(int limit) {
             try {
                 return delegate().historyStartupProfiles(limit);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.historyStartupProfiles", failure);
                 return Collections.emptyList();
             }
         }
@@ -469,7 +630,8 @@ public final class ServerProbeAPI {
         public String lastStartupComparisonSummary() {
             try {
                 return delegate().lastStartupComparisonSummary();
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.lastStartupComparisonSummary", failure);
                 return null;
             }
         }
@@ -478,7 +640,8 @@ public final class ServerProbeAPI {
         public NetworkPacketPage queryNetworkPackets(NetworkPacketQuery query) {
             try {
                 return delegate().queryNetworkPackets(query);
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.queryNetworkPackets", failure);
                 return NetworkPacketPage.empty();
             }
         }
@@ -487,7 +650,8 @@ public final class ServerProbeAPI {
         public NetworkForensicsStatus networkForensicsStatus() {
             try {
                 return delegate().networkForensicsStatus();
-            } catch (Throwable ignored) {
+            } catch (Throwable failure) {
+                degraded("read.networkForensicsStatus", failure);
                 return NetworkForensicsStatus.unavailable("取证状态查询异常");
             }
         }
@@ -495,7 +659,13 @@ public final class ServerProbeAPI {
         /** 实时取当前实现；未安装时用降级实现（不返回 null）。 */
         private ProbeReadApi delegate() {
             BridgeServices current = services;
-            return current == null ? UnavailableProbeReadApi.INSTANCE : current.read();
+            if (current == null) {
+                return UnavailableProbeReadApi.INSTANCE;
+            }
+            ProbeReadApi api = current.read();
+            // 同其他代理：实现违约返回 null 时按“未安装”处理。影响比别处更大——
+            // 这里每个方法都要读它，null 会让整个只读门面（面板、MCP 工具）集体 NPE。
+            return api == null ? UnavailableProbeReadApi.INSTANCE : api;
         }
     }
 
@@ -580,8 +750,10 @@ public final class ServerProbeAPI {
 
         private void warnOnce() {
             if (WARNED.compareAndSet(false, true)) {
-                warn("ServerProbe 门面在未就绪状态被调用：业务注册不会生效，请在其就绪后重试"
-                        + "（可用 ServerProbeAPI.awaitAvailable 等待）");
+                // 不再建议“用 awaitAvailable 等待”：那句话等于把主线程阻塞当成解法，
+                // 而主线程正是探针 install 本身要去的地方（见 awaitAvailable 的 javadoc）。
+                warn("ServerProbe 门面在未就绪状态被调用：本次注册不会生效，请在其就绪后重新注册"
+                        + "（代理可安全缓存，无需等待）");
             }
         }
     }

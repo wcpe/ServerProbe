@@ -67,6 +67,10 @@ interface OutboundSink {
  * [submit]/[offerReceipt] 可被任意线程调用;**读线程只允许用 [offerReceipt]**
  * (非阻塞)——[submitReceipt] 会做有界阻塞,只能从池线程调用。
  */
+// 三池 + 优先级轮询 + 滤镜链 + 分片 + 落盘兜底的逻辑天然需要一组小方法；
+// 折成更少的大函数会让分级与容量判定绞在一起，反而更难验证。
+// （与 BridgeClient 同一种取舍，那里也有同样的抑制。）
+@Suppress("TooManyFunctions")
 class FrameSender(
     private val settings: LineSettings,
     private val spill: EventSpillStore? = null,
@@ -212,11 +216,46 @@ class FrameSender(
         spillDropped = spill?.droppedBeyondDisk() ?: 0L,
     )
 
-    /** 停止发送线程。 */
+    /**
+     * 请求发送线程退出。
+     *
+     * **不立即丢弃队列**：`runLoop` 的条件是 `while (running)`，置 false 后它会做完
+     * 当前这一组再退出——但在途队列里残留的帧仍会丢。需要“把队列跑完再退”时用
+     * [shutdownAfterDrain]（停机路径），本方法留给强制停止/异常路径。
+     */
     fun shutdown() {
         running = false
         signalWakeup()
     }
+
+    /**
+     * 停机路径：先尽力把在途队列跑完，再退出。
+     *
+     * 不发新帧、但已入队的回执与事件继续写出，避免“服务器正常关闭时 JM 收不到任何回执”。
+     * 受 [drainBudgetMs] 约束——对端已死时不能把停机无限拖住。
+     *
+     * @return 是否在预算内排空。
+     */
+    fun shutdownAfterDrain(drainBudgetMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + drainBudgetMs
+        var drained = false
+        while (System.currentTimeMillis() < deadline) {
+            if (queuedFrames() == 0) {
+                drained = true
+                break
+            }
+            runCatching { Thread.sleep(DRAIN_POLL_MS) }.onFailure { Thread.currentThread().interrupt() }
+        }
+        running = false
+        signalWakeup()
+        if (!drained) {
+            ProbeLogger.warn("桥发送队列未在 ${drainBudgetMs}ms 内排空,停机时丢弃剩余 ${queuedFrames()} 帧")
+        }
+        return drained
+    }
+
+    /** 三池当前待发帧总数（供停机 drain 与状态快照使用）。 */
+    fun queuedFrames(): Int = receiptQueue.depth + reliableQueue.depth + bestEffortQueue.depth
 
     /** 应用滤镜链;返回 null 表示被丢弃(已计数,不算失败)。 */
     private fun applyFilters(frame: OutboundFrame): OutboundFrame? {
@@ -357,6 +396,9 @@ class FrameSender(
     private companion object {
         /** 空闲等待单片时长(毫秒):仅作漏信号兜底,正常由入队唤醒。 */
         const val AWAIT_SLICE_MS = 100L
+
+        /** 停机 drain 时轮询队列深度的间隔(毫秒)。 */
+        const val DRAIN_POLL_MS = 20L
     }
 }
 

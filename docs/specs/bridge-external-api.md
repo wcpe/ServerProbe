@@ -411,7 +411,8 @@ package top.wcpe.mc.plugin.serverprobe.api;
  * <p>若注册时探针尚未就绪，句柄 {@code getActive()==false}、原因为
  * {@code PROBE_UNAVAILABLE}。两种处理：</p>
  * <ul>
- *   <li>在探针就绪后重试注册（推荐，用 {@link #awaitAvailable(long)} 或轮询 {@link #isAvailable()}）；</li>
+ *   <li>什么都不用做（**推荐**）：代理可安全缓存为字段，探针后加载也会自动生效；</li>
+ *   <li>若确实需要等到就绪（**仅限异步/独立线程**，绝不能在服务器主线程），用 {@link #awaitAvailable(long)} 或轮询 {@link #isAvailable()}；在主线程调它会睡满超时且永远等不到（探针 install 也需主线程）。</li>
  *   <li>或直接忽略——探针不存在时也没有业务可接。</li>
  * </ul>
  *
@@ -703,7 +704,7 @@ class BridgeFacadeInstaller {
 | 逐域隔离 | 单测：一个 Provider 的 `manifest()` 抛异常，`manifest()` 仍返回其它域且该域含 `error` |
 | 中断处理 | 单测：`shutdownNow()` 打断在途 dispatch，返回失败且线程中断标志被恢复 |
 | 重入不放大 | 单测：Provider 内再 `dispatch` 另一域，不新增池线程、总耗时 < 外层预算 |
-| 门面不可劫持 | 单测：非本 code source 调 `install` 被忽略，原 services 不变 |
+| 门面不可劫持 | **未实现**（原设计的 code source / 类名白名单两道方案均未落地，现仅靠 `install` 的 package-private 可见性提高门槛） |
 | 二进制兼容 | 单测：用"仅实现旧接口"的编译产物 + 新 api 调 `dispatch`，无 `AbstractMethodError` |
 | Kotlin 互操作 | 单测（Kotlin）：`override fun domain(): String` 可编译并工作；`result.getSuccess()` 可读 |
 | null 规则 | 单测：`BridgeCommand.of(null, null)` 各 getter 返回空串；集合返回不可变空集合 |
@@ -712,11 +713,12 @@ class BridgeFacadeInstaller {
 ## 6. 风险 / 待定
 
 1. **二进制不兼容**：`BridgeCommandResult` 从 Kotlin data class 变 Java 类，失去 `copy()`/解构。仓内引用点一次性改完；对外无既有消费者。
-2. **`install` 守卫的强度**（实现修正）：原设计用 **code source 比对**，实测在 Gradle 模块化构建下**不可行**——
-   `api` 与 `core` 分属不同 classes 目录，连探针自己的单测都装不上。改为**装配类名白名单**
-   （`BridgeFacadeInstaller`），按调用栈匹配。
-   这仍是"提高门槛"而非强隔离：知道类名的第三方可用同名类绕过。真正的隔离需要 classloader 边界，
-   超出本模块职责。**已将此局限写入 ADR 的风险段**。
+2. **`install` 守卫的强度**（**实际未实现，已改正描述**）：原设计用 **code source 比对**，实测在 Gradle 模块化构建下**不可行**——
+   `api` 与 `core` 分属不同 classes 目录，连探针自己的单测都装不上。随后计划改为**装配类名白名单**
+   （`BridgeFacadeInstaller`，按调用栈匹配），但**该白名单未落地**：`install` 目前仅是 package-private，
+   仓库内不存在 `SELF_INSTALLER_CLASSES` 或任何调用栈校验。
+   这仍是"提高门槛"而非强隔离（同包声明 + 跨包名冲突），真正的隔离需要 classloader 边界，
+   超出本模块职责。**已将此局限写入 ADR-0029 的风险段**。
 3. **`unregister` 与 `Registration.close()` 双入口**：两者语义一致（都按实例匹配），
    单测同时覆盖，避免出现"close 能删、unregister 不能"的分裂。
 4. **`ServerProbeApi`（旧）补 `@JvmStatic`** 是纯增量，但因它是 `object`，`@JvmStatic` 只加静态转发不改 `INSTANCE`。

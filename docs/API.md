@@ -7,7 +7,7 @@
 ## 1. 通用约定
 
 - **形态**:ServerProbe 是 Bukkit/BungeeCord **插件 + 库 API**,**不是 REST 服务**。只读 API 与存储 SPI 以 **Java** 接口形式发布在 `api` 模块（纯 Java + Lombok、零 Kotlin metadata，任意 Kotlin/Java 版本可编译依赖，ADR-13）,Java 8 可直接调用;数据出口另有 Prometheus 文本端点与游戏内命令。
-- **获取方式**:跨插件消费方经 TabooLib IOC 服务获取只读接口,统一走静态门面 `top.wcpe.mc.plugin.serverprobe.ServerProbeApi.read()`,无需了解容器内部细节。
+- **获取方式**:跨插件消费方统一走 `api` 模块的静态门面 `top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI.read()`,无需了解容器内部细节。旧门面 `top.wcpe.mc.plugin.serverprobe.ServerProbeApi` 已废弃。
 - **只读边界**:读取 API 仅暴露查询,不暴露运行控制能力；存储 SPI 的受控替换注册见第 4 节，不属于读取 API。
 - **平台语义**:快照/画像携带 `platform` 字段(`BUKKIT` / `BUNGEE` / `VELOCITY`)。三端均已启用(`VELOCITY` 自 v0.3.0 起提供采集与 MCP 控制面,见 [velocity-platform](specs/velocity-platform.md))。代理端(`BUNGEE`/`VELOCITY`)无世界/TPS/MSPT 概念,对应字段为 null;服务端无代理拓扑,`proxy` 字段为 null。桥治理执行器(kick/list 类)按 ADR-016 只在 Bukkit 子服端与 Bungee 代理端二选一实现,Velocity 侧不提供,收到此类指令由 `BridgeRoutes` 返回明确的失败回执。
 - **线程/调用时机**:
@@ -18,7 +18,7 @@
 
 ## 2. 错误约定
 
-- **门面容错**:`ServerProbeApi.read()` 在容器未初始化、bean 尚未注册或解析过程抛任何异常时,**统一返回 null**(内部 `runCatching` 兜底),绝不向调用方抛出。调用方据 null 自行降级。
+- **门面容错**:`ServerProbeAPI.read()` **恒返回非 null 的稳定委派代理**(永不 null、可缓存为字段),内部逐方法 `runCatching` 兜底,**绝不向调用方抛出**。探针未就绪时各方法返回各自的空值(null / 空列表),调用方据此降级即可——**不要写 `?: return`**,那个分支永远不会成立。
 - **查询方法的空语义**(逐方法详见第 3 节):
   - 返回**可空单值**的方法,在"尚无数据"时返回 null(如 `latestSnapshot()`、`lastStartupProfile()`、`lastStartupComparisonSummary()`)。
   - 返回**列表**的方法,在无数据或不支持时返回**空列表**,不返回 null。
@@ -29,16 +29,16 @@
 ## 3. 只读 API:ProbeReadApi(FR-08)
 
 接口:`top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi`
-门面:`top.wcpe.mc.plugin.serverprobe.ServerProbeApi`
+门面:`top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI`
 
 ### 3.1 获取实例(门面用法)
 
 ```kotlin
-val api = ServerProbeApi.read() ?: return // 容器未就绪或未安装 ServerProbe
+val api = ServerProbeAPI.read() // 恒非 null,可缓存为字段
 val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 ```
 
-`ServerProbeApi.read(): ProbeReadApi?` —— 经 IOC 容器按接口类型解析 `ProbeReadApi`;容器未就绪、未安装 ServerProbe 或解析异常时返回 null。
+`ServerProbeAPI.read(): ProbeReadApi` —— **恒返回**稳定委派代理,探针后加载也生效;未就绪时各方法返回空值而非抛异常。
 
 ### 3.2 方法清单
 
@@ -55,7 +55,7 @@ val snapshot = api.latestSnapshot() ?: return // 尚无任何采样
 
 ### 3.3 返回的数据模型(关键字段)
 
-包路径:`top.wcpe.mc.plugin.serverprobe.api.model.*`。下表仅列契约消费方最常用的字段;完整字段与口径以各类 KDoc 为准。
+包路径:`top.wcpe.mc.plugin.serverprobe.api.model.{metrics,startup,player,diagnostics}.*`（按用途分为四个子包）。下表仅列契约消费方最常用的字段;完整字段与口径以各类 KDoc 为准。
 
 **`MetricSnapshot`**(快照核心单元)
 

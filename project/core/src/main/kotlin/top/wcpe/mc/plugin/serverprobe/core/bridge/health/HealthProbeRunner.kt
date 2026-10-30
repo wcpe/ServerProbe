@@ -102,7 +102,23 @@ internal class HealthProbeRunner(private val settings: () -> HealthSettings) {
     fun probe(provider: BusinessProvider): ProbeOutcome {
         val executor = pool ?: return ProbeOutcome.Rejected
         val future = try {
-            executor.submit(Callable { provider.health() })
+            executor.submit(
+                // 任务体最外层清中断位（无论正常返回还是抛异常）。
+                // 原来的写法是 `Callable { provider.health() }`：`await` 超时后会 `future.cancel(true)`，
+                // 而 probe 是**单线程**池——打断标记留在那个唯一线程上，于是**下一个** Provider 的
+                // `health()` 一进门就是“被中断”态：它内部的 sleep/wait/锁获取立刻抛
+                // InterruptedException，被归类成“health() 抛出异常”并因此**进入隔离窗口**，
+                // 把一个完全无辜的域隔离掉，而真正卡死的那个早已超时被判过。
+                // 不能指望线程池代清：`cancel(true)` 打的中断是给“正在跑的任务”的，
+                // 什么时候被观察到完全看任务体自己什么时候进阻塞调用。
+                Callable {
+                    try {
+                        provider.health()
+                    } finally {
+                        Thread.interrupted()
+                    }
+                },
+            )
         } catch (_: RejectedExecutionException) {
             // probe 线程被占住（或池已关闭）：这是"停滞"，不是该域的失败。
             return ProbeOutcome.Rejected

@@ -97,6 +97,27 @@ class BridgePools(settings: LineSettings) {
         listOf(command, event, reload).forEach { runCatching { it.shutdownNow() } }
     }
 
+    /**
+     * 等待三池在预算内终止（停机路径用）。
+     *
+     * ## 为什么停机必须等
+     * [shutdown] 只发出停止信号，`command.shutdown()` 是**优雅**停——已提交的任务继续跑。
+     * 若不等就往下停发送器/落盘，那些仍在跑的命令会拿不到回执通道
+     * （`sendReceipt` 在 `receiptOfferBudgetMs` 内等容量、必然超时后丢弃），
+     * 于是“服务器正常关闭时凡有在途命令，JM 都拿不到任何回执”。
+     *
+     * @return 是否全部在预算内终止。
+     */
+    fun awaitTermination(budgetMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + budgetMs
+        for (pool in listOf(command, event, reload)) {
+            val remain = deadline - System.currentTimeMillis()
+            if (remain <= 0L) return false
+            pool.awaitTermination(remain, TimeUnit.MILLISECONDS)
+        }
+        return listOf(command, event, reload).all { it.isTerminated }
+    }
+
     private fun newPool(name: String, size: Int, capacity: Int): ThreadPoolExecutor {
         val threads = AtomicInteger(0)
         val factory = ThreadFactory { runnable ->

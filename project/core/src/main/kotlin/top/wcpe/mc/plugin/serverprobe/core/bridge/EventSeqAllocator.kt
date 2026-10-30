@@ -49,6 +49,13 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
  * [next] 是 `AtomicLong.getAndIncrement`，无锁；`domains` 是 `ConcurrentHashMap`。
  * 本类可在事件线程与业务线程并发调用。
  *
+ * 唯一的临界区是落盘（[persistNow]）：**快照的生成与提交必须在同一把锁内**。
+ * 若在锁外算快照、进锁只写文件，两个线程同时越过 [PERSIST_EVERY] 门限时
+ * （事件线程 + 业务线程并发 `emitReliable` 是常态）就可能出现：A 快照 max=100、
+ * B 快照 max=200，B 先写盘、A 后写盘 → 磁盘被覆盖成 100 → 重启后从 101 续接，
+ * 与已经发出去的 101..200 **静默重号**，且 epoch 不变，下游连对账信号都收不到。
+ * 锁内重取快照则保证"后写盘的快照一定不比先写盘的旧"。
+ *
  * @param store 持久化接缝；null 表示不持久化（单测 / `bridge.line.spill-enabled=false`）
  * @param clock 时钟（毫秒）；单测可注入固定值以精确断言时间戳兜底起点
  */
@@ -81,6 +88,14 @@ class EventSeqAllocator(
 
     /** 自上次落盘以来的分配条数（跨域合计，够数即落盘）。 */
     private val sinceLastPersist = AtomicLong(0)
+
+    /**
+     * 串行化「生成快照 + 提交快照」的整个过程。
+     *
+     * 不能只靠 [EventSeqStore.persist] 内部那把锁：它只保护"写文件"这一步，
+     * 挡不住"先算出的旧快照后落盘"（见类注释的线程安全一节）。
+     */
+    private val persistLock = Any()
 
     /**
      * 无持久化状态时的时间戳兜底起点；0 表示"未装载"（单测直接构造）→ 从 1 开始。
@@ -225,19 +240,35 @@ class EventSeqAllocator(
         persistNow()
     }
 
-    /** 立刻把全部域的最大序号整份写盘。 */
+    /**
+     * 立刻把全部域的最大序号整份写盘。
+     *
+     * 快照必须在**锁内**重新生成：锁外算好的快照可能已经不是最新的（另一个线程已经发出更大的号
+     * 并先完成了落盘），带着它进锁写入就会把磁盘**回退**成更小的 max——重启后从那里续接，
+     * 与已发出的号静默重号。锁内现取快照 + 锁内提交，保证写入的 max 单调不减。
+     *
+     * 锁内做磁盘 IO 是可接受的：[persistNow] 由 [PERSIST_EVERY] 门限与停机触发，不在每条事件的热路径上。
+     */
     private fun persistNow() {
-        val target = store ?: return
-        sinceLastPersist.set(0L)
-        val snapshot = HashMap<String, Long>(domains.size)
-        domains.forEach { (domain, counter) ->
-            val max = (counter.get() - 1).coerceAtLeast(0L)
-            if (max > 0L) {
-                snapshot[domain] = max
-                persistedMax[domain] = max
+        synchronized(persistLock) {
+            val target = store ?: return
+            // 锁内取一次 epoch，保证写出去的 epoch 与快照出自同一时刻。
+            // epoch 只会在装载与溢出重置时递增；若恰好在本次落盘期间被推进，最坏结果是
+            // 「这一次写的是旧 epoch、下一次落盘才带上新值」——epoch 永不回退，所以安全。
+            val currentEpoch = epoch.get()
+            val snapshot = HashMap<String, Long>(domains.size)
+            domains.forEach { (domain, counter) ->
+                val max = (counter.get() - 1).coerceAtLeast(0L)
+                if (max > 0L) {
+                    snapshot[domain] = max
+                    persistedMax[domain] = max
+                }
             }
+            target.persist(currentEpoch, snapshot)
+            // 计数归零放在写入**之后**：写盘期间新分配的号仍会被计进下一轮，
+            // 不会因为"先清零后写盘"而丢掉它们触发的落盘时机。
+            sinceLastPersist.set(0L)
         }
-        target.persist(epoch.get(), snapshot)
     }
 
     /** 时间戳兜底起点：`(当前时间戳毫秒 << 20)`，保证远高于任何历史值且不溢出。 */

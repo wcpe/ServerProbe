@@ -117,13 +117,28 @@ class ReloadTaskHandle(private val body: () -> DispatchOutcome) : Runnable {
     override fun run() {
         startedFlag.set(true)
         runner = Thread.currentThread()
-        val outcome = try {
-            body()
-        } catch (t: Throwable) {
-            failure.compareAndSet(null, t)
-            return
+        try {
+            val outcome = try {
+                body()
+            } catch (t: Throwable) {
+                failure.compareAndSet(null, t)
+                return
+            }
+            slot.compareAndSet(null, outcome)
+        } finally {
+            // 清中断位：`cancel()` 会把 `interrupt()` 打在执行本任务的线程上（超时/卡住时）。
+            // 原来的做法是任务正常返回就直接走人，中断标记却留在那个线程上——
+            // 于是**同一个 worker 线程上的下一个监听器回调**一进门就是“被中断”态：
+            // 它内部任何 sleep/wait/IO 立刻抛 InterruptedException，被广捕记成 PLUGIN_THREW，
+            // 把上一次的超时错误归因到一个完全无辜的插件；更坏的是这个错误会被写进
+            // 健康/熔断统计，把本当正常的域隔离掉。
+            // 不能指望执行器代清：任务体被直接 `run()`（单测、自定义执行器）时无人清，
+            // 而且“谁打的中断谁负责收尾”本来就是任务体自己的义务。
+            Thread.interrupted()
+            // 线程已退出任务体，不再持有它：否则 `cancel()` 会去 interrupt 一个
+            // 已经被池回收去跑另一个任务（甚至另一个请求）的线程。
+            runner = null
         }
-        slot.compareAndSet(null, outcome)
     }
 
     private fun sleepQuietly() {

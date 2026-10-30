@@ -194,11 +194,24 @@ class BridgeClient {
     @PostEnable
     fun start() {
         runCatching { doStart() }.onFailure { e ->
-            ProbeLogger.warn("桥客户端启动失败(${e.javaClass.name}:${e.message}),本次不建立连接")
+            // doStart 失败时已就地回滚（running 复位 + 池/线程清理），因此这里只需把原因打出来；
+            // 也正因为复位了，之后的 start()（重连/配置重载/人工重试）还能真的再试一次。
+            ProbeLogger.warn("桥客户端启动失败(${e.javaClass.name}:${e.message}),已回滚本次启动,本次不建立连接")
             e.stackTrace.take(START_FAILURE_TRACE_FRAMES).forEach { ProbeLogger.warn("  at $it") }
         }
     }
 
+    /**
+     * 建立组件与线程。
+     *
+     * **失败时一律就地回滚**（见 [rollbackStartFailure]）后再把异常抛出去。
+     * 回滚之所以不能留给外层的 `runCatching`，是因为那里只能打一行日志：
+     * `running` 早已被置为 true，于是之后任何 `start()` 都直接 return，桥**永远不会自愈**
+     * （只能重启服务器）；而且失败前已建好的落盘/发送/业务池无人 shutdown，线程与池一起泄漏。
+     */
+    // 必须广捕：失败点可能在任意一行（落盘目录不可写、线程创建失败、路由装配抛……），
+    // 而回滚要对**所有**失败一视同仁地执行——漏掉一类失败就少清一类资源。
+    @Suppress("TooGenericExceptionCaught")
     private fun doStart() {
         // 订阅接线与桥开关无关：`hello.subscriptions` 的唯一取值口必须先指向本进程的注册表，
         // 否则对端永远看到空数组，而实际仍有订阅（可观测性失效）。
@@ -212,84 +225,182 @@ class BridgeClient {
             ProbeLogger.warn("插件桥已开启但 bridge.url 或 bridge.token 为空,已跳过(请检查 JianManager 下发的探针配置)")
             return
         }
+        // 幂等 + 不重复启动：已有的桥不受理第二次 start（否则会两套线程抢同一条连接）。
         if (running.getAndSet(true)) return
 
-        val line = settings.line()
-        val store = if (line.spillEnabled) EventSpillStore(line).also { it.load() } else null
-        //：序号状态与事件缓冲同目录、同开关（见 EventSpillStore.seqState 的说明）。
-        // 绑定后立刻装载：必须在任何事件上报之前完成，否则首个事件会从兜底起点起号。
-        seqAllocator.bind(store?.seqState)
-        seqAllocator.load()
-        // 分片需求 = 阈值与单组上限（`bridge.chunk.*`）；信封里的 instance/timestamp 不属于
-        // OutboundFrame 的权威字段集，只能由装配处提供，故以供应器注入。
-        val chunker = FrameChunker(settings.chunk()) { chunkEnvelope() }
-        val frameSender = FrameSender(line, store, chunker)
-        // 主题滤镜：必须在容量判定之前（FrameSender.submit 的固定顺序，见事件主题订阅规格 §3.5）。
-        frameSender.addFilter(TopicFilter(subscriptions))
-        val bridgePools = BridgePools(line)
-        val bridgeKernel = BridgeKernel(frameSender, bridgePools)
-        // 重载 worker 池与上面 BridgePools 里的 reload 协调池是**两个池**（规格 §3.1 的硬要求）。
-        // 停机时与 reload 池同批 shutdownNow（在 [stop] 里）。
-        reloadRuntime = ReloadRuntime.of(settings.reload())
-        registerRoutes(bridgeKernel, frameSender)
-        // 按**实际接线情况**声明能力：只声明真的能处理的，避免面板下发后才发现不支持。
-        // 分片能力（分片规格 §3.6）：对端据此决定是否下发需要分片的大数据请求。
-        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CHUNK)
-        // 主题订阅能力：对端据此判断可否下发 `core.subscribe`。
-        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_TOPIC)
-        // 配置重载能力、健康状态查询能力：只在对应路由真的挂上时声明
-        // （二者都依赖可选的注入项，见 registerRoutes 的 let 分支）。
-        if (reloadRuntime != null) {
-            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CONFIG_RELOAD)
-        }
-        if (healthRegistryOrNull() != null) {
-            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_BUSINESS_STATUS)
-        }
+        // 下面每个资源都先存到局部变量：回滚时需要拿到**已创建**的那几个，
+        // 而字段赋值故意放在最后（一次性对外可见），中途失败时字段里不能出现半成品。
+        var store: EventSpillStore? = null
+        var frameSender: FrameSender? = null
+        var bridgePools: BridgePools? = null
+        var reloadPool: ReloadRuntime? = null
+        try {
+            val line = settings.line()
+            store = if (line.spillEnabled) EventSpillStore(line).also { it.load() } else null
+            //：序号状态与事件缓冲同目录、同开关（见 EventSpillStore.seqState 的说明）。
+            // 绑定后立刻装载：必须在任何事件上报之前完成，否则首个事件会从兜底起点起号。
+            seqAllocator.bind(store?.seqState)
+            seqAllocator.load()
+            // 分片需求 = 阈值与单组上限（`bridge.chunk.*`）；信封里的 instance/timestamp 不属于
+            // OutboundFrame 的权威字段集，只能由装配处提供，故以供应器注入。
+            val chunker = FrameChunker(settings.chunk()) { chunkEnvelope() }
+            frameSender = FrameSender(line, store, chunker)
+            // 主题滤镜：必须在容量判定之前（FrameSender.submit 的固定顺序，见事件主题订阅规格 §3.5）。
+            frameSender.addFilter(TopicFilter(subscriptions))
+            bridgePools = BridgePools(line)
+            val bridgeKernel = BridgeKernel(frameSender, bridgePools)
+            // 重载 worker 池与上面 BridgePools 里的 reload 协调池是**两个池**（规格 §3.1 的硬要求）。
+            // 停机时与 reload 池同批 shutdownNow（在 [stop] 里）。
+            reloadPool = ReloadRuntime.of(settings.reload())
+            reloadRuntime = reloadPool
+            registerRoutes(bridgeKernel, frameSender)
+            // 按**实际接线情况**声明能力：只声明真的能处理的，避免面板下发后才发现不支持。
+            // 分片能力（分片规格 §3.6）：对端据此决定是否下发需要分片的大数据请求。
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CHUNK)
+            // 主题订阅能力：对端据此判断可否下发 `core.subscribe`。
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_TOPIC)
+            // 配置重载能力、健康状态查询能力：只在对应路由真的挂上时声明
+            // （二者都依赖可选的注入项，见 registerRoutes 的 let 分支）。
+            if (reloadRuntime != null) {
+                BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CONFIG_RELOAD)
+            }
+            if (healthRegistryOrNull() != null) {
+                BridgeCapabilities.addCapability(BridgeCapabilities.CAP_BUSINESS_STATUS)
+            }
 
-        spill = store
-        sender = frameSender
-        pools = bridgePools
-        kernel = bridgeKernel
-        BridgeStatusRoute.CURRENT_POOLS = bridgePools
+            spill = store
+            sender = frameSender
+            pools = bridgePools
+            kernel = bridgeKernel
+            BridgeStatusRoute.CURRENT_POOLS = bridgePools
 
-        startThreads(line, store, frameSender, bridgeKernel)
-        // Provider 健康刷新线程与桥同生命周期：桥不开时没有任何消费者，多起两条线程只是白烧 CPU
-        // （且会进第三方 health()）。start/stop 均幂等。
-        healthRegistryOrNull()?.start()
+            startThreads(line, store, frameSender, bridgeKernel)
+            // Provider 健康刷新线程与桥同生命周期：桥不开时没有任何消费者，多起两条线程只是白烧 CPU
+            // （且会进第三方 health()）。start/stop 均幂等。
+            healthRegistryOrNull()?.start()
+        } catch (failure: Throwable) {
+            // 回滚后重抛：异常照旧交给 [start] 打印（那里才有“堆栈前几帧”的排障约定），
+            // 但现场已经被收拾干净，不存在“跑着一半就是好不了”的状态。
+            rollbackStartFailure(store, frameSender, bridgePools, reloadPool)
+            throw failure
+        }
         ProbeLogger.info("插件桥反向 WS 客户端已启动,目标 ${safeAuthority(settings.url())}")
+    }
+
+    /**
+     * 启动中途失败后的回滚：复位 `running`、解绑全局指针、停已起线程、关已建池。
+     *
+     * ## 为什么不能交给 [stop]
+     * [stop] 是**运维停机协议**：它按“停读 → 业务池优雅停并等终止 → drain 队列 → flush 落盘”
+     * 的顺序执行，每步都有秒级预算。启动失败时这些队列里根本没有在途流量（线程才刚起、连接还没建），
+     * 走那套协议只会把一次启动失败拖成十几秒的主线程停顿，而主线程正是 `@PostEnable` 的调用线程。
+     * 故这里一律 `shutdownNow`：唯一目的就是**不留线程、不留池、不留全局指针**。
+     *
+     * ## 为什么不回滚 `BridgeCapabilities`
+     * 那是**进程级**、只增不删的能力声明（没有移除 API），且必须在起线程前声明：
+     * `hello` 一连上就读它。声明为已失败的那次启动服务的是“下一次成功启动”，语义上不会错。
+     */
+    private fun rollbackStartFailure(
+        store: EventSpillStore?,
+        frameSender: FrameSender?,
+        bridgePools: BridgePools?,
+        reloadPool: ReloadRuntime?,
+    ) {
+        // ① **先**复位运行标志：各循环（runLoop/heartbeatLoop/readLoop）的条件都是它，
+        //    置 false 后它们做完本轮就退出；晚置一步就是“回滚完还有线程在往外发帧”。
+        running.set(false)
+        // ② 解绑全局指针：`bridge_status` 读 `CURRENT_POOLS`，残留会让它对着已关的池报数；
+        //    字段置空则让 publisher/submit 路径自然降级为“未受理”，而不是对着半成品发。
+        BridgeStatusRoute.CURRENT_POOLS = null
+        spill = null
+        sender = null
+        pools = null
+        kernel = null
+        reloadRuntime = null
+        // ③ health 是最后一步启动的，最可能已起来；stop() 幂等且顺带把它自己的 running 复位
+        //    （否则它也会卡在“已启动”而永不刷新）。
+        runCatching { healthRegistryOrNull()?.stop() }
+        // ④ 停线程：interrupt + 有界 join。它们都是 daemon，join 超时也不会阻止 JVM 退出，
+        //    但必须留痕——“桥没起来却仍有后台线程在跑”是最难查的一类残留。
+        listOf(readThread, senderThread, heartbeatThread, spillThread).forEach { worker ->
+            if (worker == null) return@forEach
+            runCatching { worker.interrupt() }
+            runCatching { worker.join(START_ROLLBACK_JOIN_MS) }
+            if (worker.isAlive) {
+                ProbeLogger.warn(
+                    "桥启动回滚后线程未退出:${worker.name}(daemon,会在其阻塞调用超时后自行结束)",
+                )
+            }
+        }
+        readThread = null
+        senderThread = null
+        heartbeatThread = null
+        spillThread = null
+        // ⑤ 关已创建的池与队列（反序：最新建的先关）。
+        runCatching { reloadPool?.shutdownNow() }
+        runCatching { bridgePools?.shutdownNow() }
+        runCatching { frameSender?.shutdown() }
+        runCatching { store?.shutdown() }
+        // seqAllocator 刻意**不** shutdown：它长于桥连接，重启后续接靠的就是它的内存状态；
+        // 它也不持有线程，留着不会泄漏。
+        ProbeLogger.info("桥启动失败已回滚：运行标志复位、已建池与线程均已停止，下次 start() 可重新尝试")
     }
 
     /**
      * 停止插件桥客户端（停机协议，见线路治理规格 §6.1）。
      *
-     * 顺序：停读 → 打断重载池 → 优雅停命令/事件池 → 停发送 → 停落盘 → 关连接。
-     * 重载池用 `shutdownNow` 是因为其任务会回调外部插件的配置加载，
-     * 而那些插件可能已在自身 `onDisable` 里关掉资源。
+     * ## 顺序（不可交换）
+     * 1. **停读** —— 关连接，不再有新命令进来；
+     * 2. **停业务池并等终止** —— 在途命令跑完，它们还要发回执；
+     * 3. **drain 发送队列** —— 把已入队的回执/事件真正写出去；
+     * 4. **flush 落盘** —— 停机前一刻被受理的可靠事件必须先落盘；
+     * 5. **停落盘线程**；
+     * 6. **最后写序号状态** —— 它必须看到全部已分配的号（包括第 2 步那批在途任务刚分配的）。
+     *
+     * ## 为什么不能先把 sender/spill 停了
+     * 之前实际执行的是 `sender.shutdown()` → `spill.shutdown()` → `seqAllocator.shutdown()`
+     * → `pools.shutdown()`，与本注释写的顺序**完全相反**，造成三处丢数据：
+     * - 在途命令的回执无处可发（`sendReceipt` 阻塞等容量必超时后丢弃）；
+     * - 落盘待写队列不 drain、不 fsync，已受理的可靠事件静默消失；
+     * - 序号状态早于业务静默落盘，之后分配的号不再持久化 → 重启后**重号**。
+     *
+     * 重载池与 health 仍用 `shutdownNow`：它们的任务会回调第三方插件，
+     * 而那些插件可能已在自身 `onDisable` 里关掉资源，继续跑只会读到坏状态。
      */
     @PreDestroy
     fun stop() {
         // 解绑全局接线：停机后不应再对外声明"当前订阅"（也避免全局状态残留到下一次装配）。
         BridgeCapabilities.setSubscriptionSource(null)
         if (!running.getAndSet(false)) return
+        // ① 停读：不再有新命令进来。
         runCatching { client?.close() }
         client = null
-        sender?.shutdown()
-        spill?.shutdown()
-        //：正常停机把"未落盘的号段"刷进 seq.state，抹平崩溃才会有的续接缺口。
-        // 放在 spill 关闭之后：序号状态与事件缓冲同目录，但两者互不依赖写入顺序；
-        // 放在这里只是因为"停机收尾"是唯一能保证各域最大值都已确定的位置。
-        seqAllocator.shutdown()
-        // 停机协议 ②：health 刷新线程与 reload 池**同批** shutdownNow。
-        // 理由与 reload 池相同——health() 是只读上报，打断无副作用，且停用后不该再进第三方代码。
-        healthRegistryOrNull()?.stop()
-        pools?.shutdown()
-        // 重载 worker 池与协调池同批 shutdownNow：在途的监听器回调没有理由继续
-        // （目标插件可能已在自身 onDisable 里关掉资源）。
+        runCatching { readThread?.join(JOIN_TIMEOUT_MS) }
+        // ② 业务池优雅停 + 等终止：在途命令还需要发回执。
+        //    重载/health 用 shutdownNow（理由见 KDoc）。
         reloadRuntime?.shutdownNow()
         reloadRuntime = null
-        runCatching { readThread?.join(JOIN_TIMEOUT_MS) }
+        healthRegistryOrNull()?.stop()
+        pools?.shutdown()
+        val poolsDrained = pools?.awaitTermination(POOL_DRAIN_BUDGET_MS) ?: true
+        if (!poolsDrained) {
+            ProbeLogger.warn("桥业务池未在 ${POOL_DRAIN_BUDGET_MS}ms 内结束,停机继续(其回执将无法送达)")
+        }
+        // ③ drain 发送队列：把已入队的回执/事件真正写出去。
+        sender?.let { s ->
+            if (!s.shutdownAfterDrain(SENDER_DRAIN_BUDGET_MS)) {
+                ProbeLogger.warn("桥发送队列未完全排空,剩余帧随停机丢弃")
+            }
+        }
         runCatching { senderThread?.join(JOIN_TIMEOUT_MS) }
+        // ④ flush 落盘：停机前一刻被受理的可靠事件必须先落盘（shutdown 不会 drain）。
+        spill?.flush()
+        // ⑤ 停落盘线程。
+        spill?.shutdown()
         runCatching { spillThread?.join(JOIN_TIMEOUT_MS) }
+        // ⑥ 最后写序号状态：它必须看到全部已分配的号。
+        //    （正常停机把"未落盘的号段"刷进 seq.state，抹平崩溃才会有的续接缺口。）
+        seqAllocator.shutdown()
         runCatching { heartbeatThread?.interrupt() }
         runCatching { heartbeatThread?.join(JOIN_TIMEOUT_MS) }
         readThread = null
@@ -817,11 +928,20 @@ class BridgeClient {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val JOIN_TIMEOUT_MS = 3_000L
 
+        /** 停机时等待业务池跑完在途任务的预算（毫秒）。超时则继续停机并告警。 */
+        private const val POOL_DRAIN_BUDGET_MS = 5_000L
+
+        /** 停机时等待发送队列排空的预算（毫秒）。对端已死时不无限拖住停机。 */
+        private const val SENDER_DRAIN_BUDGET_MS = 3_000L
+
         /** 心跳最小间隔:避免配置成 0/负数导致忙等。 */
         const val MIN_PING_INTERVAL_MS = 1_000L
 
         /** 启动失败时打印的堆栈帧数：足够定位到具体调用点，又不至于刷屏。 */
         const val START_FAILURE_TRACE_FRAMES = 8
+
+        /** 启动回滚时逐个线程 join 的上限（毫秒）：回滚跑在主线程，不能在这里耗秒级预算。 */
+        private const val START_ROLLBACK_JOIN_MS = 1_000L
 
         /** 视为认证失败的握手状态码。 */
         val AUTH_FAILED_CODES = setOf(401, 403)

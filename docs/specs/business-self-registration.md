@@ -310,7 +310,8 @@ private Registration registration;
 
 public void onEnable() {
     registration = ServerProbeAPI.businessHost().register(new ActivityProvider());
-    // 返回失效句柄（探针未就绪）时，可用 awaitAvailable 后重试
+    // 返回失效句柄（探针未就绪）时：代理可缓存，后续自动生效，无需等待。
+    // 切勿在 onEnable（主线程）里调 awaitAvailable——它会睡满超时且永远等不到。
 }
 
 public void onDisable() {

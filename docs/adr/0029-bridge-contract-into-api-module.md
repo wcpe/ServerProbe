@@ -50,9 +50,10 @@
   新增边必须改 spec 并说明理由。
 - `BridgeServices` 的演进只允许**追加 `default` 方法**，且 default 必须返回该子门面的
   独立降级单例——写成 `UnavailableBridgeServices.INSTANCE.同方法()` 会 `StackOverflowError`。
-- 门面的 `install` 用调用栈类名白名单做了**门槛**（`SELF_INSTALLER_CLASSES`），
-  但这只是"提高误用成本"，**不是安全隔离**：恶意插件仍可自行调用。已在此明确记录，
-  避免后续误以为它是一道防线。
+- 门面的 `install` **仅靠 package-private 可见性**提高误用成本（调用方必须声明同包并跨包名冲突），
+  **没有任何调用栈白名单**。曾计划加 `SELF_INSTALLER_CLASSES` 类名白名单，但**未落地**，
+  本 ADR 不声称它存在。无论哪种方式都**不是安全隔离**：同一 JVM 内的恶意插件仍可
+  声明同名包并自行调用 `install` 顶替实现。已在此明确记录，避免后续误以为它是一道防线。
 - 治理版 `BridgeCommand`（带 `target`/`reason`）与 `BridgeCommandHandler` **留在 `core`**，
   不进 `api`——它们是内部治理策略，不是第三方契约。
 
