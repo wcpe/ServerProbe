@@ -2,7 +2,9 @@
 
 ## 状态
 
-已接受（取代 [ADR-0016](0016-inventory-business-item-transport.md) 的决策 1 / 2）
+已被 [ADR-0030](0030-remove-built-in-business-integrations.md) 取代（PRD 记账 FR-32，[spec](../specs/business-self-registration.md)）——背包集成模块随内置业务集成移除而删除，本 ADR 调整的对接契约不再有消费者。原决策作为历史保留。
+
+（原状态：已接受，取代 [ADR-0016](0016-inventory-business-item-transport.md) 的决策 1 / 2）
 
 ## 背景
 

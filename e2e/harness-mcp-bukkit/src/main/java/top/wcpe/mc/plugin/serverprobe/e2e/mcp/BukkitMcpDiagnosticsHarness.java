@@ -24,7 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-/** Paper 与 Folia 共用的 FR14 MCP 验收桩；诊断目标不访问平台状态。 */
+/** Paper 与 Folia 共用的 MCP 验收桩；诊断目标不访问平台状态。 */
 public final class BukkitMcpDiagnosticsHarness extends JavaPlugin {
 
     private static final String PAPER_SCENARIO = "mcp-diagnostics-paper-java21";
@@ -143,7 +143,7 @@ public final class BukkitMcpDiagnosticsHarness extends JavaPlugin {
         File target = new File(new File(getDataFolder().getParentFile(), "ServerProbe/mcp-workspace/artifacts"), "mcp-bukkit-original.class");
         target.getParentFile().mkdirs();
         InputStream source = BukkitMcpDiagnosticsHarness.class.getResourceAsStream(resource);
-        if (source == null) throw new IllegalStateException("未找到 FR14 原始类字节码资源");
+        if (source == null) throw new IllegalStateException("未找到 原始类字节码资源");
         try {
             Files.copy(source, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
         } finally {

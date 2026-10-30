@@ -1,8 +1,8 @@
 package top.wcpe.mc.plugin.serverprobe.core.collector
 
-import top.wcpe.mc.plugin.serverprobe.api.model.GcCollectorMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MemoryPoolMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.GcCollectorMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MemoryPoolMetric
 import top.wcpe.mc.plugin.serverprobe.core.jmx.JmxSupport
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
@@ -14,9 +14,9 @@ import java.lang.management.ManagementFactory
 import top.wcpe.mc.plugin.serverprobe.api.collector.JvmMetricsCollector as JvmMetricsCollectorApi
 
 /**
- * JVM 指标采集器的通用实现(FR2.1)。
+ * JVM 指标采集器的通用实现。
  *
- * 全部数据取自 `java.lang.management.*` 各类 MXBean,外加经 [JmxSupport] 反射读取的 CPU 指标,
+ * 全部数据取自 `java.lang.management.*`各类 MXBean,外加经 [JmxSupport] 反射读取的 CPU 指标,
  * 不依赖任何平台 API,故为全版本 + 全平台通用实现,落位于 core 模块。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化并注入 [registry];[register] 在依赖注入完成后
@@ -33,7 +33,7 @@ class JvmMetricsCollector : JvmMetricsCollectorApi {
     /**
      * 依赖注入完成后将本采集器登记到注册中心。
      *
-     * 采用 `@PostConstruct` 而非构造期注册,确保 [registry] 已注入完毕再使用。
+     * 采用 `@PostConstruct`而非构造期注册,确保 [registry] 已注入完毕再使用。
      */
     @PostConstruct
     fun register() {

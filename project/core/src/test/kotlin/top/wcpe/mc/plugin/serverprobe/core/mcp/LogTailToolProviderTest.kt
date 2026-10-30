@@ -12,7 +12,7 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 /**
- * FR-16 日志流式检索：覆盖尾部定位、超长行截断与游标推进、
+ * 日志流式检索：覆盖尾部定位、超长行截断与游标推进、
  * 关键字命中、游标分页（含文件增长快照语义）、文件缺失降级、路径前缀校验拒绝。
  */
 class LogTailToolProviderTest {

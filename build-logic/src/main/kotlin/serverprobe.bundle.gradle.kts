@@ -2,7 +2,7 @@
  * ServerProbe 主插件（plugin 模块）的打包与校验约定：
  * - 二合一 jar：agent manifest（Premain/Agent）、全部子模块输出合流、Arthas 双运行时闭包注入
  * - Java 8 Paper 验收专用瘦 Agent（mcpJava8Agent）及其结构校验
- * - 发行 Jar 的四项校验挂入 check（CI 链）：Arthas 闭包/业务集成/Velocity 描述符/SQLite 内置
+ * - 发行 Jar 的四项校验挂入 check（CI 链）：Arthas 闭包/禁止内置业务集成/Velocity 描述符/SQLite 内置
  *
  * convention 应用顺序：plugins 块声明序（base 先于 bundle），脚本体直配（早于 TabooLib 的 afterEvaluate 读取 archiveBaseName）。
  */
@@ -119,8 +119,6 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
             ":platform:platform-bukkit",
             ":platform:platform-bungee",
             ":platform:platform-velocity",
-            ":integration:integration-multicurrencyeconomy",
-            ":integration:integration-allininventorysync",
         )
         dependsOn(moduleClassDirs.map { "$it:classes" })
         moduleClassDirs.forEach { path ->
@@ -147,7 +145,7 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
     // 进而破坏插件初始化；此产物只保留 Instrumentation 数据桥所需入口，正式单 Jar 分发策略不变。
     val mcpJava8Agent by tasks.registering(Jar::class) {
         group = "verification"
-        description = "构建 FR14 Java 8 Paper 验收所需的最小 Instrumentation Agent"
+        description = "构建 Java 8 Paper 验收所需的最小 Instrumentation Agent"
         archiveFileName.set("serverprobe-mcp-java8-agent.jar")
         from(project.extensions.getByType(org.gradle.api.tasks.SourceSetContainer::class.java).getByName("main").output) {
             include("top/wcpe/mc/plugin/serverprobe/agent/ProbeAgent.class")
@@ -166,7 +164,7 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
 
     val verifyMcpJava8Agent by tasks.registering {
         group = "verification"
-        description = "校验 FR14 Java 8 瘦 Agent 的类边界与 Agent 清单"
+        description = "校验 Java 8 瘦 Agent 的类边界与 Agent 清单"
         dependsOn(mcpJava8Agent)
         doLast {
             val artifact = mcpJava8Agent.get().archiveFile.get().asFile
@@ -250,9 +248,9 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
         }
     }
 
-    val verifyBusinessIntegrationJar by tasks.registering {
+    val verifyNoBuiltInBusinessIntegration by tasks.registering {
         group = "verification"
-        description = "校验业务集成实现已合入发行 Jar 且未打包外部 API"
+        description = "校验发行 Jar 不含内置业务集成实现，且未打包外部业务 API"
         dependsOn(tasks.named("jar"))
         doLast {
             val artifact = tasks.named<Jar>("jar").get().archiveFile.get().asFile
@@ -262,21 +260,17 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
                     while (iterator.hasMoreElements()) add(iterator.nextElement().name)
                 }
             }
-            val required = setOf(
-                "top/wcpe/mc/plugin/serverprobe/integration/multicurrencyeconomy/EconomyProvider.class",
-                "top/wcpe/mc/plugin/serverprobe/integration/allininventorysync/InventoryProvider.class",
-            )
-            val missing = required.filterNot(entries::contains)
-            check(missing.isEmpty()) { "发行 Jar 缺少业务集成实现：${missing.joinToString()}" }
+            // 内置业务集成已随移除：发行 Jar 中不得再现其包路径，也不得保留旧 Bukkit 业务实现。
+            val builtIn = entries.filter {
+                it.startsWith("top/wcpe/mc/plugin/serverprobe/integration/") ||
+                    it.startsWith("top/wcpe/mc/plugin/serverprobe/bukkit/business/")
+            }
+            check(builtIn.isEmpty()) { "发行 Jar 不得包含内置业务集成实现：${builtIn.joinToString()}" }
             val forbidden = entries.filter {
                 it.startsWith("top/wcpe/mc/plugin/multicurrencyeconomy/") ||
                     it.startsWith("top/wcpe/mc/plugin/allininventorysync/")
             }
             check(forbidden.isEmpty()) { "发行 Jar 不得打包外部业务 API：${forbidden.joinToString()}" }
-            val legacy = entries.filter {
-                it.startsWith("top/wcpe/mc/plugin/serverprobe/bukkit/business/") && it.endsWith(".class")
-            }
-            check(legacy.isEmpty()) { "发行 Jar 不得保留旧 Bukkit 业务实现：${legacy.joinToString()}" }
         }
     }
 
@@ -321,7 +315,7 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
     }
 
     tasks.named("check") {
-        dependsOn(verifyBusinessIntegrationJar)
+        dependsOn(verifyNoBuiltInBusinessIntegration)
         dependsOn(verifyArthasRuntimeClosure)
         dependsOn(verifySqliteJdbcPackaging)
         dependsOn(verifyVelocityDescriptorDependencies)

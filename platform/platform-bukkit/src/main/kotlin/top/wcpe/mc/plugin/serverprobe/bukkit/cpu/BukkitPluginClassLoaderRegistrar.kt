@@ -11,12 +11,12 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * Bukkit 插件 ClassLoader 注册(FR2.6)。
+ * Bukkit 插件 ClassLoader 注册。
  *
  * 在 Bukkit 端把各插件的 ClassLoader 登记到 [PluginClassLoaderRegistry],
  * 供 core 的 [CpuAttributionSampler] 把线程栈帧归并到插件。
  *
- * 通过 `JavaPlugin.classLoader` 反射取每个插件的 ClassLoader(旧版 Bukkit API
+ * 通过 `JavaPlugin.classLoader`反射取每个插件的 ClassLoader(旧版 Bukkit API
  * 无公开 getter,用反射安全获取;失败则跳过该插件,不影响整体)。
  *
  * 仅在 Bukkit 平台生效([PlatformSide]);作为 IOC [Service],初始化完成后注册。
@@ -47,7 +47,7 @@ class BukkitPluginClassLoaderRegistrar {
     /**
      * 反射获取插件 ClassLoader(兼容各版本可见性差异);失败返回 null 并跳过。
      *
-     * `JavaPlugin.classLoader` 字段在不同版本可见性不一(老版本 public、新版本 private),
+     * `JavaPlugin.classLoader`字段在不同版本可见性不一(老版本 public、新版本 private),
      * 统一经字段反射 + setAccessible 安全读取;失败即跳过该插件,不影响整体。
      *
      * @param plugin Bukkit 插件实例。

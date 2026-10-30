@@ -7,7 +7,7 @@ import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.getDataFolder
 import taboolib.common.platform.function.submit
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallAttributor
 import top.wcpe.mc.plugin.serverprobe.core.agent.HttpCallStore
@@ -21,19 +21,19 @@ import java.util.Date
 /**
  * HTTP/TCP 外呼监控服务(M5,运行期常驻;Bukkit 端)。
  *
- * 启动 agent 在 `HttpURLConnection.getInputStream` / `Socket.connect` 处插桩,把外呼记录写入 agent 侧有界缓冲;
+ * 启动 agent 在 `HttpURLConnection.getInputStream` / `Socket.connect`处插桩,把外呼记录写入 agent 侧有界缓冲;
  * 本服务在服务器就绪后周期性**增量拉取**这些记录,据调用栈**归因到触发的插件**,然后:
  * - 实时打印中文日志(可配关闭);
  * - 追加落盘到 `data/http/`(可配关闭);
- * - 写入 [HttpCallStore] 供 `/probe http` 回看。
+ * - 写入 [HttpCallStore] 供 `/probe http`回看。
  *
  * **未挂载 agent**:[AgentDataReader.readHttpCallsSince] 返回空,各环节自然空转,无副作用。
- * **形态**:`object` + `@SubscribeEvent`(TabooLib 要求事件宿主为 object);`@Inject` 由 IOC 注入。
+ * **形态**:`object` + `@SubscribeEvent`(TabooLib 要求事件宿主为 object);`@Inject`由 IOC 注入。
  */
 @PlatformSide(Platform.BUKKIT)
 object HttpMonitorService {
 
-    /** 外呼近期缓冲(core),供 `/probe http` 读取。 */
+    /** 外呼近期缓冲(core),供 `/probe http`读取。 */
     @Inject
     lateinit var store: HttpCallStore
 
@@ -167,7 +167,7 @@ object HttpMonitorService {
             sb.append(" ← ").append(caller)
         }
         if (logHeaders && c.headers.isNotEmpty()) {
-            sb.append(" 头=[").append(c.headers.joinToString("; ")).append(']')
+            sb.append("头=[").append(c.headers.joinToString("; ")).append(']')
         }
         return sb.toString()
     }

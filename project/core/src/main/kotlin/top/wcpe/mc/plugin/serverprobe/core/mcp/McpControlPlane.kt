@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.bridge.ServerStateSupport
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
@@ -35,7 +35,7 @@ class McpControlPlane {
     @Inject
     lateinit var mcpArtifactWorkspaceRegistry: McpArtifactWorkspaceRegistry
 
-    /** FR-17：可选注入的世界明细提供者；非 Bukkit 平台缺失时降级为既有输出。 */
+    /**：可选注入的世界明细提供者；非 Bukkit 平台缺失时降级为既有输出。 */
     @Inject(required = false)
     var worldDetailProvider: WorldDetailProvider? = null
 
@@ -64,9 +64,9 @@ class McpControlPlane {
     }
 
     /**
-     * 运行期开启 MCP 控制面（FR-24，控制台命令触发）。
+     * 运行期开启 MCP 控制面（控制台命令触发）。
      *
-     * 与启动期 [start] 共用同一实现，区别仅在绕过 `mcp.enabled` 配置门；危险配置（空密钥、非回环）
+     * 与启动期 [start] 共用同一实现，区别仅在绕过 `mcp.enabled`配置门；危险配置（空密钥、非回环）
      * 的中文告警照常输出。启动失败（端口占用等）在此收敛为返回值并回滚残留，不向调用方抛异常。
      *
      * 幂等判定在此完成（而非由调用方先查 [running] 再调用）：并发命令若都在检查时看到"未运行"，
@@ -92,10 +92,10 @@ class McpControlPlane {
     }
 
     /**
-     * 运行期关闭 MCP 控制面（FR-24，控制台命令触发）。
+     * 运行期关闭 MCP 控制面（控制台命令触发）。
      *
      * 无条件走 [stopServer]（其内部全空安全）：启动中途失败可能留下已注册但未监听的工作区，
-     * 旧实现的 `httpServer != null` 守卫会跳过这类残留，故不再按句柄判断。
+     * 旧实现的 `httpServer != null`守卫会跳过这类残留，故不再按句柄判断。
      *
      * @return 本次是否确实执行了停止（此前未运行返回 false）。
      */
@@ -171,7 +171,7 @@ class McpControlPlane {
         "classLoading" to ServerStateSupport.classLoadingCounts(),
         "latestMetricSnapshot" to readApi.latestSnapshot(),
     ).let { output ->
-        // FR-17：provider 存在时把 worlds 输出增强（entityTypeCounts/regionStats），
+        //：provider 存在时把 worlds 输出增强（entityTypeCounts/regionStats），
         // 缺失时保持既有快照输出（向后兼容）。增强仅作用于输出层，不改动 WorldMetrics 模型。
         val detailProvider = worldDetailProvider
         if (detailProvider != null) enhanceWorlds(output, detailProvider) else output
@@ -226,13 +226,20 @@ class McpControlPlane {
             ("worldsTruncated" to (enhancedWorlds.size >= McpJsonWriter.MAX_ITEMS))
     }
 
-    /** 组合全部 MCP 工具提供者：原生工具 + 扩展 provider（FR-15~22 交付时在 McpToolProviderRegistry 注册）。 */
-    private fun providers(): List<McpToolProvider> = buildList {
+    /**
+     * 组合全部 MCP 工具提供者：原生工具 + 扩展 provider（~22 交付时在 McpToolProviderRegistry 注册）。
+     *
+     * [arthasTimeoutMillis] 默认取配置值（生产路径）；测试可显式传入，
+     * 从而在没有 `config.yml` 的纯 JVM 里也能组合出真实的工具集。
+     */
+    internal fun providers(
+        arthasTimeoutMillis: Long = TimeUnit.MINUTES.toMillis(ProbeConfig.mcpTaskTimeoutMinutes()),
+    ): List<McpToolProvider> = buildList {
         add(NativeMcpToolProvider(
             ::serverStatus,
             platformControl = platformControl,
             arthasControl = arthasControl,
-            defaultArthasTimeoutMillis = TimeUnit.MINUTES.toMillis(ProbeConfig.mcpTaskTimeoutMinutes()),
+            defaultArthasTimeoutMillis = arthasTimeoutMillis,
             artifacts = artifacts,
         ))
         addAll(mcpToolProviderRegistry.providers())

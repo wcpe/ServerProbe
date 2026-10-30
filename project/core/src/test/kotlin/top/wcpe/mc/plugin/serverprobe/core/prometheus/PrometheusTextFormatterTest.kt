@@ -6,17 +6,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.BackendServer
-import top.wcpe.mc.plugin.serverprobe.api.model.GcCollectorMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MemoryPoolMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.player.BackendServer
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.GcCollectorMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MemoryPoolMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 
 /**
@@ -218,14 +218,14 @@ class PrometheusTextFormatterTest {
             .build()
         val text = PrometheusTextFormatter.format(snapshot)
 
-        // 双引号→\" 反斜杠→\\ 换行→\n
+        // 双引号→\"反斜杠→\\ 换行→\n
         assertTrue(
             text.contains("""pool="weird\"pool\\\nname""""),
             "label 值应转义双引号/反斜杠/换行,实际输出:\n$text"
         )
     }
 
-    /** FR11 只导出脱敏流量聚合，不能把完整 IP 或包载荷带入 Prometheus。 */
+    /** 只导出脱敏流量聚合，不能把完整 IP 或包载荷带入 Prometheus。 */
     @Test
     fun `网络取证聚合仅导出速率包类型和脱敏 IP`() {
         val traffic = PacketTrafficReport(
@@ -337,7 +337,7 @@ class PrometheusTextFormatterTest {
         val profile = startupProfile().toBuilder()
             .pluginTimings(
                 listOf(
-                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder()
+                    top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming.builder()
                         .name("weird\"plugin\\")
                         .enableMs(1000)
                         .build()
@@ -356,11 +356,11 @@ class PrometheusTextFormatterTest {
 
     /** FR-25 启动画像夹具:总时长 45200ms、两个插件、一个世界。 */
     /** 构造插件耗时项(测试用)。 */
-    private fun pluginTiming(name: String, enableMs: Long): top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming =
-        top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name(name).enableMs(enableMs).build()
+    private fun pluginTiming(name: String, enableMs: Long): top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming =
+        top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming.builder().name(name).enableMs(enableMs).build()
 
-    private fun startupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile =
-        top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile.builder()
+    private fun startupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile =
+        top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile.builder()
             .schemaVersion(4)
             .serverId("srv-1")
             .platform(ProbePlatform.BUKKIT)
@@ -369,13 +369,13 @@ class PrometheusTextFormatterTest {
             .totalMs(45200L)
             .pluginTimings(
                 listOf(
-                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name("WorldEdit").enableMs(12500).build(),
-                    top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming.builder().name("Vault").enableMs(3000).build(),
+                    top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming.builder().name("WorldEdit").enableMs(12500).build(),
+                    top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming.builder().name("Vault").enableMs(3000).build(),
                 )
             )
             .worldTimings(
                 listOf(
-                    top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming.builder().name("world").loadMs(8750).build(),
+                    top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming.builder().name("world").loadMs(8750).build(),
                 )
             )
             .createdAtMs(1000L)

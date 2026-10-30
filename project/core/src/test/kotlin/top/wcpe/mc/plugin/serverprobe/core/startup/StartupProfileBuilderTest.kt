@@ -7,22 +7,22 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
-import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.LibraryTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.TimelineEvent
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
 import top.wcpe.mc.plugin.serverprobe.core.incision.IncisionStartupData
 
 /**
  * [StartupProfileBuilder] 单元测试。
  *
- * [StartupProfileBuilder.build] 仅依赖 `java.lang.management.*` 与 [PhaseTimingRecorder],无 [top.wcpe.taboolib.ioc.annotation.Inject]
+ * [StartupProfileBuilder.build] 仅依赖 `java.lang.management.*`与 [PhaseTimingRecorder],无 [top.wcpe.taboolib.ioc.annotation.Inject]
  * 字段,可直接实例化、不经 IOC 容器验证。断言聚焦"装配结果各字段对齐 api 契约"。
  */
 class StartupProfileBuilderTest {
@@ -48,7 +48,7 @@ class StartupProfileBuilderTest {
             worldTimings = worldTimings
         ))
 
-        // schemaVersion:FR7 起为 4
+        // schemaVersion:,当前为 4
         assertEquals(4, profile.schemaVersion, "schemaVersion 应为 4")
 
         // 入参透传

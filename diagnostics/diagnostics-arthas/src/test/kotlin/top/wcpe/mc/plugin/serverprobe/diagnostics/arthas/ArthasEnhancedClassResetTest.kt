@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * 回归：卸载运行时必须先还原被增强的字节码（FR-24 真机发现的崩溃缺陷）。
+ * 回归：卸载运行时必须先还原被增强的字节码（真机发现的崩溃缺陷）。
  *
  * Java 8 + Arthas 3.1.1 真机实测 4/4 必现：执行 `watch`/`trace` 等增强类命令后直接卸载，
  * 被 retransform 的方法仍会回调已释放的 Arthas 类，下一 tick NPE 崩服务器，崩溃点即被插桩方法本身。

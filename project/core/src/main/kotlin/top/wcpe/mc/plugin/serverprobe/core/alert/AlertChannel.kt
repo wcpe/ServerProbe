@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert
 
 /**
- * 告警通道(FR5):把一次 [AlertEvent] 呈现/投递出去。
+ * 告警通道:把一次 [AlertEvent] 呈现/投递出去。
  *
  * 通道在编译期与具体平台解耦——core 内置日志([top.wcpe.mc.plugin.serverprobe.core.alert.channel.LogAlertChannel])
  * 与 Webhook([top.wcpe.mc.plugin.serverprobe.core.alert.channel.WebhookAlertChannel])两种;游戏内通道位于

@@ -1,9 +1,9 @@
 package top.wcpe.mc.plugin.serverprobe.core.api
 
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketQuery
@@ -17,17 +17,17 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 只读开放接口实现(FR8.1)。
+ * 只读开放接口实现。
  *
  * 面向第三方插件的只读数据出口:将查询请求委派给内部组件,仅暴露查询、不暴露任何写入/控制能力。
  * - 最新快照:经 [MetricOrchestrator] 取得;
  * - 近期历史:经 [MetricSnapshotBuffer] 回看(P6 环形缓冲);
- * - 指标聚合:经 [MetricAggregator] 对近期历史做跨快照统计(M2 FR3.3);
+ * - 指标聚合:经 [MetricAggregator] 对近期历史做跨快照统计(M2);
  * - 最近启动画像:优先取 [StartupProfileHolder] 内存中的最近一份,内存缺失时回退 [MetricStore] 落盘读取(P7);
- * - 近期快照按时间下界筛(M2 FR8):经 [MetricSnapshotBuffer] 内存过滤,不读盘;
- * - 历史启动画像(M2 FR8):委派 [MetricStore] 读归档,**可能读盘**(故接口 KDoc 约定调用方宜在异步上下文)。
+ * - 近期快照按时间下界筛(M2):经 [MetricSnapshotBuffer] 内存过滤,不读盘;
+ * - 历史启动画像(M2):委派 [MetricStore] 读归档,**可能读盘**(故接口 KDoc 约定调用方宜在异步上下文)。
  *
- * ## FR8.1 对外暴露(第三方获取方式)
+ * ## 对外暴露(第三方获取方式)
  * 本类以 `top.wcpe.taboolib.ioc` 的 [Service] 纳入 IOC 容器,**容器内即可按接口类型取用**:
  * ```kotlin
  * val api = top.wcpe.taboolib.ioc.bean.BeanContainer.getBean(ProbeReadApi::class.java)
@@ -36,7 +36,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
  * 本插件内部的 `/probe` 命令即经此机制注入同一实例使用(见 `ProbeCommand`)。
  *
  * 跨插件(独立 jar)无需依赖 IOC 内部细节即可获取本只读 API:见运行期静态门面
- * `top.wcpe.mc.plugin.serverprobe.ServerProbeApi`(对上述 `BeanContainer` 取 bean 的容错封装)。
+ * `top.wcpe.mc.plugin.serverprobe.api.ServerProbeAPI#read()`(由装配器把本实例挂到稳定代理后面)。
  */
 @Service
 class ProbeReadApiImpl : ProbeReadApi {
@@ -49,7 +49,7 @@ class ProbeReadApiImpl : ProbeReadApi {
     @Inject
     lateinit var snapshotBuffer: MetricSnapshotBuffer
 
-    /** 指标聚合器,对近期历史做跨快照统计(FR3.3)。 */
+    /** 指标聚合器,对近期历史做跨快照统计。 */
     @Inject
     lateinit var aggregator: MetricAggregator
 
@@ -61,7 +61,7 @@ class ProbeReadApiImpl : ProbeReadApi {
     @Inject
     lateinit var store: MetricStore
 
-    /** 网络包取证服务，写入由平台适配器触发，FR8 只从此处受限读取。 */
+    /** 网络包取证服务，写入由平台适配器触发，只从此处受限读取。 */
     @Inject
     lateinit var packetForensics: PacketForensicsService
 

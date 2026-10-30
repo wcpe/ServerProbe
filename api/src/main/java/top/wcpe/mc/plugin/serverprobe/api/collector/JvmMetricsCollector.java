@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.api.collector;
 
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics;
 
 /**
  * JVM 指标采集器契约。

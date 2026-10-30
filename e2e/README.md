@@ -10,6 +10,10 @@ mc-testkit 是跨平台 Gradle 插件：自带服务端下载、启动与停止�
 .\gradlew.bat e2eReadApi --no-daemon --console=plain
 .\gradlew.bat e2eStorageSpi --no-daemon --console=plain
 .\gradlew.bat e2eBridgeFixture --no-daemon --console=plain
+.\gradlew.bat e2eChunkFixture --no-daemon --console=plain
+.\gradlew.bat e2eTopicFixture --no-daemon --console=plain
+.\gradlew.bat e2eHealthFixture --no-daemon --console=plain
+.\gradlew.bat e2eReloadFixture --no-daemon --console=plain
 ```
 
 ```bash
@@ -17,7 +21,17 @@ mc-testkit 是跨平台 Gradle 插件：自带服务端下载、启动与停止�
 ./gradlew e2eReadApi --no-daemon --console=plain
 ./gradlew e2eStorageSpi --no-daemon --console=plain
 ./gradlew e2eBridgeFixture --no-daemon --console=plain
+./gradlew e2eChunkFixture --no-daemon --console=plain
+./gradlew e2eTopicFixture --no-daemon --console=plain
+./gradlew e2eHealthFixture --no-daemon --console=plain
+./gradlew e2eReloadFixture --no-daemon --console=plain
 ```
+
+> 桥能力的四个新场景（`chunk` / `topic` / `health` / `reload`）各自有独立的状态机 fixture，
+> 共用 `WebSocketFixtureServer` 的握手与帧编解码。**断言逐项写入结果文件**
+> （`build/mc-testkit/results/<scenario>.properties` 的 `assertions.passed/total`
+> 与 `assert.*` 键），失败时 `assertions.failed.names` 会点名具体哪一条没过——
+> 不要只看 `status=PASS`。
 
 GitHub Actions 上跑的是其中无 bot、无外部闭源插件的场景（手动触发或推送 `v*` 标签时），
 见 `.github/workflows/e2e.yml`；依赖 bot 与真实业务插件的场景仍保留为本地验收。

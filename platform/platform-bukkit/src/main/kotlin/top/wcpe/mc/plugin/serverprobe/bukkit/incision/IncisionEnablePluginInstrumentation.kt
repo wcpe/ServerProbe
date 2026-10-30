@@ -13,7 +13,7 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import java.util.ArrayDeque
 
 /**
- * Bukkit 插件启用耗时的 Incision 注解式织入（FR7）。
+ * Bukkit 插件启用耗时的 Incision 注解式织入。
  *
  * 接入方式与 VanillaModify 一致：由 [Surgeon] 在 CONST 阶段发现 [Lead]/[Trail]，
  * 不手动加载 Incision 基础设施或自行管理字节码回滚。配置关闭时 advice 立即返回，
@@ -27,6 +27,16 @@ object IncisionEnablePluginInstrumentation {
     lateinit var startupDataStore: IncisionStartupDataStore
 
     private val enableScopes = ThreadLocal.withInitial { ArrayDeque<EnableScope>() }
+
+    /**
+     * 开关接缝。
+     *
+     * 生产行为与直接读 `ProbeConfig.incisionEnabled()` 完全一致（就是默认值）；
+     * 开这个口子只为了让测试能验证“关闭时一条不采、开启时真的落地”这两条契约——
+     * `ProbeConfig.conf` 由 TabooLib 在插件加载期注入，纯 JVM 里没有它，
+     * 不开口子就只能退回去断言注解声明（而注解声明不等于任何行为）。
+     */
+    internal var isIncisionEnabled: () -> Boolean = { runCatching { ProbeConfig.incisionEnabled() }.getOrDefault(false) }
 
     /** 在配置与 IOC 就绪后记录本次启动请求，避免首个 enablePlugin 回调早于字段注入。 */
     @Awake(LifeCycle.ENABLE)
@@ -73,7 +83,7 @@ object IncisionEnablePluginInstrumentation {
     }
 
     /** 配置注入异常时按关闭路径处理，绝不影响被织入的方法。 */
-    private fun isEnabled(): Boolean = runCatching { ProbeConfig.incisionEnabled() }.getOrDefault(false)
+    private fun isEnabled(): Boolean = isIncisionEnabled()
 
     /** Incision 的首个回调可能早于 IOC 字段注入，未就绪时直接跳过。 */
     private fun isStoreReady(): Boolean = ::startupDataStore.isInitialized

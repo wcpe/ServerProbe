@@ -4,7 +4,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 插件 ClassLoader 注册表(FR2.6)。
+ * 插件 ClassLoader 注册表。
  *
  * 平台层(platform-bukkit)在初始化时把各插件的 ClassLoader 注册进来,
  * 供 [CpuAttributionSampler] 把线程栈帧归并到具体插件:对某栈帧的类名,用已注册的插件 ClassLoader

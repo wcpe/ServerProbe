@@ -7,7 +7,7 @@ package top.wcpe.mc.plugin.serverprobe.core.buffer
  * 用于在内存中保留一段近期历史(如近期指标快照),供呈现层回看而无需落盘。
  *
  * 线程模型:写([add])多发生于异步采集线程,读([snapshot])贯穿运行期且可能跨线程,
- * 故全部公开方法以 `@Synchronized` 串行化,保证并发写入不丢失、读取得到一致视图。
+ * 故全部公开方法以 `@Synchronized`串行化,保证并发写入不丢失、读取得到一致视图。
  *
  * 内部实现:底层数组 + 写游标。游标只增不回绕,以"逻辑写入序号"对容量取模定位物理槽,
  * 从而无需单独维护 size 标志即可同时表达"未写满"与"已滚动"两种状态。
@@ -27,7 +27,7 @@ class RingBuffer<T>(private val capacity: Int) {
     /**
      * 逻辑写入计数(只增不减):既是下一个待写入元素的逻辑序号,也等于累计写入总数。
      *
-     * 物理槽位 = `writeCount % capacity`;当 `writeCount >= capacity` 时表示已发生滚动覆盖。
+     * 物理槽位 = `writeCount % capacity`;当 `writeCount >= capacity`时表示已发生滚动覆盖。
      */
     private var writeCount = 0L
 

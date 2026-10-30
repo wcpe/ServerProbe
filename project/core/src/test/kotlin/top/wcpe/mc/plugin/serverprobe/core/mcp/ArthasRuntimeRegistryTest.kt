@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** 校验 FR-24 的 Arthas 运行期启停契约：未注册降级、注册转发、按引用注销与幂等。 */
+/** 校验的 Arthas 运行期启停契约：未注册降级、注册转发、按引用注销与幂等。 */
 class ArthasRuntimeRegistryTest {
 
     @Test

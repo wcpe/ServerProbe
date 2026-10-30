@@ -6,7 +6,7 @@
  * - group/version 统一为 e2e 坐标
  * - 独立 settings 已删除，仓库走 root dependencyResolutionManagement
  *
- * 各 harness 的特有配置保留在其自身脚本：toolchain 覆盖（fr14-legacy=Java 8、其余 17）、
+ * 各 harness 的特有配置保留在其自身脚本：toolchain 覆盖（java8-legacy=Java 8、其余 17）、
  * jar archiveBaseName（保持 mc-testkit-*-harness 原产物名，mcTestkit 路径引用依赖它）、
  * Kotlin 编译选项（harness 主工程）、paper-api/spigot-api 编译依赖。
  */

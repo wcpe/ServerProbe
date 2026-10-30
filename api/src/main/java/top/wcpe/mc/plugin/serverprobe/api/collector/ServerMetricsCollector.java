@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.api.collector;
 
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics;
 
 /**
  * 服务器指标采集器契约。

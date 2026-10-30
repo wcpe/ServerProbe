@@ -5,16 +5,16 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 
 /**
  * [MetricAggregator] 核心纯函数 [MetricAggregator.aggregate](接收快照列表)单元测试。
  *
  * 纯函数不依赖注入的 [top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer],
- * 故直接 `new MetricAggregator()` 调用 `aggregate(List)` 验证,无需 IOC 容器。
+ * 故直接 `new MetricAggregator()`调用 `aggregate(List)`验证,无需 IOC 容器。
  *
  * 覆盖:
  * - tpsAvg:窗口内各快照 tps1m 的均值,且自动跳过 null;

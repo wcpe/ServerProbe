@@ -7,7 +7,7 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 /**
  * 自建 tick 时钟(Legacy / Self 采样路径的数据源)。
  *
- * 通过 TabooLib `submit(period = 1, async = false)` 每 tick 在服务器主线程触发一次,完成两件事:
+ * 通过 TabooLib `submit(period = 1, async = false)`每 tick 在服务器主线程触发一次,完成两件事:
  * 1. 将"距上一 tick 的实际间隔(纳秒)"喂入 [histogram],作为 MSPT 估算来源;
  * 2. 记录每个 tick 的发生时刻(纳秒),供 [SelfTickSampler] 按 1m/5m/15m 时间窗推算 TPS。
  *

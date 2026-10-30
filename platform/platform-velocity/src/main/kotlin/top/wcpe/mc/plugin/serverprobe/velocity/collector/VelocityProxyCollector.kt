@@ -6,7 +6,7 @@ import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.function.server
 import taboolib.common.platform.function.submit
 import top.wcpe.mc.plugin.serverprobe.api.collector.ProxyMetricsCollector
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger

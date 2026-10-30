@@ -22,13 +22,13 @@ import java.io.File
 import java.util.jar.JarFile
 
 /**
- * Bukkit 插件维度元数据与类清单提供者(FR-15)。
+ * Bukkit 插件维度元数据与类清单提供者。
  *
  * 在 Bukkit/Paper/Folia 端为 core 的 [PluginScopedMcpToolProvider] 提供两份平台能力:
- * - [PluginMetadataProvider]:经 `PluginManager.getPlugins()` 读取已加载插件的
- *   名称/版本/启用状态/ClassLoader 摘要(`plugin_list` 数据源)。
- * - [PluginClassResolver]:经插件实例 `JavaPlugin.getFile()` 解析 jar 文件枚举类条目
- *   (`plugin_classes` 数据源)。**插件名 → jar 路径必须从 `JavaPlugin.getFile()` 实例解析,
+ * - [PluginMetadataProvider]:经 `PluginManager.getPlugins()`读取已加载插件的
+ *   名称/版本/启用状态/ClassLoader 摘要(`plugin_list`数据源)。
+ * - [PluginClassResolver]:经插件实例 `JavaPlugin.getFile()`解析 jar 文件枚举类条目
+ *   (`plugin_classes`数据源)。**插件名 → jar 路径必须从 `JavaPlugin.getFile()`实例解析,
  *   禁止按插件目录名拼路径**(插件目录名可能与插件名不一致)。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化,依赖注入完成后([PostConstruct])
@@ -54,6 +54,18 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
     lateinit var classResolverRegistry: PluginClassResolverRegistry
 
     /**
+     * 平台门接缝。
+     *
+     * <p>生产行为与直接写 `Platform.CURRENT == Platform.BUKKIT` 完全一致（就是默认值）；
+     * 开这个口子只为了让测试能模拟“运行在 Bukkit 上”。</p>
+     *
+     * <p><b>为什么必须开口子</b>：`Platform.CURRENT` 是进程级事实，单测环境永远不是 BUKKIT。
+     * 不注入的话，`register()` 第一行就 return，而“到底注册了哪两个契约、有没有误注册工具面”
+     * ——正是历史上出过真机事故的那条——完全无法被覆盖。</p>
+     */
+    internal var isBukkitPlatform: () -> Boolean = { Platform.CURRENT == Platform.BUKKIT }
+
+    /**
      * 依赖注入完成后注册两份数据源到 core 契约。
      *
      * 工具目录由 core 的 [PluginScopedMcpToolProvider] 作为 [McpToolProvider] 统一注册——
@@ -62,7 +74,7 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
      */
     @PostConstruct
     fun register() {
-        if (Platform.CURRENT != Platform.BUKKIT) return
+        if (!isBukkitPlatform()) return
         metadataRegistry.register(this)
         classResolverRegistry.register(this)
         ProbeLogger.info("Bukkit 插件维度诊断数据源已注册(元数据 + 类清单)")
@@ -87,16 +99,16 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
     /**
      * 枚举目标插件 jar 内的可解析类清单(有界,默认 200 条)。
      *
-     * 经插件实例 `JavaPlugin.getFile()` 解析 jar(禁止字符串拼接插件目录路径);
-     * 逐条目以 `loadClass(name, false)` 验证可解析性(不初始化类,避免触发静态块)。
+     * 经插件实例 `JavaPlugin.getFile()`解析 jar(禁止字符串拼接插件目录路径);
+     * 逐条目以 `loadClass(name, false)`验证可解析性(不初始化类,避免触发静态块)。
      *
      * @param pluginName 插件名。
      * @return 有界枚举结果;jar 缺失/损坏/无权限时降级为 [PluginClassEnumeration.failure]。
      */
     override fun enumerate(pluginName: String): PluginClassEnumeration {
         val plugin = Bukkit.getPluginManager().getPlugin(pluginName) ?: return PluginClassEnumeration.failure("插件未加载: $pluginName")
-        val jar = pluginFile(plugin) ?: return PluginClassEnumeration.failure("无法定位插件 jar 文件,请用 arthas `sc` 按包名搜索")
-        val loader = pluginLoader(plugin) ?: return PluginClassEnumeration.failure("插件 ClassLoader 不可用,请用 arthas `sc` 按包名搜索")
+        val jar = pluginFile(plugin) ?: return PluginClassEnumeration.failure("无法定位插件 jar 文件,请用 arthas `sc`按包名搜索")
+        val loader = pluginLoader(plugin) ?: return PluginClassEnumeration.failure("插件 ClassLoader 不可用,请用 arthas `sc`按包名搜索")
         return runCatching {
             val classNames = mutableListOf<String>()
             var truncated = false
@@ -115,7 +127,7 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
             PluginClassEnumeration.success(classNames, truncated)
         }.getOrElse { error ->
             ProbeLogger.warn("枚举插件类清单失败($pluginName): ${error.javaClass.simpleName}")
-            PluginClassEnumeration.failure("枚举插件类清单失败: ${error.javaClass.simpleName},请用 arthas `sc` 按包名搜索")
+            PluginClassEnumeration.failure("枚举插件类清单失败: ${error.javaClass.simpleName},请用 arthas `sc`按包名搜索")
         }
     }
 
@@ -123,8 +135,8 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
      * 从插件实例解析 jar 文件。
      *
      * 语义上即 `JavaPlugin.getFile()`:jar 路径必须来自插件实例本身,禁止按插件目录名拼路径
-     * (目录名可能与插件名不一致)。不同 Bukkit 版本上 `file` 字段可见性不一,统一经字段反射 +
-     * setAccessible 安全读取(同 `classLoader` 字段的手法),兼容全版本;失败返回 null 走降级。
+     * (目录名可能与插件名不一致)。不同 Bukkit 版本上 `file`字段可见性不一,统一经字段反射 +
+     * setAccessible 安全读取(同 `classLoader`字段的手法),兼容全版本;失败返回 null 走降级。
      *
      * @param plugin Bukkit 插件实例。
      * @return 插件 jar 文件;不可用时为 null。
@@ -141,7 +153,7 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
     /**
      * 反射取插件 ClassLoader(同 BukkitPluginClassLoaderRegistrar 的手法)。
      *
-     * `JavaPlugin.classLoader` 字段在不同版本可见性不一,统一经字段反射 + setAccessible
+     * `JavaPlugin.classLoader`字段在不同版本可见性不一,统一经字段反射 + setAccessible
      * 安全读取;失败即返回 null,不影响整体。
      *
      * @param plugin Bukkit 插件实例。

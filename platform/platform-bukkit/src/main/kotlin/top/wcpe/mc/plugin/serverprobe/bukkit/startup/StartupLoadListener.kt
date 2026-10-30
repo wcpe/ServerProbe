@@ -9,10 +9,10 @@ import taboolib.common.platform.PlatformSide
 import taboolib.common.platform.event.SubscribeEvent
 import taboolib.common.platform.function.submit
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.api.store.MetricStore
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentDataReader
 import top.wcpe.mc.plugin.serverprobe.core.agent.AgentStartupData
@@ -32,27 +32,27 @@ import java.lang.management.ManagementFactory
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Bukkit 启动就绪监听器(FR1,启动画像装配触发点)。
+ * Bukkit 启动就绪监听器(启动画像装配触发点)。
  *
  * 监听 [ServerLoadEvent]:仅在 [ServerLoadEvent.LoadType.STARTUP](正常启动,排除 `/reload`)时触发一次,
  * 此刻视为"服务器对外就绪",据此计算端到端启动总时长并装配启动画像([StartupProfile])。
  *
  * 端到端总时长 = `事件触发时刻(currentTimeMillis)` − `RuntimeMXBean.startTime`(JVM 启动时刻),覆盖
- * 「JVM 启动 → 服务就绪」整条串行链(FR1.1)。
+ * 「JVM 启动 → 服务就绪」整条串行链。
  *
  * **时序要点(关键)**:[PhaseTimingRecorder] 的 [taboolib.common.LifeCycle.ACTIVE] 打点由 TabooLib 经
- * `runTask` 安排在**首 tick**执行,而 [ServerLoadEvent] 的派发**早于**该首 tick(经 TabooLib 6.3.0 源码核实)。
+ * `runTask`安排在**首 tick**执行,而 [ServerLoadEvent] 的派发**早于**该首 tick(经 TabooLib 6.3.0 源码核实)。
  * 若在事件回调内立即组装画像,[PhaseTimingRecorder.phaseTimings] 将**缺失 ACTIVE 段**。为此本监听器把组装
- * 推迟到 ACTIVE 打点之后:在事件回调中仅于**主线程立即**测得 `totalMs` 与世界名(保证口径不漂移),随后
- * 用 `submit(delay = 2, async = true)` 延迟 ≥1 tick(确保首 tick 的 ACTIVE 已记录)且异步执行(读日志不阻塞主线程),
+ * 推迟到 ACTIVE 打点之后:在事件回调中仅于**主线程立即**测得 `totalMs`与世界名(保证口径不漂移),随后
+ * 用 `submit(delay = 2, async = true)`延迟 ≥1 tick(确保首 tick 的 ACTIVE 已记录)且异步执行(读日志不阻塞主线程),
  * 在该任务内完成「读分段 + 读并解析日志 + 装配 + 落库 + 打印摘要」。
  *
  * 平台隔离:仅在 Bukkit 平台生效([PlatformSide]);所需的 core bean([StartupProfileBuilder]/
  * [StartupProfileHolder])由 IOC 的 ObjectInjector 注入。读取 `logs/latest.log`(磁盘 IO)在延迟异步任务中进行,
  * **主线程零阻塞**(规范 R7);装配完成后写入持有者并输出启动画像摘要。
  *
- * **形态(关键)**:本类为 `object` 而非 `@Service class`——TabooLib `@SubscribeEvent` 要求事件方法宿主为
- * object(静态 INSTANCE),否则运行期抛 `not a static method`;`@Inject` 字段照常由 IOC ObjectInjector 注入。
+ * **形态(关键)**:本类为 `object`而非 `@Service class`——TabooLib `@SubscribeEvent`要求事件方法宿主为
+ * object(静态 INSTANCE),否则运行期抛 `not a static method`;`@Inject`字段照常由 IOC ObjectInjector 注入。
  */
 @PlatformSide(Platform.BUKKIT)
 object StartupLoadListener {
@@ -76,6 +76,36 @@ object StartupLoadListener {
     /** 装配触发防重标记：1.12+ 走 ServerLoadEvent,1.11- 走 ACTIVE 兜底,两条路径仅一条生效。 */
     private val assemblyTriggered = AtomicBoolean(false)
 
+    /**
+     * 采集一次性装配输入的接缝。
+     *
+     * 生产实现读 Bukkit API（世界名）与 JVM 启动时刻；测试可替换，
+     * 从而在没有 Bukkit 的环境里验证“防重”这条真正的不变量。
+     */
+    internal var snapshotInputs: () -> Triple<Long, List<String>, String> = {
+        // 总时长须在就绪时刻立即测得(延迟任务稍后才执行,届时 currentTimeMillis 已漂移)。
+        // 口径:仅覆盖「JVM 进程拉起 → 服务就绪」串行链,不含 JVM 进程拉起前的外部耗时。
+        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
+        val worldNames = Bukkit.getWorlds().map { it.name }
+        Triple(totalMs, worldNames, resolveMcVersion())
+    }
+
+    /**
+     * 重置防重标记（仅供测试）。
+     *
+     * 本类是 Kotlin `object`，`assemblyTriggered` 是进程级状态。
+     * 多个测试用例共享同一 JVM，若不能重置，第一条用例装配后其余用例永远拿到 0，
+     * 看起来像“防重失效”而实际只是状态残留。
+     */
+    internal fun resetAssemblyTriggeredForTest() {
+        assemblyTriggered.set(false)
+    }
+
+    /** 延迟异步派发的接缝；生产走 TabooLib submit，测试可替换成同步直接执行。 */
+    internal var dispatchAssembly: ((() -> Unit) -> Unit) = { task ->
+        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) { task() }
+    }
+
     /** ServerLoadEvent 是否存在;1.12 才引入该事件,旧版本经 ACTIVE 首帧兜底装配。 */
     private val serverLoadEventPresent: Boolean by lazy {
         runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isSuccess
@@ -84,10 +114,10 @@ object StartupLoadListener {
     /**
      * 服务器就绪回调:主线程即时测量,延迟异步装配启动画像。
      *
-     * 仅处理 [ServerLoadEvent.LoadType.STARTUP];`/reload` 触发的 RELOAD 类型直接忽略
+     * 仅处理 [ServerLoadEvent.LoadType.STARTUP];`/reload`触发的 RELOAD 类型直接忽略
      * (避免把热重载误计为一次启动)。
      *
-     * 在事件线程(主线程)**立即**测得 `totalMs` 与世界名快照(保证口径不漂移、Bukkit API 在主线程访问),
+     * 在事件线程(主线程)**立即**测得 `totalMs`与世界名快照(保证口径不漂移、Bukkit API 在主线程访问),
      * 随后将"读分段 + 读日志 + 装配 + 落库 + 打印"整体推迟到 `submit(delay = 2, async = true)`:
      * 延迟 ≥1 tick 等 [PhaseTimingRecorder] 首 tick 的 ACTIVE 打点落地(见类 KDoc 时序要点),
      * 异步执行使主线程不被磁盘 IO 阻塞。
@@ -104,16 +134,10 @@ object StartupLoadListener {
         if (!assemblyTriggered.compareAndSet(false, true)) {
             return
         }
-        // 总时长须在就绪时刻立即测得(延迟任务稍后才执行,届时 currentTimeMillis 已漂移)。
-        // 口径:仅覆盖「JVM 进程拉起(RuntimeMXBean.startTime)→ 服务就绪」串行链,
-        // 不含 JVM 进程拉起前的外部(启动脚本/容器)耗时——那部分发生在 JVM 计时起点之前,无从测量。
-        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
-        // 世界名快照亦在主线程取(Bukkit API 应在主线程访问),耗时来源 M1 暂缺,见 worldTimings 说明
-        val worldNames = Bukkit.getWorlds().map { it.name }
-        val mcVersion = resolveMcVersion()
+        val (totalMs, worldNames, mcVersion) = snapshotInputs()
 
         // 延迟 2 tick 且异步:确保 ACTIVE 已打点(首 tick),且读日志不阻塞主线程
-        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
+        dispatchAssembly {
             runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
                 .onFailure { ProbeLogger.error("装配启动画像失败", it) }
         }
@@ -132,10 +156,8 @@ object StartupLoadListener {
         if (!assemblyTriggered.compareAndSet(false, true)) {
             return
         }
-        val totalMs = System.currentTimeMillis() - ManagementFactory.getRuntimeMXBean().startTime
-        val worldNames = Bukkit.getWorlds().map { it.name }
-        val mcVersion = resolveMcVersion()
-        submit(delay = ASSEMBLE_DELAY_TICKS, async = true) {
+        val (totalMs, worldNames, mcVersion) = snapshotInputs()
+        dispatchAssembly {
             runCatching { buildAndStore(totalMs, worldNames, mcVersion) }
                 .onFailure { ProbeLogger.error("装配启动画像失败", it) }
         }
@@ -162,7 +184,7 @@ object StartupLoadListener {
      */
     private fun buildAndStore(totalMs: Long, worldNames: List<String>, mcVersion: String) {
         // 旧版本类加载器(1.8.8 真机已证)上 @Inject 字段注入可能未生效;
-        // 装配路径经 BeanContainer 容错取 bean(ServerProbeApi 同款模式),确保画像仍能产出。
+        // 装配路径经 BeanContainer 容错取 bean(与门面装配同一容错口径),确保画像仍能产出。
         val builder = bean(StartupProfileBuilder::class.java) ?: return
         val holder = bean(StartupProfileHolder::class.java) ?: return
         val metricStore = bean(MetricStore::class.java) ?: return
@@ -196,12 +218,12 @@ object StartupLoadListener {
         metricStore.saveStartupProfile(profile)
     }
 
-    /** 容错取 IOC bean:字段注入未生效时按类型从容器解析(ServerProbeApi 同款模式),异常收敛为 null。 */
+    /** 容错取 IOC bean:字段注入未生效时按类型从容器解析,异常收敛为 null。 */
     private fun <T : Any> bean(type: Class<T>): T? =
         runCatching { BeanContainer.getBean(type) }.getOrNull()
 
     /**
-     * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld` 耗时时择优用实测值,否则回退占位 0。
+     * 解析本次画像的世界耗时:agent 挂载且测得 `createWorld`耗时时择优用实测值,否则回退占位 0。
      *
      * 以**实际加载的世界名**([worldNames])为准逐个回填 agent 实测耗时(精度远高于占位):agent 未测到的世界
      * (理论上罕见)用 [WORLD_LOAD_MS_UNKNOWN] 占位。未挂载或无实测时整体回退为"世界名 + 占位 0"。
@@ -219,7 +241,7 @@ object StartupLoadListener {
     }
 
     /**
-     * 读取并解析 `logs/latest.log` 得到逐插件 onEnable 耗时。
+     * 读取并解析 `logs/latest.log`得到逐插件 onEnable 耗时。
      *
      * 日志文件不存在或读取失败时降级为空列表(容错,不影响其余画像数据)。
      * 路径相对服务端工作目录解析(标准布局)。
@@ -243,7 +265,7 @@ object StartupLoadListener {
     /**
      * 解析当前 Minecraft 版本标识。
      *
-     * 取 [Bukkit.getBukkitVersion](形如 "1.21.4-R0.1-SNAPSHOT"),截取首个 `-` 之前的纯版本号(如 "1.21.4");
+     * 取 [Bukkit.getBukkitVersion](形如 "1.21.4-R0.1-SNAPSHOT"),截取首个 `-`之前的纯版本号(如 "1.21.4");
      * 解析异常时降级为 [Bukkit.getVersion] 原始串。
      *
      * 注:本模块未引入 TabooLib `bukkit-nms`(env 未装),故不使用 `MinecraftVersion.runningVersion`,
@@ -337,7 +359,7 @@ object StartupLoadListener {
      * 将毫秒格式化为保留一位小数的秒字符串(如 `12.3s`)。
      *
      * @param ms 毫秒值。
-     * @return 形如 `x.xs` 的字符串。
+     * @return 形如 `x.xs`的字符串。
      */
     private fun formatSeconds(ms: Long): String = String.format("%.1fs", ms / MILLIS_PER_SECOND)
 
@@ -356,7 +378,7 @@ object StartupLoadListener {
      * 世界加载耗时占位值(毫秒)。
      *
      * M1 在 [ServerLoadEvent] 时世界已全部加载完毕,缺乏精确的逐世界加载耗时来源,故置 0。
-     * **M2 完善**:改为从日志 `Preparing spawn area` 行或世界加载事件估算各世界耗时(含 spawn-chunk 预加载)。
+     * **M2 完善**:改为从日志 `Preparing spawn area`行或世界加载事件估算各世界耗时(含 spawn-chunk 预加载)。
      */
     private const val WORLD_LOAD_MS_UNKNOWN = 0L
 

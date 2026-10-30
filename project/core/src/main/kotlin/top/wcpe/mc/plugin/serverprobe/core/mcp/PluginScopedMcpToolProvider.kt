@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.cpu.CpuAttributionSampler
 import top.wcpe.mc.plugin.serverprobe.core.cpu.PluginClassLoaderRegistry
@@ -12,26 +12,26 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import top.wcpe.taboolib.ioc.annotation.PreDestroy
 
 /**
- * MCP 插件维度诊断入口(FR-15)。
+ * MCP 插件维度诊断入口。
  *
- * 提供 `plugin_list` / `plugin_classes` / `plugin_threads` / `plugin_cpu` 四个只读工具,
+ * 提供 `plugin_list` / `plugin_classes` / `plugin_threads` / `plugin_cpu`四个只读工具,
  * 让外部 agent 按"列出插件 → 选中插件 → 看类/线程/CPU 热点"的路径排查单个插件的 bug,
  * 再以其类名转调 Arthas 深挖。
  *
  * 依赖边界:
  * - [PluginMetadataProviderRegistry]:插件清单元数据(平台模块注册,代理端缺省)。
- * - [PluginClassLoaderRegistry]:插件名集合校验与线程栈帧归属过滤(FR-2.6 复用)。
+ * - [PluginClassLoaderRegistry]:插件名集合校验与线程栈帧归属过滤(复用)。
  * - [PluginClassResolverRegistry]:插件 jar 条目枚举(平台模块注册,代理端缺省)。
  * - CPU 归因复用 [CpuAttributionSampler.snapshot],不重复采样。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化;[register] 在依赖注入完成后
  * ([PostConstruct])把自身注册进 [McpToolProviderRegistry],供
- * [McpControlPlane.providers] 汇总进 dispatcher(FR-23 多 provider 组合)。
+ * [McpControlPlane.providers] 汇总进 dispatcher(多 provider 组合)。
  */
 @Service
 class PluginScopedMcpToolProvider : McpToolProvider {
 
-    /** 插件 ClassLoader 注册表(core,FR-2.6),提供插件名集合与栈帧归属解析。 */
+    /** 插件 ClassLoader 注册表(core),提供插件名集合与栈帧归属解析。 */
     @Inject
     lateinit var classLoaderRegistry: PluginClassLoaderRegistry
 
@@ -43,11 +43,11 @@ class PluginScopedMcpToolProvider : McpToolProvider {
     @Inject
     lateinit var classResolverRegistry: PluginClassResolverRegistry
 
-    /** MCP 扩展工具注册表(FR-23),初始化完成后自注册。 */
+    /** MCP 扩展工具注册表,初始化完成后自注册。 */
     @Inject
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
 
-    /** CPU 归因采样器(core,FR-2.6),提供窗口聚合快照。 */
+    /** CPU 归因采样器(core),提供窗口聚合快照。 */
     @Inject
     lateinit var cpuSampler: CpuAttributionSampler
 
@@ -128,7 +128,7 @@ class PluginScopedMcpToolProvider : McpToolProvider {
         if (!enumeration.enumerable) {
             return linkedMapOf(
                 "available" to false,
-                "reason" to (enumeration.reason ?: "无法枚举该类清单,请用 arthas `sc` 按包名搜索"),
+                "reason" to (enumeration.reason ?: "无法枚举该类清单,请用 arthas `sc`按包名搜索"),
             )
         }
         val classNames = enumeration.classNames.take(MAX_PLUGIN_CLASSES)
@@ -211,7 +211,7 @@ class PluginScopedMcpToolProvider : McpToolProvider {
     /** 无类解析实现或无法枚举时的一致降级说明。 */
     private fun enumFallback(): Map<String, Any?> = linkedMapOf(
         "available" to false,
-        "reason" to "当前平台不支持枚举插件类清单,请用 arthas `sc` 按包名搜索",
+        "reason" to "当前平台不支持枚举插件类清单,请用 arthas `sc`按包名搜索",
     )
 
     private companion object {
@@ -299,7 +299,7 @@ data class PluginThreadRow(
 }
 
 /**
- * 插件 jar 条目枚举的契约(FR-15)。
+ * 插件 jar 条目枚举的契约。
  *
  * 平台模块在运行期把"插件 jar 内类条目 → 可解析类名"的能力经
  * [PluginClassResolverRegistry] 注册;core 只依赖本契约与结果模型。

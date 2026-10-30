@@ -1,13 +1,13 @@
 package top.wcpe.mc.plugin.serverprobe.core.prometheus
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginCpuMetric
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.PluginCpuMetric
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficReport
 import top.wcpe.mc.plugin.serverprobe.core.startup.SlowPluginRanking
 
 /**
- * Prometheus 文本格式化器(FR4.2,exposition format 0.0.4)。
+ * Prometheus 文本格式化器(exposition format 0.0.4)。
  *
  * 将一份 [MetricSnapshot] 渲染为 Prometheus 抓取端点所需的纯文本(text/plain; version=0.0.4)。
  * 设计为**无状态纯函数 object**:不持有任何可变状态、不触碰平台 API,仅做"数据 → 文本"的确定性映射,
@@ -30,7 +30,7 @@ import top.wcpe.mc.plugin.serverprobe.core.startup.SlowPluginRanking
  *
  * ## 类型行
  * 每个指标名输出一行 `# TYPE <name> <gauge|counter>`(HELP 行从简略去以压缩体积);
- * 同名指标(不同 label)的多行样本共用一次 `# TYPE` 声明。
+ * 同名指标(不同 label)的多行样本共用一次 `# TYPE`声明。
  */
 object PrometheusTextFormatter {
 
@@ -50,10 +50,10 @@ object PrometheusTextFormatter {
      * 各区块内对不可用字段静默跳过(见类 KDoc)。
      *
      * @param snapshot 待渲染的指标快照;为 null(探针尚无任何采样)时返回空字符串。
-     * @param cpuMetrics 运行期 CPU 归因(FR2.6);为 null/空(未启用或无样本)时不导出对应序列。
-     * @param startupProfile 最近一次启动画像(FR-25);为 null/空快照(未产出、代理端)时整段跳过。
+     * @param cpuMetrics 运行期 CPU 归因;为 null/空(未启用或无样本)时不导出对应序列。
+     * @param startupProfile 最近一次启动画像;为 null/空快照(未产出、代理端)时整段跳过。
      * @param startupTopN 启动画像逐插件序列的榜单条数;调用方应传 `ProbeConfig.startupTopN()`,
-     *   默认值与配置默认一致。**与 `/probe startup` 同源同截**是 FR-25 的验收判据,故不得在此另行聚合。
+     *   默认值与配置默认一致。**与 `/probe startup` 同源同截**是硬约束,故不得在此另行聚合。
      * @return Prometheus 文本;snapshot 为 null 时为空串。
      */
     fun format(
@@ -82,7 +82,7 @@ object PrometheusTextFormatter {
         return sb.toString()
     }
 
-    /** 追加 FR11 聚合流量；输入已在平台采集器脱敏，Prometheus 不接触完整 IP 或载荷。 */
+    /** 追加聚合流量；输入已在平台采集器脱敏，Prometheus 不接触完整 IP 或载荷。 */
     private fun appendTraffic(writer: MetricWriter, traffic: PacketTrafficReport?) {
         if (traffic == null) return
         writer.gauge("network_ingress_bytes_per_second", traffic.ingressBytesPerSecond.toDouble())
@@ -98,7 +98,7 @@ object PrometheusTextFormatter {
     }
 
     /**
-     * 追加运行期 CPU 归因区块(FR2.6,可选)。
+     * 追加运行期 CPU 归因区块(可选)。
      *
      * 涵盖:各插件窗口样本计数(counter,label plugin)与占比百分比(gauge,label plugin)。
      * 参数为 null/空(未启用或窗口无样本)时整区块跳过。
@@ -115,7 +115,7 @@ object PrometheusTextFormatter {
     }
 
     /**
-     * 追加 JVM 区块指标(FR2.1)。
+     * 追加 JVM 区块指标。
      *
      * 涵盖:堆/非堆内存、内存池、GC(原始明细 + young/old 派生)、线程、类加载、CPU、运行时长。
      * 负值哨兵(max=-1、CPU=-1.0)的项按惯例跳过。
@@ -171,12 +171,12 @@ object PrometheusTextFormatter {
     }
 
     /**
-     * 追加服务器区块指标(FR2.2/FR2.3,仅服务端非空)。
+     * 追加服务器区块指标(/仅服务端非空)。
      *
      * 涵盖:TPS(1m/5m/15m)、MSPT 分位(avg/p95/p99,ms→s)、在线/容量、运行时长、各世界计数。
      * TPS/MSPT 为 null(如 Folia 全局 N/A)按惯例跳过;世界各计数 -1(Folia 受限)亦跳过。
      */
-    private fun appendServer(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics) {
+    private fun appendServer(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics) {
         val tick = server.tick
         // TPS(gauge,label window);各窗口值为 null 时不导出该行
         writer.gaugeIfPresent("tps", tick.tps1m, listOf("window" to "1m"))
@@ -200,7 +200,7 @@ object PrometheusTextFormatter {
             writer.gaugeIfNonNegative("world_tile_entities", world.tileEntityCount.toLong(), worldLabel)
         }
 
-        // 在线玩家 ping 分布(gauge,label range;FR2.4);null(无人/不支持)不导出
+        // 在线玩家 ping 分布(gauge,label range;);null(无人/不支持)不导出
         server.pingDistribution?.forEach { bucket ->
             writer.gauge("players_ping_bucket", bucket.count.toDouble(), listOf("range" to bucket.label))
         }
@@ -209,7 +209,7 @@ object PrometheusTextFormatter {
     }
 
     /** 追加 Folia 已观测 region 及世界汇总，绝不回填全局 TPS/MSPT。 */
-    private fun appendObservedRegions(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics) {
+    private fun appendObservedRegions(writer: MetricWriter, server: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics) {
         server.observedRegions?.forEach { region ->
             val labels = listOf(
                 "world" to region.worldName,
@@ -255,11 +255,11 @@ object PrometheusTextFormatter {
     }
 
     /**
-     * 追加代理端区块指标(M1 + FR2.5,仅代理端非空)。
+     * 追加代理端区块指标(M1 + 仅代理端非空)。
      *
      * 涵盖:代理总在线、各后端子服在线(label backend)与子服 RTT(label backend;-1 不导出)。
      */
-    private fun appendProxy(writer: MetricWriter, proxy: top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics) {
+    private fun appendProxy(writer: MetricWriter, proxy: top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics) {
         writer.gauge("proxy_players_online", proxy.totalOnline.toDouble())
         for (backend in proxy.backends) {
             writer.gauge("proxy_backend_players_online", backend.online.toDouble(), listOf("backend" to backend.name))
@@ -296,7 +296,7 @@ object PrometheusTextFormatter {
      * 转义 Prometheus label 值。
      *
      * 按 exposition format 规范,label 值中的反斜杠、双引号、换行符需转义,
-     * 否则会破坏 `name="value"` 的解析(如世界名/收集器名含特殊字符时)。
+     * 否则会破坏 `name="value"`的解析(如世界名/收集器名含特殊字符时)。
      *
      * @param value 原始 label 值。
      * @return 转义后的 label 值。
@@ -311,7 +311,7 @@ object PrometheusTextFormatter {
 
     /**
      * 指标行写出器:对单个 [StringBuilder] 累加 Prometheus 文本,并统一处理
-     * 公共 label 合并、`# TYPE` 去重声明、数值格式化与 label 转义。
+     * 公共 label 合并、`# TYPE`去重声明、数值格式化与 label 转义。
      *
      * 仅在 [format] 的一次调用内使用(随 StringBuilder 创建、用后即弃),不跨线程共享,故无需同步。
      *
@@ -323,7 +323,7 @@ object PrometheusTextFormatter {
         private val baseLabels: List<Pair<String, String>>
     ) {
 
-        /** 已声明过 `# TYPE` 的指标名(去前缀前的短名),避免对同名多 label 序列重复声明。 */
+        /** 已声明过 `# TYPE`的指标名(去前缀前的短名),避免对同名多 label 序列重复声明。 */
         private val declaredTypes = HashSet<String>()
 
         /**
@@ -347,7 +347,7 @@ object PrometheusTextFormatter {
         /**
          * 写出一条 counter 样本(带额外 label)。
          *
-         * @param name 去前缀的指标短名(惯例以 `_total` 结尾)。
+         * @param name 去前缀的指标短名(惯例以 `_total`结尾)。
          * @param value 样本值(单调累计量)。
          * @param labels 额外 label。
          */
@@ -393,7 +393,7 @@ object PrometheusTextFormatter {
         }
 
         /**
-         * 写出一条完整样本:必要时先补 `# TYPE` 声明,再输出 `前缀+名{labels} 值`。
+         * 写出一条完整样本:必要时先补 `# TYPE`声明,再输出 `前缀+名{labels} 值`。
          *
          * @param name 去前缀的指标短名。
          * @param type 指标类型(gauge/counter)。
@@ -447,7 +447,7 @@ object PrometheusTextFormatter {
         }
 
         /**
-         * 格式化样本数值:整数值去掉多余小数(如 `1024` 而非 `1024.0`),非整数保留原始 double 文本。
+         * 格式化样本数值:整数值去掉多余小数(如 `1024`而非 `1024.0`),非整数保留原始 double 文本。
          *
          * 不强制科学计数法/定点格式,交由 [Double.toString] 输出 Prometheus 可解析的浮点文本。
          *

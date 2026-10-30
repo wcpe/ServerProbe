@@ -9,10 +9,10 @@ import top.wcpe.mc.plugin.serverprobe.core.aggregator.MetricAggregator
 import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 
 /**
  * [ProbeReadApi.historySnapshots] 契约单元测试(FR-26)。
@@ -39,11 +39,11 @@ class ProbeReadApiHistoryTest {
         override fun recentSnapshots(limit: Int): List<MetricSnapshot> = emptyList()
         override fun recentSnapshotsSince(sinceMs: Long): List<MetricSnapshot> = emptyList()
         override fun aggregated(windowSize: Int) =
-            top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics.builder().windowSampleCount(0).build()
+            top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics.builder().windowSampleCount(0).build()
 
-        override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile? = null
+        override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile? = null
         override fun historyStartupProfiles(limit: Int) =
-            listOf<top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile>()
+            listOf<top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile>()
 
         override fun lastStartupComparisonSummary(): String? = null
     }
@@ -56,8 +56,8 @@ class ProbeReadApiHistoryTest {
         var lastUntil = Long.MIN_VALUE
         var lastLimit = Int.MIN_VALUE
 
-        override fun saveStartupProfile(profile: top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile) = Unit
-        override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile? = null
+        override fun saveStartupProfile(profile: top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile) = Unit
+        override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile? = null
         override fun appendHistory(snapshot: MetricSnapshot) = Unit
         override fun readHistory(sinceMs: Long, untilMs: Long, limit: Int): List<MetricSnapshot> {
             lastSince = sinceMs

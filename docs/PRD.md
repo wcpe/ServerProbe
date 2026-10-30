@@ -28,7 +28,7 @@
 | 服主 | 开服明显变慢时，一条命令定位是哪个插件/世界拖慢了启动 |
 | 运维 | 长期监控 TPS/MSPT/内存/GC，接 Grafana 看板与报警，事故回溯 |
 | 插件开发者 | 排查自己插件的 enable 耗时与运行时开销占比 |
-| 业务插件（MultiCurrencyEconomy / AllinInventorySync） | 经探针桥承接 JianManager 下发的业务命令与事件上报 |
+| 业务插件（经 `api` 自注册，FR-32） | 经探针桥承接 JianManager 下发的业务命令与事件上报 |
 
 ## 3. 用户故事
 
@@ -51,7 +51,7 @@
 | FR-07 | 方法级精确归因：Incision 采集 `enablePlugin` 逐插件精确耗时（可选、默认关闭） | P3 | 已交付@v0.2.0 |
 | FR-08 | 开放接口：只读数据访问 API + 存储 SPI + 导出端点 | P2 | 已交付@v0.2.0 |
 | FR-09 | 业务对接 agent（JBIS）：经反向 WS 桥承接业务命令路由到业务插件 Provider 执行并回执、业务事件上报，事故域隔离 | P2 | 已交付@v0.2.0 |
-| FR-10 | 内置业务集成模块化：MultiCurrencyEconomy / AllinInventorySync 独立 Gradle 模块，发布时合入单 jar | P2 | 已交付@v0.3.0 |
+| FR-10 | 内置业务集成模块化：MultiCurrencyEconomy / AllinInventorySync 独立 Gradle 模块，发布时合入单 jar（**已由 FR-32 移除**，改为第三方插件自注册） | P2 | 已交付@v0.3.0 |
 | FR-11 | 全平台网络流量与数据包取证：双向 bytes/s、packets/s、包类型计数，本地 SQLite 白名单取证 | P2 | 已交付@v0.3.0 |
 | FR-12 | Folia 已观测 region TPS/MSPT 明细与世界汇总 | P2 | 已交付@v0.3.0 |
 | FR-13 | Velocity 3.1.1–4.x 平台支持（单 jar、双编译门、Java 8 入口） | P2 | 已交付@v0.3.0 |
@@ -75,6 +75,22 @@
 > 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
 > FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
 > 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [built-in-integrations](specs/built-in-integrations.md)、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)、FR-24 见 [mcp-runtime-toggle](specs/mcp-runtime-toggle.md)、FR-25 见 [startup-metrics](specs/startup-metrics.md)、FR-26 见 [readapi-history](specs/readapi-history.md)、FR-27 见 [grafana-pack](specs/grafana-pack.md)、FR-28 见 [proxy-log-tail](specs/proxy-log-tail.md)、FR-29 见 [alert-extended](specs/alert-extended.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
+| FR-30 | 桥对外契约下沉 `api`：业务 Provider / 桥指令 / 结果 / 注册句柄 / 健康状态迁入纯 Java 8 的 `api` 模块，新增 `ServerProbeAPI` 稳定门面（可缓存、永不 null、永不抛），支持外部插件在 `onEnable` 自注册、`onDisable` 注销 | P1 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-31 | 桥线路治理：读线程只解析+投递（绝不阻塞、绝不抛）、命令/事件/重载三池有界隔离、事件可丢与不可丢分级+落盘兜底、写侧有界与入站上限、`core.bridge_status` 运行状态 | P1 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-32 | 配置重载通知：`core.config_reload` 按路径匹配监听器（精确 + 目录前缀），独立 worker 池执行、5s 有界、路径越界拒绝、在途互斥、超时熔断（指数退避）；只回传插件声明，不推断生效 | P1 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-33 | 事件主题订阅：`event` 帧增 `topic`，`core.subscribe` 支持精确与前缀通配；无订阅时全量上报（兼容），有订阅后只上报匹配主题 + 全部非业务事件 | P2 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-34 | 大数据帧分片：单帧超 256 KiB 自动切分（`chunk` + `groupId`/`seq`/`total`，base64 精确重组），同组原子入队、绝不发前缀；控制帧旁路保证心跳 | P2 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-35 | Provider 健康状态：`BusinessProvider.health()` 默认方法（旧实现零改动兼容）+ `BusinessHost.healthOf(domain)` + `core.business_status`（`order=110`）返回各域可用性、初始化状态、最近失败原因；健康值由独立刷新线程（`serverprobe-health` / `serverprobe-health-probe`）采集并缓存，**命令线程只读缓存**，超时/异常按域隔离、probe 卡死时以 `refresh.stalled` 暴露 | P2 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-36 | 桥连接自愈与状态：重连前从磁盘重读 token（轮换即自愈）、断开原因分类（认证/不可达/对端关闭/心跳超时）、`core.bridge_status` 暴露重连次数与最近断开原因（脱敏） | P2 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-37 | 业务对接改为纯第三方自注册：移除内置 MCE/AIS 集成，探针不含任何具体业务实现，只做业务面板 ↔ 插件的路由中介；`api` 只提供跨域通用协议词汇（真实帧字段 `requestId`/`success`/`output`/`error`/`dedupKey`/`domain` + 约定词 `taskId`）与 `ActionSpec` 动作声明容器（**取代 FR-10 的交付形态**，FR-10 历史保留） | P1 | 开发中（实现、单测与真机 E2E 完成，待发版登记） |
+| FR-38 | manifest 强类型化与动作规格（feat，需 spec，替代 FR-37 的裸 `Map` 形态）：`BusinessProvider.manifest()` 返回值从 `Map<String,Object>` 改为强类型 `DomainManifest`——含 `apiVersion`、`domain`、`displayName`、`description`、`actions: List<ActionSpec>`、`attributes`（扩展位，平台不解释）。`ActionSpec` 声明 `name`/`description`/`risk`（READ/WRITE/DESTRUCTIVE）/`idempotent`/`inputSchema`（JSON Schema）/`outputSchema`/`errorCodes`。目的：让下游业务台能据此渲染表单、前置校验、按风险决定二次确认，而非硬编码每个动作。验收：旧 Provider（返回裸 Map）仍可注册并在 manifest 聚合时降级为「未声明规格」；新 Provider 的 schema 能通过一致性校验；`apiVersion` 不匹配时明确拒绝而非静默错误。 | P1 | 已完成（2026-10-24）：api 新增 `DomainManifest` / `ActionSpec` / `RiskLevel`（final class + 静态工厂，因 api 模块发行面向 Java 8，record 不可用）；`BusinessHost.manifest()` 返回 `{apiVersion, domains}`；注册期 + 聚合期各判一次 apiVersion（只在注册期判会让「注册后才返回新版本号」的实现绕过降级）；旧 Provider 经 `LegacyBusinessProviderAdapter` 适配，域标 `specDeclared=false`。空动作名不算重复（替 Provider 判空名非法会让漏填一个名字的域整体不可用）。23 项新测试。 |
+| FR-39 | 强类型分发入参与结果（feat，需 spec，依赖 FR-38）：`dispatch` 从 `(String action, String payloadJson)` 改为 `ActionResult dispatch(ActionRequest request)`；`ActionRequest` 携带 `domain`/`action`/`payloadJson`/`requestId`（平台保证非空）/**`Principal`（operator/operatorId/nodeId/reason）**；`ActionResult` 携带 `success`/`outputJson`/**`errorCode`（机器可读）**/`errorMessage`（人可读）/`metadata`（耗时等诊断）。目的：业务台能按错误码分流处理，而非只能读文本；操作者上下文可透传进插件审计。验收：`requestId` 恒非空且同请求重发可被 Provider 判重；`errorCode` 在 manifest 声明的 `errorCodes` 范围内；`metadata` 不影响协议兼容。 | P1 | 已完成（2026-10-24）：`ActionRequest`（含 `Principal`）与 `ActionResult`（含机器可读 `errorCode`）；旧签名保留在 `LegacyBusinessProvider`，`BusinessHost.registerLegacy` 而非重载 `register`（两个重载会让既有 `register(null)` 无法编译）。`getRisk()`（默认生效值 WRITE）与 `getDeclaredRisk()`（原始声明，可为 null）分开——若构造时就把 null 抹成 WRITE，WARN 永远发不出来。兼容入口拿不到 errorCode，失败原因写成 `[CODE] message` 前缀。 |
+| FR-40 | 已注册插件与业务域可视化数据面（feat，需 spec）：提供「本服务端探针注册了哪些业务域、各自健康状态、manifest 摘要、最近调用」的完整查询面，供 JM 渲染插件面板。现有 `BusinessStatusRoute` 只有 domain 级状态；本项补齐：`DomainStatus` 增加 `manifestDigest`（规格指纹，避免每次全量传输）、`lastDispatchAt`、`dispatchCount`/`failureCount`、`degradedReason`。目的：JM 业务插件面板能直观显示「这台服装了哪些业务插件、哪些可用、哪些降级」，无需业务台参与。验收：查询不触发 Provider 初始化（只读注册表快照）；域数量 0~N 都能正确返回；`manifestDigest` 变化能被检出。 | P1 | 已完成（2026-10-24）：`DomainStatus` 新增 `manifestDigest` / `lastDispatchAt` / `dispatchCount` / `failureCount` / `degradedReason` / `available`；digest 在**注册时**算一次并缓存（手写紧凑 JSON：动作按 name 排序、键字典序、`errorCodes` 排序、零空白，`inputSchema`/`outputSchema` 只 trim 不解析），查询不触发 Provider 初始化。计数为运行期指标，重启归零。 |
+| FR-41 | 可靠事件传输层序号（feat，需 spec）：`BusinessEventSink.emitReliable` 增加带 `seq` 的重载；探针保证**同一 `domain` 内 `seq` 单调递增**并透传到帧（`dedupKey` 独立于 `seq`，前者去重后者定位）。可丢事件不占用 `seq` 序列。目的：下游可用 `seq` 检测事件缺口并触发对账；与快照位点可比。**边界**：`seq` 是传输层编号，探针不规定业务 payload 内容。验收：同 domain 内 `seq` 严格递增无跳号（除明确 gap）；重启后序号策略明确（续接或重置并在帧中标注）；JM/业务台能凭单一 `seq` 判断「快照之后是否漏事件」。 | P1 | 已完成（2026-10-24）：per-domain `AtomicLong` 分配，可丢事件不占序列；`EventSeqStore` 持久化到 `<spill-dir>/seq.state`（制表符分隔），每 256 条 + 停机 flush；重启按方案 B 续接。**过程中发现并修掉真实缺陷**：序号状态损坏后若立刻回写，下次启动会读成 Present 导致各域从 1 起，与刚发出的号段冲突 —— 改为保持损坏态、等正常停机再写真实域表。`emitReliable(...,seq)` 做成 default 方法（否则第三方实现类会 AbstractMethodError）。 |
+
+> 状态取值：计划 / 开发中 / 已交付@vX.Y.Z。优先级：P1(MVP) / P2 / P3。
+> FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。FR 标了 `已交付` 实际是断的（false-done）：功能坏了要修回 done 走 `sdd-fix-bug` 把状态归真（从没真正工作过 → 回退 `开发中`）；需求本身要撤 / 推迟则走 `sdd-rollback-change`。
+> 各 FR 的详细能力与验收：FR-07 见 [method-incision](specs/method-incision.md)、FR-08/09 见 [open-api-bridge-e2e](specs/open-api-bridge-e2e.md)、FR-10 见 [ADR-0018](adr/0018-built-in-business-integration-modules.md)（已被 FR-37 取代）、FR-11 见 [network-forensics](specs/network-forensics.md)、FR-12 见 [folia-observed-regions](specs/folia-observed-regions.md)、FR-13 见 [velocity-platform](specs/velocity-platform.md)、FR-14 见 [mcp-diagnostics](specs/mcp-diagnostics.md)、FR-24 见 [mcp-runtime-toggle](specs/mcp-runtime-toggle.md)；FR-30 见 [bridge-external-api](specs/bridge-external-api.md)、FR-31 见 [bridge-line-hardening](specs/bridge-line-hardening.md)、FR-32 见 [config-reload](specs/config-reload.md)、FR-33 见 [event-topic-subscription](specs/event-topic-subscription.md)、FR-34 见 [frame-chunking](specs/frame-chunking.md)、FR-35 见 [provider-health](specs/provider-health.md)、FR-36 见 [bridge-reconnect](specs/bridge-reconnect.md)、FR-37 见 [business-self-registration](specs/business-self-registration.md)；早期 FR-01~06 的实现与验收细节见 [CHANGELOG](../CHANGELOG.md) 对应版本段与 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 5. 非功能需求（NFR）
 
@@ -122,12 +138,12 @@
 | 方法级归因（FR-07） | 默认关闭无精确数据；开启记录真实插件耗时；模拟无效切点仍完成启动并标记未激活；受控负载 MSPT p95 劣化 ≤5% | 真机 | ✅ 已确认（v0.2.0） |
 | 开放接口（FR-08） | 第三方插件经只读 API 取到 TPS/MSPT/启动画像；经 `ServerProbeStorageApi.install` 安装 `MetricStore`，关闭注册后回退默认文件后端 | 真机 E2E | ✅ 已确认（v0.2.0） |
 | 业务桥（FR-09） | fixture 完成桥握手、命令路由/回执、业务事件、失败/超时后恢复；Provider 事故域隔离 | 真机 E2E | ✅ 已确认（v0.2.0） |
-| 内置集成（FR-10） | 真实 MCE 1.2.0 / AIS 2.1.0-SNAPSHOT 注入与双缺失/单缺失场景 E2E 通过 | 真机 E2E | ◐ 验收通过，待发版登记 |
+| 内置集成（FR-10） | 真实 MCE 1.2.0 / AIS 2.1.0-SNAPSHOT 注入与双缺失/单缺失场景 E2E 通过（该能力已由 FR-32 移除，历史验收记录保留） | 真机 E2E | ◐ 验收通过，待发版登记 |
 | 网络取证（FR-11） | 六平台真实协议 E2E 全 PASS（速率/包类型/白名单/脱敏/分页/清理/驱动缺失降级） | 真机 E2E | ◐ 验收通过，待发版登记 |
 | Folia region（FR-12） | 双真实 bot 验证隔离 region、受控负载 p95、世界汇总、全局 N/A、离开后过期 | 真机 E2E | ◐ 验收通过，待发版登记 |
 | Velocity（FR-13） | 3.1.1 / 3.5.1 / 4.1.0（JDK25）三组真机矩阵 PASS | 真机 E2E | ◐ 验收通过，待发版登记 |
 | MCP 诊断（FR-14） | Java 8/21/25 × 六平台七组真机场景 PASS；默认关闭不监听；动态 attach 失败降级 | 真机 E2E + 单测 | ◐ 验收通过，待发版登记 |
-| MCP 运行期开关（FR-24） | 全程不重启：状态查询、控制台放行、端点开启后 42 工具可用、Arthas 加载/卸载/二次加载、端口释放与重开、重复开关幂等；5 轮开关零线程泄漏；`mcp.enabled=true` 时启动期行为不变 | 真机 + 单测 | ◐ 验收通过，待发版登记 |
+| MCP 运行期开关（FR-24） | 全程不重启：状态查询、控制台放行、端点开启后工具可用（验收时 42，当前 44）、Arthas 加载/卸载/二次加载、端口释放与重开、重复开关幂等；5 轮开关零线程泄漏；`mcp.enabled=true` 时启动期行为不变 | 真机 + 单测 | ◐ 验收通过，待发版登记 |
 
 > `◐ 验收通过，待发版登记`：证据已齐（见对应 spec），需用户在真实环境复验确认后，由下次正式版本 `sdd-release-version` 统一标 `已交付@vX.Y.Z`。
 

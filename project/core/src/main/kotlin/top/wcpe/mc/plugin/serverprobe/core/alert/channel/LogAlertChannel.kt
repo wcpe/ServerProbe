@@ -11,7 +11,7 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 日志告警通道(FR5):把告警事件写入服务器控制台/日志文件。
+ * 日志告警通道:把告警事件写入服务器控制台/日志文件。
  *
  * 平台无关、零外部依赖,是默认且最可靠的告警出口。日志级别按事件语义映射(规范第 12 条):
  * - 触发 + [AlertLevel.CRITICAL] → ERROR;
@@ -21,7 +21,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
  * 文案为中文日志(日志属运维内部视图,非面向玩家的 i18n 呈现面,故不走语言文件)。
  *
  * 生命周期:作为 IOC [Service] 由容器实例化并注入 [registry];[register] 在依赖注入完成后
- * ([PostConstruct])据 `alert.channels.log` 开关决定是否自注册到 [AlertChannelRegistry]。
+ * ([PostConstruct])据 `alert.channels.log`开关决定是否自注册到 [AlertChannelRegistry]。
  */
 @Service
 class LogAlertChannel : AlertChannel {
@@ -33,7 +33,7 @@ class LogAlertChannel : AlertChannel {
     /**
      * 依赖注入完成后按配置开关自注册。
      *
-     * 采用 [PostConstruct] 确保 [registry] 已注入;`alert.channels.log` 为 false 时不注册,
+     * 采用 [PostConstruct] 确保 [registry] 已注入;`alert.channels.log`为 false 时不注册,
      * 引擎广播时自然不含本通道。
      */
     @PostConstruct
@@ -63,7 +63,7 @@ class LogAlertChannel : AlertChannel {
      * 拼接事件的可读中文描述:实例、类型、观测值、阈值。
      *
      * @param event 告警事件。
-     * @return 形如 `实例=srv-1 类型=TPS_LOW 观测值=12.34 阈值=15.00` 的描述串。
+     * @return 形如 `实例=srv-1 类型=TPS_LOW 观测值=12.34 阈值=15.00`的描述串。
      */
     private fun describe(event: AlertEvent): String {
         val rule = event.rule

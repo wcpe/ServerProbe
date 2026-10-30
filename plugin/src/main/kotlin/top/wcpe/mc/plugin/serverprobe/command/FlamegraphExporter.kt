@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.command
 
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -737,7 +737,7 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
     /**
      * 把每个线程的折叠栈并成一棵火焰图树,序列化为 `[{name, root}, ...]` JSON。
      *
-     * 每条折叠栈([top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack])自栈底到栈顶逐层并入树:
+     * 每条折叠栈([top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.FoldedStack])自栈底到栈顶逐层并入树:
      * 沿途各节点的 value 累加该栈命中数,故根节点 value=该线程总采样数,每个节点 value=经过该调用路径的采样数。
      * 这正是真正多层火焰图所需的数据形态。
      */
@@ -975,7 +975,7 @@ var waterfallRenderer = new WaterfallRenderer('waterfall-canvas');
 /**
  * 火焰图树构建用的可变节点(仅 [FlamegraphExporter] 内部使用)。
  *
- * 用 [LinkedHashMap] 保持子节点插入顺序(序列化时再按 value 降序),`child` 按帧名查找/新建实现折叠栈逐层并入。
+ * 用 [LinkedHashMap] 保持子节点插入顺序(序列化时再按 value 降序),`child`按帧名查找/新建实现折叠栈逐层并入。
  *
  * @property name 帧标识(`类全名#方法名`),根节点为 "root"。
  */

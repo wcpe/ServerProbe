@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.alert
 
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -8,7 +8,7 @@ import top.wcpe.taboolib.ioc.annotation.PostEnable
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 告警引擎(FR5)。
+ * 告警引擎。
  *
  * 由 [top.wcpe.mc.plugin.serverprobe.core.orchestrator.MetricOrchestrator] 在每次采集末尾调用 [evaluate],
  * 对照规则集判定各指标是否越线,并经 [AlertChannelRegistry] 广播触发/恢复事件给所有已注册通道。
@@ -27,7 +27,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
  * 无需加锁。规则集 [rules] 在 [PostEnable] 一次性构建后只读,运行期不再变更。
  *
  * 生命周期:作为 IOC [Service] 由容器管理;[buildRules] 于 [PostEnable] 读取配置构建规则集
- * (此时 `config.yml` 已注入)。
+ * (此时 `config.yml`已注入)。
  */
 @Service
 class AlertEngine {

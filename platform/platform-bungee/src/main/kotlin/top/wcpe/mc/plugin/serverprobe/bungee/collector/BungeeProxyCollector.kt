@@ -7,10 +7,10 @@ import taboolib.common.platform.function.server
 import taboolib.common.platform.function.submit
 import taboolib.common.platform.service.PlatformExecutor
 import top.wcpe.mc.plugin.serverprobe.api.collector.ProxyMetricsCollector
-import top.wcpe.mc.plugin.serverprobe.api.model.BackendServer
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerPing
-import top.wcpe.mc.plugin.serverprobe.api.model.PlayerRoute
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.player.BackendServer
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerPing
+import top.wcpe.mc.plugin.serverprobe.api.model.player.PlayerRoute
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.registry.ProbeRegistry
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
@@ -21,10 +21,10 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * BungeeCord 代理端指标采集器(FR2.5)。
+ * BungeeCord 代理端指标采集器。
  *
  * 采集代理总在线、各子服在线,并扩展三组 M2+ 指标:
- * - **子服 ping / 可达性**:`ServerInfo.ping()` 有网络往返,由后台周期任务([pingTask])在
+ * - **子服 ping / 可达性**:`ServerInfo.ping()`有网络往返,由后台周期任务([pingTask])在
  *   异步线程逐子服发起并缓存最近结果到 [pingCache],[collect] 只读缓存,不阻塞采集/代理主线程。
  * - **玩家路由**:遍历代理玩家取其所在子服名([PlayerRoute])。
  * - **每玩家 ping**:遍历代理玩家取其 RTT([PlayerPing])。
@@ -33,9 +33,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 本类位于 platform-bungee 模块,方法实现大量触碰 BungeeCord API(ProxyServer / ServerInfo /
  * ServerPing / ProxiedPlayer)。探针 IOC 容器在 **Bukkit 端也会扫描本类**(@Service 扫描不分平台),
  * 若这些 BungeeCord 类型出现在**方法签名**(参数/返回/合成 lambda 签名)里,扫描器反射
- * `getDeclaredMethods` 时会抛 `NoClassDefFoundError` 并中断整个容器初始化(曾致 ProbeRegistry
+ * `getDeclaredMethods`时会抛 `NoClassDefFoundError`并中断整个容器初始化(曾致 ProbeRegistry
  * 等 bean 全部漏注册)。因此本类**严禁在 lambda 参数中直接引用 BungeeCord 类型**,一律改用
- * `for` 循环(局部变量类型不进方法签名)。这是本模块的硬约束,新代码须遵守。
+ * `for`循环(局部变量类型不进方法签名)。这是本模块的硬约束,新代码须遵守。
  *
  * 仅在 BungeeCord 平台生效([PlatformSide]);作为 IOC [Service] 由容器实例化并注入 [registry],
  * 初始化完成后自注册到 [ProbeRegistry] 供编排层发现。[ProxyServer] 经 TabooLib 的 [server] 取得。
@@ -112,7 +112,7 @@ class BungeeProxyCollector : ProxyMetricsCollector {
      * 采集当前代理端指标快照。
      *
      * 聚合:总在线、各子服在线(叠加 ping 缓存结果)、玩家路由、每玩家 ping。
-     * **注意**:全部用 `for` 循环(不用 lambda),BungeeCord 类型只出现在局部变量,不进方法签名。
+     * **注意**:全部用 `for`循环(不用 lambda),BungeeCord 类型只出现在局部变量,不进方法签名。
      *
      * @return 当前时刻的 [ProxyMetrics]。
      */

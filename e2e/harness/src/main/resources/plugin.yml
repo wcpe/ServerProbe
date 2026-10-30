@@ -5,6 +5,12 @@ version: 1.0.0-SNAPSHOT
 api-version: '1.13'
 # 桩同时以 Folia 全局区域调度器执行，显式声明支持才能被 Folia 加载。
 folia-supported: true
-# FR9 fixture 必须早于 ServerProbe 绑定已由准备任务写入的回环地址。
+# fixture 必须早于 ServerProbe 绑定已由准备任务写入的回环地址。
+# 这里**刻意只声明 loadbefore，不声明 softdepend/depend**：
+#   - softdepend/depend 语义都是"排在 ServerProbe 之后"，与 loadbefore 对同一插件构成环；
+#   - 本 harness 需要直接引用探针的 api 契约（ServerProbeAPI），但旧式 plugin.yml 插件的
+#     PluginClassLoader 是全局可搜的，不按声明依赖做可见性门控，所以无需靠 softdepend 拿类。
+# 加载顺序因此是：harness 先起 fixture 监听端口 → ServerProbe 再连上来；
+# 而契约类要到 ServerLoadEvent（所有插件已启用）时才首次解析，那时 ServerProbe 已就位。
 loadbefore:
   - ServerProbe

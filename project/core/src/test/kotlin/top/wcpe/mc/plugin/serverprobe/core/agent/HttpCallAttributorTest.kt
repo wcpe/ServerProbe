@@ -2,7 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.agent
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
 
 /**
  * [HttpCallAttributor] 单元测试:校验 ClassLoader 身份优先、包前缀兜底的归因。

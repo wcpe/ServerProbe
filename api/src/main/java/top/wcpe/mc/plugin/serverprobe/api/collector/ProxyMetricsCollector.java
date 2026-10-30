@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.api.collector;
 
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics;
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics;
 
 /**
  * 代理端指标采集器契约。

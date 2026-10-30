@@ -11,7 +11,7 @@ import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.taboolib.ioc.annotation.Inject
 
 /**
- * Bukkit 玩家事件监听器(FR-066,JianManager ADR-016 探针侧)。
+ * Bukkit 玩家事件监听器(JianManager ADR-016 探针侧)。
  *
  * 监听本子服的玩家 join/quit/chat,经 [BridgeClient] 反向 WS 实时上报到本机 Worker
  * (→ gRPC → CP → SSE → 浏览器)。**本子服视角**:Bukkit 端只知玩家在「本子服」进出,
@@ -25,7 +25,7 @@ import top.wcpe.taboolib.ioc.annotation.Inject
  *
  * ## 形态
  * `object` + `@SubscribeEvent`(TabooLib 要求事件宿主为 object,见 [top.wcpe.mc.plugin.serverprobe.bukkit.startup.StartupLoadListener]);
- * `@Inject` 由 IOC 注入 [BridgeClient]。仅 Bukkit 平台生效([PlatformSide])。
+ * `@Inject`由 IOC 注入 [BridgeClient]。仅 Bukkit 平台生效([PlatformSide])。
  *
  * ## 开关
  * 仅在插件桥开启([ProbeConfig.bridgeEnabled])时上报;关闭(独立使用探针)时所有回调直接返回,零副作用。

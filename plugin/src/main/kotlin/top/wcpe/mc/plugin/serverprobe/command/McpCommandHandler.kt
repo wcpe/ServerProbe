@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.core.mcp.ArthasRuntime
 import top.wcpe.mc.plugin.serverprobe.core.mcp.McpControlPlane
 
 /**
- * `/probe mcp` 子命令的动作执行与输出(FR-24,见 ADR-0028)。
+ * `/probe mcp`子命令的动作执行与输出(见 ADR-0028)。
  *
  * 独立成文件的原因:[ProbeCommand] 是命令声明宿主,已承载全部分支的输出渲染,再内联本组动作会超出
  * detekt 对单 object 函数数的阈值;此处只做"调度 + 调用控制面 + 发文案"。
@@ -23,7 +23,7 @@ import top.wcpe.mc.plugin.serverprobe.core.mcp.McpControlPlane
  * 控制台/RCON 的实现,其 `sendMessage` 与插件日志同路径,不触碰世界/实体状态,异步发送安全。
  *
  * 两级开关语义:端点级([McpControlPlane])只起 HTTP 端点,原生工具立即可用;Arthas 级([ArthasRuntime])
- * 才付出闭包解包与 Instrumentation 附加代价。两者独立开关,`off` 不完结对方的加载状态。
+ * 才付出闭包解包与 Instrumentation 附加代价。两者独立开关,`off`不完结对方的加载状态。
  */
 internal object McpCommandHandler {
 

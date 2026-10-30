@@ -46,7 +46,6 @@ mc-testkit 跨平台，Linux 与 Windows 均可直接运行：
 .\gradlew.bat e2eReadApi
 .\gradlew.bat e2eStorageSpi
 .\gradlew.bat e2eBridgeFixture
-.\gradlew.bat e2eIntegrationsBoth        # 需设置 SERVERPROBE_E2E_CORELIB_JAR/MCE_JAR/AIS_JAR 真实插件路径
 .\gradlew.bat e2eNetworkForensicsPaperWithBot
 .\gradlew.bat e2eFoliaObservedRegionsWithBot
 .\gradlew.bat e2eMcpDiagnosticsPaper

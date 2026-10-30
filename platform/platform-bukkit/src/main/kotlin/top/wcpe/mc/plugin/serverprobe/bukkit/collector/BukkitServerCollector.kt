@@ -4,7 +4,7 @@ import org.bukkit.Bukkit
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
 import taboolib.platform.Folia
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
 import top.wcpe.mc.plugin.serverprobe.api.sampler.ServerTickSampler
 import top.wcpe.mc.plugin.serverprobe.bukkit.folia.FoliaObservedRegionService
 import top.wcpe.mc.plugin.serverprobe.bukkit.sampler.TickClock
@@ -19,7 +19,7 @@ import java.lang.management.ManagementFactory
 import top.wcpe.mc.plugin.serverprobe.api.collector.ServerMetricsCollector as ServerMetricsCollectorApi
 
 /**
- * Bukkit 服务器指标采集器(FR2.2)。
+ * Bukkit 服务器指标采集器。
  *
  * 采集 TPS/MSPT(经 [ServerTickSampler])、在线/最大人数与运行时长,聚合为 [ServerMetrics]。
  * TPS/MSPT 是架构中唯一需要多版本 + 多平台兼容的关键指标,采样器在 [PostConstruct] 由
@@ -83,7 +83,7 @@ class BukkitServerCollector : ServerMetricsCollectorApi {
      */
     override fun collect(): ServerMetrics {
         val players = Bukkit.getOnlinePlayers()
-        // 在线玩家 ping 分布(FR2.4):1.16.1+ 有 Player#getPing()(内存读取,开销小);
+        // 在线玩家 ping 分布:1.16.1+ 有 Player#getPing(内存读取,开销小);
         // 低版本无该方法时会抛 NoSuchMethodError,此处 runCatching 兜底为"不可用",绝不成为事故源。
         // 在线但全部 ping 不可用(如低版本)时分布置 null(N/A),与"无人"区分。
         val pings = players.mapNotNull { p ->

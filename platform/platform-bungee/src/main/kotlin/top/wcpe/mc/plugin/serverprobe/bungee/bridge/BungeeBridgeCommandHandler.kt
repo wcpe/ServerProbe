@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.bungee.bridge
 
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import net.md_5.bungee.api.ProxyServer
 import net.md_5.bungee.api.chat.TextComponent
 import taboolib.common.platform.Platform
@@ -7,7 +8,6 @@ import taboolib.common.platform.PlatformSide
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommand
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandHandler
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandRegistry
-import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -15,7 +15,7 @@ import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * BungeeCord 代理端治理执行器(FR-067,JianManager ADR-016 探针侧)。
+ * BungeeCord 代理端治理执行器(JianManager ADR-016 探针侧)。
  *
  * 代理端只持有「玩家在代理上的连接」,不持有 banned-players / whitelist(那是各子服的范畴)。故代理端:
  * - kick:把玩家从代理整体断开(等价于踢下线,作用于跨子服的代理会话);

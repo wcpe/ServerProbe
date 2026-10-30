@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.api.enums.StartupPhase
 /**
  * [PhaseTimingRecorder.computeTimings] 单元测试。
  *
- * 仅针对抽出的纯函数(喂 `Map<StartupPhase, Long>` 出 `List<PhaseTiming>`)验证累计算法,
+ * 仅针对抽出的纯函数(喂 `Map<StartupPhase, Long>`出 `List<PhaseTiming>`)验证累计算法,
  * 不触发 TabooLib 生命周期打点,可直接喂样本映射断言。
  * 覆盖:相对最早记录点的累计语义、按 ordinal 升序、缺段(只到部分阶段)、空映射、最早段恒为 0。
  */

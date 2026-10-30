@@ -3,21 +3,21 @@ package top.wcpe.mc.plugin.serverprobe.core.prometheus
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.forensics.PacketTrafficService
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.net.InetSocketAddress
 
 /**
- * `/metrics` 请求处理器:鉴权 + 渲染最新快照为 Prometheus 文本(FR4.2)。
+ * `/metrics`请求处理器:鉴权 + 渲染最新快照为 Prometheus 文本。
  *
  * 与 [PrometheusExporter](负责服务生命周期)职责分离:本类只负责**单次请求**的鉴权与响应,
  * 跑在 HttpServer 自带的 daemon 线程池上(非主线程)。无状态(鉴权配置在构造期固定),可被并发调用。
  *
  * ## 鉴权策略(PRD 安全约束:鉴权 + 绑定地址 + 不裸奔)
  * 通过需同时满足两道校验,任一不过即拒绝且不泄露细节:
- * 1. **token**:[token] 非空时,要求请求头 `Authorization: Bearer <token>` 完全匹配,否则 401;
+ * 1. **token**:[token] 非空时,要求请求头 `Authorization: Bearer <token>`完全匹配,否则 401;
  *    [token] 为空表示不启用 token 鉴权,此时**仅靠 IP 白名单**兜底(默认仅本机,绝不对全网裸奔)。
  * 2. **IP 白名单**:来源 IP 不在 [allowedIps] 内则 403。
  *
@@ -40,7 +40,7 @@ class MetricsHttpHandler(
 ) : HttpHandler {
 
     /**
-     * 处理一次 `/metrics` 请求:先鉴权,通过后渲染并回 200,否则回对应错误码。
+     * 处理一次 `/metrics`请求:先鉴权,通过后渲染并回 200,否则回对应错误码。
      *
      * 整体 try/catch 兜底:任何异常尽力回 500 后关闭交换,绝不向线程池抛出(探针不成事故源)。
      *
@@ -88,7 +88,7 @@ class MetricsHttpHandler(
     }
 
     /**
-     * 校验请求头 `Authorization` 是否为匹配的 `Bearer <token>`。
+     * 校验请求头 `Authorization`是否为匹配的 `Bearer <token>`。
      *
      * @param exchange 本次 HTTP 交换。
      * @return token 匹配返回 true,缺失/格式不符/不匹配返回 false。

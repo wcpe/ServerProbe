@@ -103,8 +103,7 @@ jobs:
           -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
 
       # 第 2 批：MCP 诊断五平台。一次 gradle 调用内任务按声明顺序串行执行（未开 --parallel）——
-      # 所有场景共享 build/mc-testkit/run/，cleanupIntegrationsLibraries 会在 prepare 阶段清
-      # run/libraries，并行会互相破坏；分批调用则便于按批定位失败。
+      # 所有场景共享 build/mc-testkit/run/，并行会互相破坏运行目录；分批调用则便于按批定位失败。
       #
       # Bungee / Velocity 两个场景必须走 Via<Proxy> 变体，不能用同名的直连任务：
       # mc-testkit 对每个场景都无条件注册直连任务 e2e<Key>（见 McTestkitTasks 的 verify 注册），

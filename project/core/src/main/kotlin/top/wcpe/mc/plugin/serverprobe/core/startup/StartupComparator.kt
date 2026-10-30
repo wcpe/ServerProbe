@@ -1,15 +1,15 @@
 package top.wcpe.mc.plugin.serverprobe.core.startup
 
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile
 import kotlin.math.abs
 
 /**
- * 启动画像对比器(FR1 启动对比)。
+ * 启动画像对比器(启动对比)。
  *
  * 将本次启动画像与上一次对比,生成一行人类可读的中文摘要:总时长变化(±ms 与 ±%)+ 慢插件 Top 变化简述。
  * 无上一次画像(首次记录)时返回固定文案。
  *
- * 无状态纯逻辑(仅依赖入参),以 `object` 实现,不纳入 IOC 容器;不读取任何外部数据,故可直接单测。
+ * 无状态纯逻辑(仅依赖入参),以 `object`实现,不纳入 IOC 容器;不读取任何外部数据,故可直接单测。
  */
 object StartupComparator {
 
@@ -73,7 +73,7 @@ object StartupComparator {
      * 毫秒格式化为保留一位小数的秒(如 `12.3s`)。
      *
      * @param ms 毫秒值。
-     * @return 形如 `x.xs` 的字符串。
+     * @return 形如 `x.xs`的字符串。
      */
     private fun formatSeconds(ms: Long): String = String.format("%.1fs", ms / MILLIS_PER_SECOND)
 

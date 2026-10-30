@@ -5,7 +5,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * 告警通道注册中心(FR5)。
+ * 告警通道注册中心。
  *
  * 在 [AlertEngine] 与各 [AlertChannel] 实现之间充当解耦的装配点:引擎不在编译期依赖任何具体通道,
  * 各通道(core 的日志/Webhook、platform-bukkit 的游戏内)于自身就绪后调用 [register] 自注册,

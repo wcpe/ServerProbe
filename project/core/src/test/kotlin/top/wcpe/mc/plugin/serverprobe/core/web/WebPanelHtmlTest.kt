@@ -5,19 +5,19 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
 import top.wcpe.mc.plugin.serverprobe.api.enums.TickSampleSource
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionWorldMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.TickSample
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionWorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkForensicsStatus
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketPage
 import top.wcpe.mc.plugin.serverprobe.api.forensics.NetworkPacketRecord
 import top.wcpe.mc.plugin.serverprobe.api.forensics.PacketDirection
 
 /**
- * [WebPanelHtml] 渲染单测(FR4.3)。
+ * [WebPanelHtml] 渲染单测。
  *
  * 覆盖:三个页面的关键片段、空数据占位、HTML 转义(防注入)。
  */

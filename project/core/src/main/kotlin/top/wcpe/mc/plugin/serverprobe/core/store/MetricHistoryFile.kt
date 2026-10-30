@@ -8,9 +8,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 历史指标落盘的纯文件/时间逻辑(FR3.2)。
+ * 历史指标落盘的纯文件/时间逻辑。
  *
- * 仅依赖 `java.time` 与 `java.nio.file`,**不依赖 TabooLib [taboolib.module.configuration.Configuration]
+ * 仅依赖 `java.time`与 `java.nio.file`,**不依赖 TabooLib [taboolib.module.configuration.Configuration]
  * 或任何平台 API**,因此其路径解析、按日分桶、清理策略均可在裸单测类路径下直接验证。
  *
  * 落盘布局(按实例分目录 + 按自然日滚动):
@@ -19,9 +19,9 @@ import java.time.format.DateTimeFormatter
  * 与既有概念严格区分:
  * - `history-capacity`:内存环形缓冲(默认 360 份),供只读 API 回看,不落盘;
  * - `history-retention`:启动画像归档保留份数(默认 30 份),针对 `data/startup/`;
- * - 本类对应**独立**的 `history-file.*` 配置段,只管 `data/metrics/` 下的历史指标文件。
+ * - 本类对应**独立**的 `history-file.*`配置段,只管 `data/metrics/`下的历史指标文件。
  *
- * 无状态纯逻辑,以 `object` 实现,不纳入 IOC 容器。
+ * 无状态纯逻辑,以 `object`实现,不纳入 IOC 容器。
  */
 object MetricHistoryFile {
 
@@ -31,7 +31,7 @@ object MetricHistoryFile {
      * 按系统时区分桶,使同一运维日的快照落入同一文件,便于按天检索与清理。
      *
      * @param epochMs epoch 毫秒。
-     * @return `yyyyMMdd` 形式的日期串。
+     * @return `yyyyMMdd`形式的日期串。
      */
     fun dayOf(epochMs: Long): String =
         Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).toLocalDate().format(DAY_FORMATTER)
@@ -51,12 +51,19 @@ object MetricHistoryFile {
         instanceDir(dataRoot, serverId).resolve("$FILE_PREFIX${dayOf(epochMs)}$FILE_SUFFIX")
 
     /**
-     * 解析 `[sinceMs, untilMs]`(闭区间)所跨自然日范围内、**实际存在**的历史指标文件路径(M2 FR8 读取)。
+     * 解析 `[sinceMs, untilMs]`(闭区间)所跨自然日范围内、**实际存在**的历史指标文件路径(M2 读取)。
      *
-     * 按系统时区把时间范围映射为若干自然日,对每一天调用 [resolvePath] 得到候选文件,仅保留磁盘上确实存在的;
-     * 结果按日期**升序**(最旧在前)返回,便于上层按时间顺序逐文件逐行读取。纯文件/时间逻辑,不依赖 [Configuration]。
+     * 按系统时区把时间范围映射为起止自然日,再**枚举实例目录**中的 `metrics-*.jsonl[.gz]`,
+     * 仅保留日期落在区间内且磁盘上确实存在的文件;结果按日期**升序**(最旧在前)返回,
+     * 便于上层按时间顺序逐文件逐行读取。纯文件/时间逻辑,不依赖 [Configuration]。
      *
-     * 边界:[sinceMs] > [untilMs] 时范围为空,返回空列表;实例目录不存在或当天无文件时对应日跳过。
+     * **为何枚举目录而不是逐日试探**:逐日 `isRegularFile` 的代价与查询跨度成正比,而实际文件数由保留策略决定。
+     * 若下界取 [Long.MIN_VALUE](`MetricStore.readHistoryUntil` 的「无下界」哨兵),
+     * 逐日遍历会从公元前 2.9 亿年走到今天、空转上千亿次;枚举目录则只扫真实存在的文件,与跨度无关。
+     * `Long.MIN_VALUE`/`Long.MAX_VALUE` 经 [Instant.ofEpochMilli] 换算后仍落在 [LocalDate] 的可表示范围内,不会溢出。
+     *
+     * 边界:[sinceMs] > [untilMs] 时范围为空,返回空列表;实例目录不存在或当天无文件时对应日跳过;
+     * 同一天原始文件与 gzip 归档同时存在时优先原始文件;文件名日期无法解析时忽略该文件。
      *
      * @param dataRoot 数据根目录。
      * @param serverId 实例标识。
@@ -72,37 +79,67 @@ object MetricHistoryFile {
         val startDay = Instant.ofEpochMilli(sinceMs).atZone(zone).toLocalDate()
         val endDay = Instant.ofEpochMilli(untilMs).atZone(zone).toLocalDate()
         val instanceDir = instanceDir(dataRoot, serverId)
-        val result = ArrayList<Path>()
-        var day = startDay
-        while (!day.isAfter(endDay)) {
-            val raw = "$FILE_PREFIX${day.format(DAY_FORMATTER)}$FILE_SUFFIX"
-            val file = instanceDir.resolve(raw)
-            if (Files.isRegularFile(file)) {
-                result.add(file)
-            } else {
-                // 原始文件已 gzip 归档时回退读取压缩档,保证历史查询跨归档窗口仍完整。
-                val gz = instanceDir.resolve(raw + GZ_SUFFIX)
-                if (Files.isRegularFile(gz)) {
-                    result.add(gz)
+        if (!Files.isDirectory(instanceDir)) {
+            return emptyList()
+        }
+        // 一次目录枚举取代按天试探:候选集大小只取决于实际保留的文件数,与 sinceMs 取多早无关。
+        return runCatching {
+            val byDay = HashMap<LocalDate, Path>()
+            Files.newDirectoryStream(instanceDir, "$FILE_PREFIX*").use { stream ->
+                for (file in stream) {
+                    if (!Files.isRegularFile(file)) {
+                        continue
+                    }
+                    val day = parseDayOfName(file) ?: continue
+                    if (day.isBefore(startDay) || day.isAfter(endDay)) {
+                        continue
+                    }
+                    // 同一天原始文件与 gzip 归档并存时优先原始文件(与归档清理前的旧行为一致)。
+                    val existing = byDay[day]
+                    if (existing == null || existing.fileName.toString().endsWith(GZ_SUFFIX)) {
+                        byDay[day] = file
+                    }
                 }
             }
-            day = day.plusDays(1)
+            byDay.entries.sortedBy { it.key }.map { it.value }
+        }.getOrElse { emptyList() }
+    }
+
+    /**
+     * 严格解析 `metrics-<yyyyMMdd>.jsonl[.gz]` 文件名中的自然日。
+     *
+     * 与 [dayOfFile] 不同,**不回退文件修改时间**:范围查询必须按文件名日期精确匹配,
+     * 否则人为改名/异常文件会被错误纳入某个日期区间。命名不符或日期非法时返回 null(由调用方忽略)。
+     *
+     * @param file 历史指标文件。
+     * @return 文件名中的自然日;无法解析时为 null。
+     */
+    private fun parseDayOfName(file: Path): LocalDate? {
+        val name = file.fileName.toString()
+        if (!name.startsWith(FILE_PREFIX)) {
+            return null
         }
-        return result
+        val rest = name.substring(FILE_PREFIX.length)
+        val datePart = when {
+            rest.endsWith(FILE_SUFFIX + GZ_SUFFIX) -> rest.removeSuffix(FILE_SUFFIX + GZ_SUFFIX)
+            rest.endsWith(FILE_SUFFIX) -> rest.removeSuffix(FILE_SUFFIX)
+            else -> return null
+        }
+        return runCatching { LocalDate.parse(datePart, DAY_FORMATTER) }.getOrNull()
     }
 
     /**
      * 清理某实例目录下过期/超额的历史指标文件,**绝不删除当天文件**。
      *
      * 分两阶段(均以系统时区"今天"为基准,当天文件始终豁免):
-     * 1. **按保留天数**:保留含今天在内最近 `retentionDays` 天的文件;文件名日期(或回退到文件修改时间)
-     *    早于 `今天 - (retentionDays - 1)` 的 `.jsonl` 删除(例:retentionDays=7 时保留今天及之前 6 天,共 7 天);
-     * 2. **按总体积**:若实例目录下 `.jsonl` 总体积仍超过 `maxTotalMb`,从**最旧**的文件起逐个删除,直到达标。
+     * 1. **按保留天数**:保留含今天在内最近 `retentionDays`天的文件;文件名日期(或回退到文件修改时间)
+     *    早于 `今天 - (retentionDays - 1)`的 `.jsonl`删除(例:retentionDays=7 时保留今天及之前 6 天,共 7 天);
+     * 2. **按总体积**:若实例目录下 `.jsonl`总体积仍超过 `maxTotalMb`,从**最旧**的文件起逐个删除,直到达标。
      *
-     * **`maxTotalMb` 非法值兜底**:`maxTotalMb <= 0` 视为"不限制体积"——直接跳过体积清理阶段(阶段二),
+     * **`maxTotalMb`非法值兜底**:`maxTotalMb <= 0`视为"不限制体积"——直接跳过体积清理阶段(阶段二),
      * 仅执行按保留天数清理(阶段一)。该约定避免运维误配 `0`/负数时把除当天外的历史文件全部删空。
      *
-     * 全程 `runCatching` 容错:任何文件系统异常都不会向外抛出;若传入 [onError] 则把异常交给它(用于告警),
+     * 全程 `runCatching`容错:任何文件系统异常都不会向外抛出;若传入 [onError] 则把异常交给它(用于告警),
      * 否则静默忽略。设计上由调用方在**跨天**时触发(非高频路径),避免每个采集周期扫描目录。
      *
      * @param dataRoot 数据根目录。
@@ -189,7 +226,7 @@ object MetricHistoryFile {
             stream.filter { Files.isRegularFile(it) }.toList()
         }
 
-    /** 把过期历史文件 gzip 归档为 `<原名>.gz` 并删除原文件(实测压缩率约 6%,16 倍省盘)。 */
+    /** 把过期历史文件 gzip 归档为 `<原名>.gz`并删除原文件(实测压缩率约 6%,16 倍省盘)。 */
     private fun gzipArchive(file: Path) {
         runCatching {
             val target = file.resolveSibling(file.fileName.toString() + GZ_SUFFIX)
@@ -237,8 +274,8 @@ object MetricHistoryFile {
     /**
      * 实例历史目录 `<dataRoot>/metrics/<serverId>/`。
      *
-     * `serverId` 先经 [sanitizeServerId] 净化再作目录段:`server-name` 由运维在 config 自由填写,
-     * 不净化则形如 `../` / 绝对路径的取值会让 [Path.resolve] 逃逸出 `metrics/` 目录。写入路径
+     * `serverId`先经 [sanitizeServerId] 净化再作目录段:`server-name`由运维在 config 自由填写,
+     * 不净化则形如 `../` / 绝对路径的取值会让 [Path.resolve] 逃逸出 `metrics/`目录。写入路径
      * ([resolvePath])与清理路径([prune])均经由本方法,故净化在此单一入口完成即对二者一致生效。
      *
      * @param dataRoot 数据根目录。
@@ -249,14 +286,14 @@ object MetricHistoryFile {
         dataRoot.resolve(METRICS_DIR_NAME).resolve(sanitizeServerId(serverId))
 
     /**
-     * 把 `serverId` 净化为安全的单层目录名,防止路径逃逸(目录穿越)。
+     * 把 `serverId`净化为安全的单层目录名,防止路径逃逸(目录穿越)。
      *
      * 仅保留 `[A-Za-z0-9_-]`,其余字符(含 `/`、`\`、`.`、`:`、空格等)一律替换为 `_`;
      * 因此 `../`、绝对路径、盘符等都无法构成路径分隔符或回溯,结果恒为单层安全名。
      * 若净化后为空串(原值全是非法字符),回退为 [DEFAULT_SERVER_ID]。
      *
      * @param serverId 未净化的原始实例标识。
-     * @return 仅含 `[A-Za-z0-9_-]` 的非空安全目录名。
+     * @return 仅含 `[A-Za-z0-9_-]`的非空安全目录名。
      */
     private fun sanitizeServerId(serverId: String): String {
         val sanitized = serverId.map { ch -> if (ch in SAFE_SERVER_ID_CHARS) ch else '_' }.joinToString("")
@@ -266,14 +303,14 @@ object MetricHistoryFile {
     /** 历史指标根子目录名(相对 `data/`)。 */
     private const val METRICS_DIR_NAME = "metrics"
 
-    /** gzip 归档后缀(追加在 `.jsonl` 之后)。 */
+    /** gzip 归档后缀(追加在 `.jsonl`之后)。 */
     private const val GZ_SUFFIX = ".gz"
 
-    /** `serverId` 净化后允许保留的字符集合(白名单 `[A-Za-z0-9_-]`),其余字符替换为 `_`。 */
+    /** `serverId`净化后允许保留的字符集合(白名单 `[A-Za-z0-9_-]`),其余字符替换为 `_`。 */
     private val SAFE_SERVER_ID_CHARS: Set<Char> =
         (('a'..'z') + ('A'..'Z') + ('0'..'9') + listOf('_', '-')).toSet()
 
-    /** `serverId` 净化后为空串时的回退目录名。 */
+    /** `serverId`净化后为空串时的回退目录名。 */
     private const val DEFAULT_SERVER_ID = "default"
 
     /** 历史指标文件名前缀。 */
@@ -293,8 +330,8 @@ object MetricHistoryFile {
  * 指标历史清理策略。
  *
  * @property retentionDays 历史文件保留天数(按自然日;当天不计入删除)。
- * @property maxTotalMb 实例历史文件总体积上限(MB);`<= 0` 表示不限制体积。
- * @property archiveDays 过期文件的 gzip 归档保留天数;`<= 0` 表示过期即删、不做归档。
+ * @property maxTotalMb 实例历史文件总体积上限(MB);`<= 0`表示不限制体积。
+ * @property archiveDays 过期文件的 gzip 归档保留天数;`<= 0`表示过期即删、不做归档。
  */
 data class HistoryPrunePolicy(
     val retentionDays: Int,

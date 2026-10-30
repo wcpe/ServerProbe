@@ -1,12 +1,12 @@
 package top.wcpe.mc.plugin.serverprobe.core.incision
 
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 
 /**
- * Incision 启动期数据缓冲(FR7)。
+ * Incision 启动期数据缓冲。
  *
  * 织入回调可能与启动画像的异步装配并发发生,因此以并发队列保存样本,
  * 以易变状态位发布开关与织入结果。该服务只保存平台无关 DTO,不依赖 Bukkit。

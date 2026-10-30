@@ -8,7 +8,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 
 import java.util.concurrent.TimeUnit;
 
-/** Velocity 3.x 的 FR14 HTTP MCP 验收桩。 */
+/** Velocity 3.x 的 HTTP MCP 验收桩。 */
 @Plugin(id = "serverprobe-mcp-velocity-harness", name = "ServerProbeMcpVelocityHarness", version = "1.0.0-SNAPSHOT")
 public final class VelocityMcpDiagnosticsHarness {
 

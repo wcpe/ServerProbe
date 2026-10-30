@@ -15,14 +15,14 @@ import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 
 /**
- * Prometheus `/metrics` 导出端点(FR4.2,导出通道之一)。
+ * Prometheus `/metrics`导出端点(导出通道之一)。
  *
  * 基于 JDK 自带 `com.sun.net.httpserver.HttpServer`(零第三方依赖)起一个轻量 HTTP 服务,
- * 在 `/metrics` 路径以 Prometheus exposition format 暴露最新一份指标快照,供 Prometheus 抓取、对接 Grafana。
+ * 在 `/metrics`路径以 Prometheus exposition format 暴露最新一份指标快照,供 Prometheus 抓取、对接 Grafana。
  *
  * ## 平台无关 / 双端各起一个
  * 本类位于平台无关的 core 模块,不触碰任何平台 API:数据经注入的 [ProbeReadApi] 取得,文本经
- * [PrometheusTextFormatter] 渲染。Bukkit 与代理端各为独立进程,各自按本端 `config.yml` 的端口起**一个**端点。
+ * [PrometheusTextFormatter] 渲染。Bukkit 与代理端各为独立进程,各自按本端 `config.yml`的端口起**一个**端点。
  *
  * ## 稳定性:绝不成为事故源(规范/PRD 非功能性约束)
  * 探针为只读旁路,导出端点更不应影响宿主:
@@ -34,7 +34,7 @@ import java.util.concurrent.Executors
  * 见 [MetricsHttpHandler] 的鉴权策略:token(可选 Bearer)+ IP 白名单双重控制,默认仅本机可访问、不裸奔;
  * 日志中不输出 token。
  *
- * 生命周期:作为 IOC [Service] 由容器管理,[start] 于 `@PostEnable` 起服、[stop] 于 `@PreDestroy` 停服。
+ * 生命周期:作为 IOC [Service] 由容器管理,[start] 于 `@PostEnable`起服、[stop] 于 `@PreDestroy`停服。
  */
 @Service
 class PrometheusExporter {
@@ -43,11 +43,11 @@ class PrometheusExporter {
     @Inject
     lateinit var readApi: ProbeReadApi
 
-    /** 运行期 CPU 归因采样器(FR2.6);供 /metrics 一并导出各插件样本占比(未启用时无数据跳过)。 */
+    /** 运行期 CPU 归因采样器;供 /metrics 一并导出各插件样本占比(未启用时无数据跳过)。 */
     @Inject
     lateinit var cpuSampler: CpuAttributionSampler
 
-    /** FR11 的只读聚合流量出口，Prometheus 只读取脱敏后的计数。 */
+    /** 的只读聚合流量出口，Prometheus 只读取脱敏后的计数。 */
     @Inject
     lateinit var traffic: PacketTrafficService
 
@@ -63,10 +63,10 @@ class PrometheusExporter {
     private var server: HttpServer? = null
 
     /**
-     * 启动 `/metrics` 端点。
+     * 启动 `/metrics`端点。
      *
      * 流程:配置开关关闭则直接跳过;否则按配置的 host/port 创建 [HttpServer],挂载 daemon 线程池与
-     * `/metrics` 处理器并启动。整体 try/catch:任何异常(端口占用、地址非法等)仅以 WARN 降级,
+     * `/metrics`处理器并启动。整体 try/catch:任何异常(端口占用、地址非法等)仅以 WARN 降级,
      * 绝不抛出,确保探针不因导出端点起不来而影响插件启用。
      */
     @PostEnable
@@ -107,9 +107,9 @@ class PrometheusExporter {
     }
 
     /**
-     * 停止 `/metrics` 端点。
+     * 停止 `/metrics`端点。
      *
-     * 在容器关闭时由 `@PreDestroy` 回调触发,释放底层 HTTP 服务与线程池。
+     * 在容器关闭时由 `@PreDestroy`回调触发,释放底层 HTTP 服务与线程池。
      */
     @PreDestroy
     fun stop() {

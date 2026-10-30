@@ -1,13 +1,13 @@
 package top.wcpe.mc.plugin.serverprobe.core.aggregator
 
-import top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.buffer.MetricSnapshotBuffer
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Service
 
 /**
- * 指标聚合器(FR3.3):对近期历史中的若干份 [MetricSnapshot] 做跨快照统计。
+ * 指标聚合器:对近期历史中的若干份 [MetricSnapshot] 做跨快照统计。
  *
  * 职责单一——只做"取窗口 + 聚合计算",不采集、不落盘、不依赖任何平台 API。
  * 取数经注入的 [MetricSnapshotBuffer](内存近期历史),计算委托给本类的**纯函数** [aggregate]
@@ -63,7 +63,7 @@ class MetricAggregator {
     }
 
     /**
-     * 收集窗口内各快照的 1 分钟 TPS 样本(仅取 `server.tick.tps1m` 非 null 者)。
+     * 收集窗口内各快照的 1 分钟 TPS 样本(仅取 `server.tick.tps1m`非 null 者)。
      *
      * @param snapshots 窗口内快照。
      * @return TPS 样本数组(可能为空,代表窗口内无任一快照含 TPS)。
@@ -80,14 +80,14 @@ class MetricAggregator {
      */
     private inline fun collectMsptSamples(
         snapshots: List<MetricSnapshot>,
-        selector: (top.wcpe.mc.plugin.serverprobe.api.model.TickSample) -> Double?
+        selector: (top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample) -> Double?
     ): DoubleArray = snapshots.mapNotNull { snapshot -> snapshot.server?.tick?.let(selector) }.toDoubleArray()
 
     /**
      * 计算窗口两端的 GC 速率(次/秒、毫秒/秒)。
      *
      * 取窗口内 [MetricSnapshot.timestampMs] 最旧与最新两份:GC 计数为单调累计量,以
-     * `(最新累计 − 最旧累计) ÷ 时间差(秒)` 得平均速率。以下情况整体记为不可计算(各速率字段 null):
+     * `(最新累计 − 最旧累计) ÷ 时间差(秒)`得平均速率。以下情况整体记为不可计算(各速率字段 null):
      * - 样本不足 2 份(无法差分);
      * - 时间差 ≤ 0(同一时刻或时钟异常);
      * 单项差分为负(跨进程重启导致累计回绕)时,**仅该项**记为 null,其余项仍照常给出。

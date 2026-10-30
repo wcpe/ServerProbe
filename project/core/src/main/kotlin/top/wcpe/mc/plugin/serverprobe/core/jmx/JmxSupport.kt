@@ -7,12 +7,12 @@ import java.lang.reflect.Method
  * JMX CPU 指标读取支持(反射封装,容忍 JDK 差异)。
  *
  * 进程/系统 CPU 占用率并非 JDK 标准 [java.lang.management.OperatingSystemMXBean] 的能力,
- * 而是其平台扩展接口 `com.sun.management.OperatingSystemMXBean` 提供的:
+ * 而是其平台扩展接口 `com.sun.management.OperatingSystemMXBean`提供的:
  * - `getProcessCpuLoad()`:当前 JVM 进程 CPU 占用率;
- * - `getSystemCpuLoad()`:系统整体 CPU 占用率(JDK 14+ 标记为 `@Deprecated` 但仍存在可用,
- *   并新增同义的 `getCpuLoad` 作为推荐替代)。
+ * - `getSystemCpuLoad()`:系统整体 CPU 占用率(JDK 14+ 标记为 `@Deprecated`但仍存在可用,
+ *   并新增同义的 `getCpuLoad`作为推荐替代)。
  *
- * 由于 `com.sun.management` 并非所有 JDK 实现都对外开放(如部分定制运行时),为避免在不提供该
+ * 由于 `com.sun.management`并非所有 JDK 实现都对外开放(如部分定制运行时),为避免在不提供该
  * 扩展的环境下出现 `NoClassDefFoundError` / 链接错误,本类一律通过**反射**在 MXBean 实例上调用,
  * 任何异常、方法缺失或返回值非 [Double] 的情况都统一回退为 -1.0。
  *
@@ -22,14 +22,14 @@ import java.lang.reflect.Method
  *
  * 约定:**返回 -1.0 表示当前 JDK 不提供该指标**;其余返回值落在 0.0–1.0 区间(占用率)。
  *
- * 本类为无副作用、无状态的纯反射工具,以 `object` 实现且不纳入 IOC 容器。
+ * 本类为无副作用、无状态的纯反射工具,以 `object`实现且不纳入 IOC 容器。
  */
 object JmxSupport {
 
     /** 表示"当前 JDK 不提供该指标"的哨兵值。 */
     private const val UNAVAILABLE = -1.0
 
-    /** 操作系统 MXBean 实例;运行期具体类型通常为 `com.sun.management.OperatingSystemMXBean` 的实现。 */
+    /** 操作系统 MXBean 实例;运行期具体类型通常为 `com.sun.management.OperatingSystemMXBean`的实现。 */
     private val osBean = ManagementFactory.getOperatingSystemMXBean()
 
     /** 扩展接口 `com.sun.management.OperatingSystemMXBean`;定制运行时可能不提供(解析失败为 null)。 */
@@ -67,7 +67,7 @@ object JmxSupport {
      *
      * 方法优先从导出接口 [extendedBeanClass] 取(JPMS 下唯一可用的反射路径),取不到时才回退实现类;
      * 任何阶段失败(方法不存在、调用异常、返回值非 Double)均回退为 [UNAVAILABLE],
-     * 以保证在不提供 `com.sun.management` 扩展的运行时上调用方仍能安全取数。
+     * 以保证在不提供 `com.sun.management`扩展的运行时上调用方仍能安全取数。
      *
      * @param methodName 目标无参方法名。
      * @return 方法返回的占用率;不可用时为 -1.0。

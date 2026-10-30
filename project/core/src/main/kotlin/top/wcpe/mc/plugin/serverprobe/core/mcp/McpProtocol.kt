@@ -4,7 +4,7 @@ import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import java.security.MessageDigest
 
-/** 一个可由 MCP `tools/list` 返回的最小工具描述。 */
+/** 一个可由 MCP `tools/list`返回的最小工具描述。 */
 data class McpTool(
     val name: String,
     val description: String,
@@ -26,7 +26,7 @@ interface McpToolProvider {
 /** MCP 控制面的运行配置；密钥为空表示显式允许无认证。 */
 data class McpSettings(val enabled: Boolean, val host: String, val port: Int, val bearerSecret: String)
 
-/** 运行期开关控制面的结果（FR-24）；[message] 为可直接回显的中文说明。 */
+/** 运行期开关控制面的结果；[message] 为可直接回显的中文说明。 */
 data class McpToggleOutcome(val success: Boolean, val message: String)
 
 /** Bearer 比较必须不走普通字符串相等，避免把密钥前缀差异暴露为可观测时间差。 */

@@ -11,7 +11,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * FR-16 MCP 日志流式检索工具（只读）。
+ * MCP 日志流式检索工具（只读）。
  *
  * 提供 `log_tail`（末尾 N 行，可选关键字过滤）与 `log_search`（自字节偏移起的命中行与下一页偏移）。
  * - 日志路径由平台 [LogPathProvider] 提供，core 端做规范化前缀校验，禁止读取根目录外文件。

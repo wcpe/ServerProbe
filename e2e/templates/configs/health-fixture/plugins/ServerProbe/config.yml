@@ -1,0 +1,16 @@
+# Provider 健康状态场景：ServerProbe 配置（一次性回环桥配置，token/端口由构建期随机生成）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"
+  # 显式写死健康刷新参数：E2E 要验证的是"按配置判超时并隔离"，而不是"读默认值恰好也够用"。
+  health:
+    # 取 300ms 与默认 1000ms 形成对照：卡死域阻塞 5s，因此 DEGRADED 只可能来自"有界等待到点"。
+    timeout-ms: 300
+    # 刷新周期取 10 分钟：本场景只在注册时请求刷新，必须避免测试期间的周期 sweep
+    # 再次 probe 卡死域（它已占住唯一的 probe 线程），否则正常域会被连带判成超时。
+    refresh-interval-ms: 600000
+    # 隔离窗口取 10 分钟：抛异常域与卡死域在断言期间必须持续呈 quarantined=true。
+    quarantine-ms: 600000

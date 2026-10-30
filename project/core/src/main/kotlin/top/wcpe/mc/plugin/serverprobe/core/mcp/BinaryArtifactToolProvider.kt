@@ -8,16 +8,16 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.Base64
 
 /**
- * FR-18 MCP 二进制产物安全回传工具（只读）。
+ * MCP 二进制产物安全回传工具（只读）。
  *
  * 提供 `artifact_read_binary`：按字节偏移分块读取工件，以 Base64（无填充）编码
  * 返回，供外部 agent 解码还原二进制产物（heap dump / JFR / flamegraph 等）。
- * - 与文本工具 `artifact_read_chunk` 并存：二进制产物走本工具，文本走原工具；
+ * - 与文本工具 `artifact_read_chunk`并存：二进制产物走本工具，文本走原工具；
  *   本工具对任意工件均可用，不校验内容是否二进制。
- * - 游标语义与 `artifact_read_chunk` 一致：`nextOffset` 供翻页，`truncated` 表示是否还有更多。
- * - 大小限制：单块默认 64 KiB、上限 1 MiB（与工作区 `MAX_READ_BYTES` 对齐）；
- *   内容始终先经 Base64 编码为字符串再进响应 Map，避免 `McpJsonWriter` 把
- *   ByteArray 按 JSON 数组分支逐字节序列化触发 `MAX_ITEMS` 静默截断。
+ * - 游标语义与 `artifact_read_chunk`一致：`nextOffset`供翻页，`truncated`表示是否还有更多。
+ * - 大小限制：单块默认 64 KiB、上限 1 MiB（与工作区 `MAX_READ_BYTES`对齐）；
+ *   内容始终先经 Base64 编码为字符串再进响应 Map，避免 `McpJsonWriter`把
+ *   ByteArray 按 JSON 数组分支逐字节序列化触发 `MAX_ITEMS`静默截断。
  * - 安全：仅读工件工作区内文件，名称校验走工作区白名单，拒绝任意路径。
  *
  * 无共享可变状态：每次调用经 [McpArtifactWorkspaceRegistry] 取当前工作区只读快照。

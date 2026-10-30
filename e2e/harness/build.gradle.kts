@@ -1,4 +1,7 @@
 // ServerProbe 的 mc-testkit E2E harness；Paper API 仅在真实服务端提供。
+// build script 里的 `java` 会解析成 Java 扩展，故 ZipFile 必须走顶部 import 而非全限定名。
+import java.util.zip.ZipFile
+
 plugins {
     id("serverprobe.e2e-harness")
     id("org.jetbrains.kotlin.jvm")
@@ -7,6 +10,10 @@ plugins {
 dependencies {
     // 运行期由真实 Paper 服务端提供，禁止打入插件 jar。
     compileOnly("io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT")
+    // 被测插件的对外契约：**必须 compileOnly**。
+    // 若用 implementation，下面的 jar 任务会把它打进 harness jar，于是 harness 拥有自己的一份
+    // ServerProbeAPI（静态字段 services 与探针那份不是同一实例）→ 注册永不生效且不报错。
+    compileOnly(project(":api"))
     // 仅编译期链接被测插件公开 API；运行期由同一测试服内的 ServerProbe 提供。
     implementation(kotlin("stdlib"))
     testImplementation(kotlin("test"))
@@ -35,7 +42,30 @@ kotlin {
 
 tasks.jar {
     archiveBaseName.set("mc-testkit-e2e-harness")
-    // harness 自带 Kotlin 标准库；Paper API 保持 compileOnly。
+    // harness 自带 Kotlin 标准库；Paper API 与 ServerProbe 契约（:api）保持 compileOnly。
     duplicatesStrategy = org.gradle.api.file.DuplicatesStrategy.EXCLUDE
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
 }
+
+// 防回归：harness jar 内**不得**含 ServerProbe 的 api 类。
+// 一旦有人把 :api 误改为 implementation，上面的 from(runtimeClasspath) 会把它打进来，
+// 于是 harness 持有独立的一份 ServerProbeAPI，静态字段与探针那份分裂 → 注册静默失效。
+// 注意：此处不能用全限定 java.util.zip.ZipFile——build script 里的 `java` 会解析成 Java 扩展。
+val verifyNoProbeApiInHarness = tasks.register("verifyNoProbeApiInHarness") {
+    description = "校验 harness jar 未打包 ServerProbe 对外契约（否则门面静态状态会分裂）"
+    group = "verification"
+    dependsOn(tasks.named("jar"))
+    doLast {
+        val artifact = tasks.named<Jar>("jar").get().archiveFile.get().asFile
+        val forbidden = ZipFile(artifact).use { archive ->
+            archive.entries().asSequence().map { entry -> entry.name }
+                .filter { name -> name.startsWith("top/wcpe/mc/plugin/serverprobe/api/") }
+                .toList()
+        }
+        check(forbidden.isEmpty()) {
+            "harness jar 不得包含 ServerProbe 契约类（:api 必须 compileOnly）：${forbidden.take(5)}"
+        }
+    }
+}
+
+tasks.named("check") { dependsOn(verifyNoProbeApiInHarness) }

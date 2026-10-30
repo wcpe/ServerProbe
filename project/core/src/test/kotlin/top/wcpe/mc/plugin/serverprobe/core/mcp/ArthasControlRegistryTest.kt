@@ -35,7 +35,7 @@ class ArthasControlRegistryTest {
 
     @Test
     fun `注册实现后转发补丁前备份字节码读取`() {
-        // 回归：Registry 必须转发 dumpClassBytes（曾漏转发导致 FR-19 自动备份生产恒降级）
+        // 回归：Registry 必须转发 dumpClassBytes（曾漏转发导致自动备份生产恒降级）
         val registry = ArthasControlRegistry()
         val control = object : ArthasControl {
             override fun submit(request: ArthasCommandRequest) = ArthasTaskSnapshot("task-1", ArthasTaskState.QUEUED, "已提交")

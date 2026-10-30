@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.bukkit.bridge
 
+import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import org.bukkit.Bukkit
 import taboolib.common.platform.Platform
 import taboolib.common.platform.PlatformSide
@@ -7,7 +8,6 @@ import taboolib.common.platform.function.submit
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommand
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandHandler
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandRegistry
-import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Bukkit 子服端治理执行器(FR-067,JianManager ADR-016 探针侧)。
+ * Bukkit 子服端治理执行器(JianManager ADR-016 探针侧)。
  *
  * 替代退役的 RCON,经平台 API 执行 CP 下发的治理/查询指令(踢/封/解封/白名单/在线列表)。
  * 子服本地视角:对**本子服**生效(踢出/封禁本服在线玩家、增删本服白名单、列本服在线/白名单);
@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ## 线程模型:切回主线程同步执行
  * 桥读线程(core [top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeClient])调用 [handle];而 Bukkit
- * 玩家操作(kick/ban/whitelist/在线遍历)须在服务器主线程。故经 `submit(async = false)` 切回主线程执行,
+ * 玩家操作(kick/ban/whitelist/在线遍历)须在服务器主线程。故经 `submit(async = false)`切回主线程执行,
  * 用 [CountDownLatch] 同步等待结果回传(限时 [SYNC_TIMEOUT_SECONDS],超时即失败,绝不永久占用桥读线程)。
  *
  * ## 形态与自注册
@@ -96,10 +96,10 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
     }
 
     /**
-     * 采集本子服全量内部状态并以 JSON 文本回传(FR-076)。
+     * 采集本子服全量内部状态并以 JSON 文本回传。
      *
      * 已在主线程内([dispatch] 经 submit 切回),[BukkitServerStateCollector] 做一次性只读快照(有界、绝不抛),
-     * 整段状态 JSON 放入 [BridgeCommandResult.output],由 Worker 透传前端「服务器状态」tab(FR-077)。
+     * 整段状态 JSON 放入 [BridgeCommandResult.output],由 Worker 透传前端「服务器状态」tab。
      */
     private fun queryState(): BridgeCommandResult = BridgeCommandResult.ok(BukkitServerStateCollector.collectJson())
 
@@ -112,11 +112,11 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
     }
 
     /**
-     * 封禁玩家:经控制台分派 vanilla `ban` 命令(写入本服 banned-players)。
+     * 封禁玩家:经控制台分派 vanilla `ban`命令(写入本服 banned-players)。
      *
      * 用控制台命令而非 `BanList` API:后者在不同 Bukkit/Paper 版本签名漂移(泛型化后 String 重载被弃用/移除),
-     * 控制台 `ban`/`pardon` 跨版本稳定;且本方法已在主线程([dispatch] 经 submit 切回),分派命令安全。
-     * vanilla `ban` 自身会踢出在线会话,无需另行 kick。
+     * 控制台 `ban`/`pardon`跨版本稳定;且本方法已在主线程([dispatch] 经 submit 切回),分派命令安全。
+     * vanilla `ban`自身会踢出在线会话,无需另行 kick。
      */
     private fun ban(name: String, reason: String): BridgeCommandResult {
         val r = reason.ifEmpty { DEFAULT_BAN_REASON }
@@ -124,7 +124,7 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
         return if (ok) BridgeCommandResult.ok("已封禁 $name") else BridgeCommandResult.fail("封禁命令执行失败:$name")
     }
 
-    /** 解封玩家:经控制台分派 vanilla `pardon` 命令(从本服 banned-players 移除)。 */
+    /** 解封玩家:经控制台分派 vanilla `pardon`命令(从本服 banned-players 移除)。 */
     private fun unban(name: String): BridgeCommandResult {
         val ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "pardon $name")
         return if (ok) BridgeCommandResult.ok("已解封 $name") else BridgeCommandResult.fail("解封命令执行失败:$name")
@@ -179,7 +179,7 @@ class BukkitBridgeCommandHandler : BridgeCommandHandler {
         private const val ACTION_LIST = "list"
         private const val ACTION_WHITELIST_LIST = "whitelist_list"
 
-        /** 全量服务器状态按需查询动作(FR-076):采集本子服内部状态 JSON 回传(与 Worker 侧 pluginActionQueryState 约定一致)。 */
+        /** 全量服务器状态按需查询动作:采集本子服内部状态 JSON 回传(与 Worker 侧 pluginActionQueryState 约定一致)。 */
         private const val ACTION_QUERY_STATE = "query_state"
     }
 }

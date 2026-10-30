@@ -20,8 +20,11 @@ dependencies {
     // BungeeCord 服务端 API(ProxyServer / ServerInfo 等),代理端采集 totalOnline 与各子服在线
     compileOnly("net.md-5:bungeecord-api:1.20-R0.2")
     testImplementation("net.md-5:bungeecord-api:1.20-R0.2")
-    // 测试需解析 LogPathProvider 父接口(FR-28 日志路径适配器单测),与 velocity 同款
+    // 测试需解析 LogPathProvider 父接口（日志路径适配器单测），取证服务的行为测试还要实例化
+    // BungeeNettyForensicsService——其父类型与协作方都在 core/api 里，compileOnly 不进测试运行期，
+    // 故测试侧显式补齐。
     testImplementation(project(":project:core"))
+    testImplementation(project(":api"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")
     // JUnit 5.12+ 要求测试运行期显式具备 Platform launcher，否则 Gradle 报
     // "Could not start Gradle Test Executor / Failed to load JUnit Platform"。

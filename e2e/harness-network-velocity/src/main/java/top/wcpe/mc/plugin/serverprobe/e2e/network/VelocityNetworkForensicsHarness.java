@@ -8,7 +8,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 
 import java.util.concurrent.TimeUnit;
 
-/** Velocity 3/4 API 兼容的 FR11 异步验收桩。 */
+/** Velocity 3/4 API 兼容的异步验收桩。 */
 @Plugin(id = "serverprobe-network-velocity-harness", name = "ServerProbeNetworkVelocityHarness", version = "1.0.0-SNAPSHOT")
 public final class VelocityNetworkForensicsHarness {
 

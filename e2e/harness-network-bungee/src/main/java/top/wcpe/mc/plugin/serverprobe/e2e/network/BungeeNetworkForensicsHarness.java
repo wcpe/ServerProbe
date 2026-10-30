@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.e2e.network;
 import net.md_5.bungee.api.plugin.Plugin;
 import java.util.concurrent.TimeUnit;
 
-/** BungeeCord 的 FR11 异步验收桩。 */
+/** BungeeCord 的异步验收桩。 */
 public final class BungeeNetworkForensicsHarness extends Plugin {
 
     @Override

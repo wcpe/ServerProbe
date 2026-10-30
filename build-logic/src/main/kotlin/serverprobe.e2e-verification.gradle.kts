@@ -4,8 +4,7 @@
  * 承载：
  * - 应用 top.wcpe.mc-testkit 并声明全部 mcTestkit{} 拓扑（backends/proxies/scenarios/serve）
  * - e2e 场景配置注入：模板文件(e2e/templates/configs/<scenario>/) + 占位符替换，脚本内禁止内嵌 YAML
- * - FR9/FR10/FR12/FR14 的 prepare 系列任务与 e2e 任务接线
- * - FR10 离线 TabooLib 运行时的组装与校验
+ * - prepare 系列任务与 e2e 任务接线
  * - 被测发行 jar 文件名与 mc-testkit 运行目录的统一定义（本插件唯一真源）
  *
  * 跨项目任务引用一律用路径字符串，避免 root 配置期跨项目 tasks.named 的时序坑。
@@ -13,7 +12,6 @@
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.Properties
@@ -26,7 +24,8 @@ val pluginJarName = "${project.name}-${version}.jar"
 val pluginJarPath = "plugin/build/libs/$pluginJarName"
 val pluginJarFileProvider = project.layout.projectDirectory.file(pluginJarPath)
 val pluginJarFile: File = pluginJarFileProvider.asFile
-val e2eRunDirectory = project.layout.buildDirectory.dir("mc-testkit/run")
+// 运行目录不再集中定义：mc-testkit 0.10.0 起每个后端一个独立目录（run-<backend>），
+// 需要定位时一律走 `mcTestkit.backendRunDirectory(backend)`（见 installE2eConfig / prepareDirectHarness）。
 
 
 // ── mc-testkit 拓扑声明 ──
@@ -41,6 +40,12 @@ mcTestkit.apply {
         version = "1.20.1"
         // 25575 与用户测试服(luminol)冲突,改用 25620。
         port = 25620
+    }
+    backend("paper-incision") {
+        platform = paper
+        version = "1.20.1"
+        // 与 paper(25620) / paper-mcp(25577) 错开，避免并行跑场景时抢端口。
+        port = 25621
     }
     backend("paper-mcp") {
         platform = paper
@@ -76,16 +81,6 @@ mcTestkit.apply {
         platform = paper
         version = "1.20.1"
         port = 25604
-    }
-    backend("paper-integrations") {
-        platform = paper
-        version = "1.20.1"
-        port = 25591
-        // FR10 离线运行验收：阻断插件运行期经 HTTP/HTTPS 访问远端仓库。
-        jvmArg("-Dhttp.proxyHost=127.0.0.1")
-        jvmArg("-Dhttp.proxyPort=9")
-        jvmArg("-Dhttps.proxyHost=127.0.0.1")
-        jvmArg("-Dhttps.proxyPort=9")
     }
     backend("folia") {
         platform = folia
@@ -294,24 +289,15 @@ mcTestkit.apply {
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
     }
     scenario("read-api") { backend = "paper" }
+    // Incision 织入的场景：必须开 `incision.enabled`，且要等首个启动画像落盘。
+    // 单独一个 backend 是为了不把“开织入”这个变量泄到其他场景上。
+    scenario("incision-startup") { backend = "paper-incision" }
     scenario("storage-spi") { backend = "paper" }
     scenario("bridge-fixture") { backend = "paper" }
-    scenario("integrations-both") {
-        backend = "paper-integrations"
-        bot {
-            username = "SpInventory"
-            action = "integrations"
-        }
-    }
-    scenario("integrations-mce-only") { backend = "paper-integrations" }
-    scenario("integrations-ais-only") {
-        backend = "paper-integrations"
-        bot {
-            username = "SpInventory"
-            action = "integrations"
-        }
-    }
-    scenario("integrations-none") { backend = "paper-integrations" }
+    scenario("chunk-fixture") { backend = "paper" }
+    scenario("topic-fixture") { backend = "paper" }
+    scenario("health-fixture") { backend = "paper" }
+    scenario("reload-fixture") { backend = "paper" }
     scenario("mcp-diagnostics-paper") { backend = "paper-mcp" }
     scenario("mcp-diagnostics-paper-java21") { backend = "paper-mcp-java21" }
     scenario("mcp-diagnostics-folia") { backend = "folia-mcp" }
@@ -342,7 +328,7 @@ mcTestkit.apply {
             count = 2
         }
     }
-    // 多版本矩阵场景：与 FR8 read-api 同判据（真实快照 + 启动画像），由 harness 的 matrix- 前缀识别。
+    // 多版本矩阵场景：与 read-api 同判据（真实快照 + 启动画像），由 harness 的 matrix- 前缀识别。
     scenario("matrix-paper-1-8-8") { backend = "matrix-paper-1-8-8" }
     scenario("matrix-paper-1-12-2") { backend = "matrix-paper-1-12-2" }
     scenario("matrix-paper-1-16-5") { backend = "matrix-paper-1-16-5" }
@@ -358,21 +344,21 @@ mcTestkit.apply {
         // Bukkit 平台的既有权威结果实际运行于 Spigot 后端。
         backend = "spigot-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
     scenario("network-forensics-paper") {
         backend = "paper-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
     scenario("network-forensics-folia") {
         backend = "folia-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -380,7 +366,7 @@ mcTestkit.apply {
         backend = "spigot-network"
         via = "bungee-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -388,7 +374,7 @@ mcTestkit.apply {
         backend = "paper-network-velocity"
         via = "velocity-network"
         bot {
-            username = "Fr11Probe"
+            username = "NetworkProbe"
             action = "network-forensics"
         }
     }
@@ -493,40 +479,18 @@ tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
     dependsOn(":e2e:harness:jar", ":e2e:harness-network-bukkit:jar")
 }
 
-
-// 清理运行库目录中 FR10 离线闭包的残留：集成场景会把 TabooLib 离线闭包注入 libraries/，而该目录
-// 在场景间不清除（mc-testkit 保留它以免重复下载）。残留闭包会被后续在同一运行目录起服的场景经
-// 服务端自身的运行库加载读到（TabooLib 的 taboolib.file-libs 默认即指向 libraries/），
-// 曾破坏 spigot 等场景的启动（如 org.bukkit.Registry 冲突）。
-// 非集成场景 prepare 前先清空，避免污染；集成场景自身仍注入该目录。
-val cleanupIntegrationsLibraries by tasks.registering {
-    group = "verification"
-    description = "清理共享 run/libraries 中 FR10 离线闭包残留，防止污染其他场景"
-    outputs.upToDateWhen { false }
-    doLast {
-        val librariesDir = e2eRunDirectory.get().file("libraries").asFile
-        if (librariesDir.isDirectory && !librariesDir.deleteRecursively()) {
-            logger.warn("无法清理残留运行库目录：${librariesDir.absolutePath}")
-        }
-    }
-}
-tasks.matching {
-    it.name.startsWith("prepareE2e") && !it.name.contains("Integrations")
-}.configureEach {
-    dependsOn(cleanupIntegrationsLibraries)
-}
-tasks.matching { it.name.startsWith("prepareE2eFr11") }.configureEach {
+tasks.matching { it.name.startsWith("prepareE2eNetworkForensics") }.configureEach {
     dependsOn(":e2e:harness-network-bukkit:jar", ":e2e:harness-network-bungee:jar", ":e2e:harness-network-velocity:jar")
 }
-tasks.matching { it.name.startsWith("prepareE2eFr13") }.configureEach {
+tasks.matching { it.name.startsWith("e2eVelocityMatrixV") }.configureEach {
     dependsOn(":e2e:harness-velocity-matrix:jar")
 }
 
-// ── FR9 桥 fixture ──
+// ── 桥 fixture ──
 
 val prepareBridgeFixture by tasks.registering {
     group = "verification"
-    description = "为 FR9 回环 Worker fixture 生成一次性本机桥配置"
+    description = "为 回环 Worker fixture 生成一次性本机桥配置"
     dependsOn("prepareE2eBridgeFixture")
     outputs.upToDateWhen { false }
     // 配置期只取 Provider，任务动作执行期才解析（配置缓存友好）
@@ -546,332 +510,122 @@ val prepareBridgeFixture by tasks.registering {
 
 wireE2eDependency("e2eBridgeFixture", prepareBridgeFixture)
 
-// ── FR10 离线 TabooLib 运行时（真实业务插件 + 运行库离线闭包）──
+// ── 帧分片 fixture ──
+// 与同构：先由 prepareE2eChunkFixture 铺设运行目录，再写入一次性回环桥配置（含分片参数）。
 
-/** MultiCurrencyEconomy 运行期表达式引擎的精确 Maven 闭包。 */
-private data class OfflineMavenArtifact(
-    val group: String,
-    val name: String,
-    val version: String,
-    val extension: String,
-) {
-    val coordinate: String = "$group:$name:$version@$extension"
-    val relativePath: String = "${group.replace('.', '/')}/$name/$version/$name-$version.$extension"
-}
-
-private val offlineMceRuntimeArtifacts = listOf(
-    OfflineMavenArtifact("org.apache.commons", "commons-jexl3", "3.2.1", "jar"),
-    OfflineMavenArtifact("org.apache.commons", "commons-jexl3", "3.2.1", "pom"),
-    OfflineMavenArtifact("commons-logging", "commons-logging", "1.2", "jar"),
-    OfflineMavenArtifact("commons-logging", "commons-logging", "1.2", "pom"),
-    OfflineMavenArtifact("org.apache.commons", "commons-parent", "52", "pom"),
-    OfflineMavenArtifact("org.apache", "apache", "23", "pom"),
-    OfflineMavenArtifact("org.apache.commons", "commons-parent", "34", "pom"),
-    OfflineMavenArtifact("org.apache", "apache", "13", "pom"),
-)
-
-/* 父 POM 存在多个版本，分别解析以避免 Gradle 冲突裁决遗漏历史父链。 */
-private val offlineMceRuntimeClosures = offlineMceRuntimeArtifacts.associateWith { artifact ->
-    configurations.detachedConfiguration(dependencies.create(artifact.coordinate)).apply {
-        isTransitive = false
-    }
-}
-
-val offlineTabooRuntimeDirectory = rootProject.layout.buildDirectory.dir("offline-taboolib-runtime")
-
-/** 将已解析的运行库和真实业务插件整理为可直接解压的离线运行时包。 */
-val prepareOfflineTabooRuntime by tasks.registering {
+val prepareChunkFixture by tasks.registering {
     group = "verification"
-    description = "生成含真实业务插件与 TabooLib 运行库的离线 mc-testkit 运行时包"
-    dependsOn(":plugin:jar")
-    outputs.dir(offlineTabooRuntimeDirectory)
+    description = "为 帧分片 fixture 生成一次性本机桥配置"
+    dependsOn("prepareE2eChunkFixture")
     outputs.upToDateWhen { false }
     doLast {
-        val externalPlugins = listOf(
-            requiredE2eJar("SERVERPROBE_E2E_CORELIB_JAR"),
-            requiredE2eJar("SERVERPROBE_E2E_MCE_JAR"),
-            requiredE2eJar("SERVERPROBE_E2E_AIS_JAR"),
+        val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        installE2eConfig(
+            mcTestkit.backendRunDirectory("paper").get().asFile,
+            "chunk-fixture",
+            "plugins/ServerProbe/config.yml",
+            mapOf("__PORT__" to port.toString(), "__TOKEN__" to token),
         )
-        val output = offlineTabooRuntimeDirectory.get().asFile
-        if (output.exists() && !output.deleteRecursively()) {
-            error("无法清理离线 TabooLib 运行时目录：${output.absolutePath}")
-        }
-        val plugins = File(output, "plugins").apply { mkdirs() }
-        externalPlugins.forEach { plugin -> plugin.copyTo(File(plugins, plugin.name), overwrite = true) }
-
-        val libraries = File(output, "libraries")
-        copyOfflineRuntimeLibraries(offlineTabooRuntimeLibrarySource(), libraries)
-        copyRequiredTabooLibModules(libraries)
-        copyReflexClosure(libraries)
-        copyMceRuntimeClosure(libraries)
-        writeOfflineRuntimeManifest(output)
     }
 }
 
-/** 验证 MCE 运行期依赖及其 POM 父链均由离线包明确提供。 */
-val verifyOfflineMceRuntimeClosure by tasks.registering {
+wireE2eDependency("e2eChunkFixture", prepareChunkFixture)
+
+// ── 事件主题订阅 fixture ──
+// 与/同构：先由 prepareE2eTopicFixture 铺设运行目录，再写入一次性回环桥配置（含订阅上限）。
+
+val prepareTopicFixture by tasks.registering {
     group = "verification"
-    description = "验证离线运行时包含 MultiCurrencyEconomy 的完整表达式引擎闭包"
-    dependsOn(prepareOfflineTabooRuntime)
-    doLast {
-        val libraries = File(offlineTabooRuntimeDirectory.get().asFile, "libraries")
-        offlineMceRuntimeArtifacts.forEach { artifact ->
-            val target = File(libraries, artifact.relativePath)
-            check(target.isFile) { "离线运行时缺少 MCE 依赖：${artifact.coordinate}" }
-            val sidecar = File("${target.absolutePath}.sha1")
-            check(sidecar.readText().trim() == target.sha1()) {
-                "离线运行时校验和不匹配：${artifact.coordinate}"
-            }
-        }
-    }
-}
-
-/** 运行库源可显式覆盖，默认复用 mc-testkit 已解析的本地运行库缓存。 */
-private fun Project.offlineTabooRuntimeLibrarySource(): File {
-    val configured = providers.gradleProperty("offlineTaboolibRuntimeLibrariesDir").orNull
-    val defaultSource = rootProject.layout.buildDirectory.dir("mc-testkit/run/libraries").get().asFile.absolutePath
-    val source = File(configured ?: defaultSource).canonicalFile
-    return source.takeIf(File::isDirectory)
-        ?: error("离线 TabooLib 运行库目录不存在：${source.absolutePath}；请先提供 -PofflineTaboolibRuntimeLibrariesDir")
-}
-
-/** 覆盖运行目录中的旧缓存，确保验收从离线包而不是历史下载缓存启动。 */
-private fun copyOfflineRuntimeLibraries(source: File, target: File) {
-    if (target.exists() && !target.deleteRecursively()) {
-        error("无法清理离线运行库目标目录：${target.absolutePath}")
-    }
-    check(source.copyRecursively(target, overwrite = true)) {
-        "无法复制离线运行库：${source.absolutePath} → ${target.absolutePath}"
-    }
-}
-
-/** 离线闭包统一使用的 TabooLib 版本（与 ServerProbe 自身编译版本一致）。 */
-private val OFFLINE_TABOOLIB_VERSION = "6.3.0-wcpe.1"
-
-/** 离线闭包统一收集的 TabooLib 模块清单（wcpe.1 全套，含隐式基础模块）。 */
-private val offlineTabooLibModules = listOf(
-    "basic-configuration", "basic-submit-chain", "bukkit-hook", "bukkit-nms", "bukkit-nms-legacy",
-    "bukkit-nms-stable", "bukkit-nms-tag", "bukkit-nms-tag-legacy", "bukkit-nms-tag-modern",
-    "bukkit-ui", "bukkit-ui-12100", "bukkit-ui-legacy", "bukkit-util", "bukkit-xseries",
-    "common", "common-env", "common-legacy-api", "common-platform-api", "common-reflex", "common-util",
-    "incision", "minecraft-chat", "minecraft-command-helper", "minecraft-i18n",
-    "platform-bukkit", "platform-bukkit-impl", "platform-bungee", "platform-bungee-impl",
-    "platform-velocity", "platform-velocity-impl",
-)
-
-/**
- * TabooLib 离线闭包的构建期解析（与 reflex / MCE 闭包同一套路）。
- *
- * 早先这里读的是 Gradle 模块缓存（`caches/modules-2/files-2.1/io.izzel.taboolib/...`），但成套 30 个模块
- * **不是**构建依赖：只有插件跑过、把它运行期下过的模块留在缓存里的机器才凑得齐。全新检出与 CI 上
- * 会缺（实测 CI 报「本机 Gradle 缓存缺少 TabooLib 离线模块：bukkit-hook」）。改为按坐标解析后，
- * 来源是 settings 里已配置的 wcpe.top 仓库，任何机器结果一致。
- */
-private val offlineTabooLibClosures = offlineTabooLibModules.associateWith { module ->
-    configurations.detachedConfiguration(
-        dependencies.create("io.izzel.taboolib:$module:$OFFLINE_TABOOLIB_VERSION"),
-    ).apply { isTransitive = false }
-}
-
-/** 把统一版本（wcpe.1）的 TabooLib 全套模块复制到运行库目录，只保留一套。 */
-private fun copyRequiredTabooLibModules(libraries: File) {
-    // 先清掉源带来的多版本残留，只保留 wcpe.1 一套。
-    File(libraries, "io/izzel/taboolib").takeIf(File::isDirectory)?.deleteRecursively()
-    offlineTabooLibClosures.forEach { (module, configuration) ->
-        val jar = configuration.resolve()
-            .singleOrNull { it.name.startsWith("$module-") }
-            ?: error("构建依赖缺少 TabooLib 离线模块：io.izzel.taboolib:$module:$OFFLINE_TABOOLIB_VERSION")
-        val target = File(libraries, "io/izzel/taboolib/$module/$OFFLINE_TABOOLIB_VERSION/${jar.name}")
-        target.parentFile.mkdirs()
-        jar.copyTo(target, overwrite = true)
-    }
-}
-
-/** 只从构建依赖解析结果复制 MCE 必需闭包，运行期不再解析仓库。 */
-private fun copyMceRuntimeClosure(libraries: File) {
-    offlineMceRuntimeArtifacts.forEach { artifact ->
-        val sourceName = "${artifact.name}-${artifact.version}.${artifact.extension}"
-        val source = offlineMceRuntimeClosures.getValue(artifact).resolve()
-            .singleOrNull { it.name == sourceName }
-            ?: error("构建依赖缺少 MCE 离线闭包：${artifact.coordinate}")
-        val target = File(libraries, artifact.relativePath)
-        target.parentFile.mkdirs()
-        source.copyTo(target, overwrite = true)
-    }
-}
-
-/**
- * 统一收集与 TabooLib 6.3.0-wcpe.1 配套的 reflex（reflex + analyser，版本 1.2.5-wcpe.1），
- * 只放一套。jar 来自 mc-testkit 持久缓存（首次由 wcpe.top 仓库下载后缓存）。
- */
-/** reflex 闭包版本（与 TabooLib 6.3.0-wcpe.1 配套）。 */
-private val REFLEX_CLOSURE_VERSION = "1.2.5-wcpe.1"
-
-/**
- * reflex 闭包的构建期解析（来源为 settings 里已配置的 wcpe.top 仓库，与 MCE 闭包同一套路）。
- *
- * 早先这里读的是 mc-testkit 的 jar 持久缓存 `caches/mc-testkit-jars/reflex/...`（由插件运行期下载），
- * 该缓存**只在跑过插件的机器上才存在**：本地因插件跑过而有、全新检出与 CI 上必然缺失——代理侧闭包
- * 一挂到所有 prepareE2e* 上，就让 CI 的「第 1 批场景」整体失败（实测）。改为构建期解析后两者一致。
- */
-private val reflexClosureArtifacts = listOf("reflex", "analyser").associateWith { artifactName ->
-    configurations.detachedConfiguration(
-        dependencies.create("org.tabooproject.reflex:$artifactName:$REFLEX_CLOSURE_VERSION"),
-    ).apply { isTransitive = false }
-}
-
-/** 把 reflex 闭包复制进运行库目录（只保留配套版本一套）。 */
-private fun copyReflexClosure(libraries: File) {
-    // 先清掉源带来的多版本残留
-    File(libraries, "org/tabooproject/reflex").takeIf(File::isDirectory)?.deleteRecursively()
-    reflexClosureArtifacts.forEach { (artifactName, configuration) ->
-        val jar = configuration.resolve()
-            .singleOrNull { it.name.startsWith("$artifactName-") }
-            ?: error("构建依赖缺少 reflex 闭包：org.tabooproject.reflex:$artifactName:$REFLEX_CLOSURE_VERSION")
-        val target = File(libraries, "org/tabooproject/reflex/$artifactName/$REFLEX_CLOSURE_VERSION/${jar.name}")
-        target.parentFile.mkdirs()
-        jar.copyTo(target, overwrite = true)
-    }
-}
-
-/** 为每个归档与 Maven 描述生成 SHA-1 旁车文件，并输出便于审计的离线清单。 */
-private fun writeOfflineRuntimeManifest(output: File) {
-    val archives = output.walkTopDown()
-        .filter { it.isFile && it.extension.lowercase() in setOf("jar", "pom") }
-        .sortedBy { it.relativeTo(output).invariantSeparatorsPath }
-        .toList()
-    val entries = archives.map { archive ->
-        val relative = archive.relativeTo(output).invariantSeparatorsPath
-        val sha1 = archive.sha1()
-        File("${archive.absolutePath}.sha1").writeText("$sha1\n")
-        "$relative\t$sha1"
-    }
-    File(output, "MANIFEST.tsv").writeText((listOf("路径\tSHA-1") + entries).joinToString("\n") + "\n")
-}
-
-private fun File.sha1(): String = MessageDigest.getInstance("SHA-1").run {
-    inputStream().use { input ->
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            update(buffer, 0, read)
-        }
-    }
-    digest().joinToString("") { byte -> "%02x".format(byte) }
-}
-
-// ── FR10 集成场景配置注入 ──
-
-/** FR10 各组合保留的真实外部插件；所有输入仅由运行环境变量提供。 */
-private data class IntegrationsPluginSet(
-    val mce: Boolean,
-    val ais: Boolean,
-)
-
-/**
- * 为 FR10 组合准备真实外部插件与离线闭包。
- *
- * 本函数的注入链仍指向 mc-testkit 的遗留共享运行目录（`build/mc-testkit/run`），而 mc-testkit
- * 现已把单后端运行目录隔离为 `run-<后端名>`，故离线闭包与外部插件不会到达实际运行目录。
- * FR10 场景需按 `mcTestkit.backendRunDirectory("paper-integrations")` 迁移后再跑（本次未验）。
- */
-private fun Project.prepareIntegrationsRuntime(
-    taskName: String,
-    e2eTaskName: String,
-    plugins: IntegrationsPluginSet,
-) = tasks.register(taskName) {
-    group = "verification"
-    description = "为 $e2eTaskName 准备真实业务插件组合与一次性回环桥配置"
-    dependsOn("prepareE2e$e2eTaskName", prepareOfflineTabooRuntime)
+    description = "为 事件主题订阅 fixture 生成一次性本机桥配置"
+    dependsOn("prepareE2eTopicFixture")
     outputs.upToDateWhen { false }
     doLast {
-        // 离线闭包注入 TabooLib 的运行库目录 libraries/（其 taboolib.file-libs 默认指向该目录，
-        // 运行期由 TabooLib 自身加载；mc-testkit 的启动器不扫描该目录）。
-        // 非集成场景 prepare 前会经 cleanupIntegrationsLibraries 清空此处残留，避免污染。
-        copyOfflineRuntimeLibraries(
-            File(offlineTabooRuntimeDirectory.get().asFile, "libraries"),
-            e2eRunDirectory.get().file("libraries").asFile,
+        val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        installE2eConfig(
+            mcTestkit.backendRunDirectory("paper").get().asFile,
+            "topic-fixture",
+            "plugins/ServerProbe/config.yml",
+            mapOf("__PORT__" to port.toString(), "__TOKEN__" to token),
         )
-        val pluginsDirectory = e2eRunDirectory.get().file("plugins").asFile
-        if (plugins.mce || plugins.ais) {
-            copyE2ePlugin(requiredE2eJar("SERVERPROBE_E2E_CORELIB_JAR"), pluginsDirectory)
-        }
-        if (plugins.mce) {
-            copyE2ePlugin(requiredE2eJar("SERVERPROBE_E2E_MCE_JAR"), pluginsDirectory)
-        }
-        if (plugins.ais) {
-            copyE2ePlugin(requiredE2eJar("SERVERPROBE_E2E_AIS_JAR"), pluginsDirectory)
-        }
-        writeIntegrationsConfigurations(e2eRunDirectory.get().asFile)
     }
 }
 
-/** 真实外部插件仅复制到其对应集成场景，不能成为其他 E2E 的全局前置条件。 */
-private fun copyE2ePlugin(source: File, pluginsDirectory: File) {
-    source.copyTo(File(pluginsDirectory, source.name), overwrite = true)
-}
+wireE2eDependency("e2eTopicFixture", prepareTopicFixture)
 
-/** 缺少真实插件构件时在服务端启动前明确失败，避免用替身或旧文件悄然通过。 */
-private fun Project.requiredE2eJar(name: String): File {
-    // 用 System.getenv 而非 providers.environmentVariable：included build 的 ProviderFactory
-    // 在 --no-daemon 单次构建中可能快照到 shell export 前的环境，System.getenv 直接读当前进程。
-    val location = System.getenv(name) ?: error("缺少真实插件环境变量:$name")
-    return File(location).takeIf(File::isFile) ?: error("真实插件构件不存在:$name")
-}
+// ── Provider 健康状态 fixture ──
+// 与//同构：先由 prepareE2eHealthFixture 铺设运行目录，再写入一次性回环桥配置
+// （含 health 刷新参数——超时预算必须显式写死，卡死域的判据就挂在它上面）。
 
-/** 只写入可公开的 H2 测试配置与随机回环凭据；不落盘任何真实地址或密钥。 */
-private fun Project.writeIntegrationsConfigurations(targetRunDirectory: File) {
-    val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
-    val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-    val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
-    listOf(
-        "plugins/ServerProbe/config.yml",
-        "plugins/CoreLib/config.yml",
-        "plugins/MultiCurrencyEconomy/config.yml",
-        "plugins/AllinInventorySync/config.yml",
-    ).forEach { relative ->
-        installE2eConfig(targetRunDirectory, "integrations", relative, mapOf("__PORT__" to port.toString(), "__TOKEN__" to token))
+val prepareHealthFixture by tasks.registering {
+    group = "verification"
+    description = "为 Provider 健康状态 fixture 生成一次性本机桥配置"
+    dependsOn("prepareE2eHealthFixture")
+    outputs.upToDateWhen { false }
+    // 配置期只取 Provider，任务动作执行期才解析（配置缓存友好）
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
+    doLast {
+        val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        installE2eConfig(
+            runDirectory.get().asFile,
+            "health-fixture",
+            "plugins/ServerProbe/config.yml",
+            mapOf("__PORT__" to port.toString(), "__TOKEN__" to token),
+        )
     }
 }
 
-val prepareIntegrationsBoth by prepareIntegrationsRuntime(
-    "prepareIntegrationsBoth",
-    "IntegrationsBoth",
-    IntegrationsPluginSet(mce = true, ais = true),
-)
-val prepareIntegrationsMceOnly by prepareIntegrationsRuntime(
-    "prepareIntegrationsMceOnly",
-    "IntegrationsMceOnly",
-    IntegrationsPluginSet(mce = true, ais = false),
-)
-val prepareIntegrationsAisOnly by prepareIntegrationsRuntime(
-    "prepareIntegrationsAisOnly",
-    "IntegrationsAisOnly",
-    IntegrationsPluginSet(mce = false, ais = true),
-)
-val prepareIntegrationsNone by prepareIntegrationsRuntime(
-    "prepareIntegrationsNone",
-    "IntegrationsNone",
-    IntegrationsPluginSet(mce = false, ais = false),
-)
+wireE2eDependency("e2eHealthFixture", prepareHealthFixture)
 
-listOf(
-    "e2eIntegrationsBoth" to prepareIntegrationsBoth,
-    "e2eIntegrationsMceOnly" to prepareIntegrationsMceOnly,
-    "e2eIntegrationsAisOnly" to prepareIntegrationsAisOnly,
-    "e2eIntegrationsNone" to prepareIntegrationsNone,
-).forEach { (taskName, prepare) -> wireE2eDependency(taskName, prepare) }
+// ── 配置重载通知 fixture ──
+// 与///同构：先由 prepareE2eReloadFixture 铺设运行目录，再写入一次性回环桥配置
+// （含 reload 预算与两池参数——"预算内编排"的判据就挂在 timeout-ms 上）。
 
-/** FR10 的 AIS 验收依赖真实在线玩家，默认 E2E 入口必须先启动其声明的 bot。 */
-wireE2eDependency("e2eIntegrationsBoth", "launchIntegrationsBothBot")
-wireE2eDependency("e2eIntegrationsAisOnly", "launchIntegrationsAisOnlyBot")
+val prepareReloadFixture by tasks.registering {
+    group = "verification"
+    description = "为 配置重载通知 fixture 生成一次性本机桥配置"
+    dependsOn("prepareE2eReloadFixture")
+    outputs.upToDateWhen { false }
+    doLast {
+        val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        installE2eConfig(
+            mcTestkit.backendRunDirectory("paper").get().asFile,
+            "reload-fixture",
+            "plugins/ServerProbe/config.yml",
+            mapOf("__PORT__" to port.toString(), "__TOKEN__" to token),
+        )
+    }
+}
 
-// ── FR12 Folia 场景配置注入 ──
+wireE2eDependency("e2eReloadFixture", prepareReloadFixture)
+
+// ── Incision 织入场景配置注入 ──
+// 必须在服启动前写入：`incision.enabled` 由 TabooLib 在 LOAD 阶段读入并缓存，
+// 由 harness 在 onLoad 里写太晚（已读到默认的 false）——表现为“配置文件看着对、就是不生效”。
+val prepareIncisionStartupConfiguration by tasks.registering {
+    group = "verification"
+    description = "为 Incision 织入场景写入已开启的开关配置"
+    dependsOn("prepareE2eIncisionStartup")
+    outputs.upToDateWhen { false }
+    doLast {
+        installE2eConfig(mcTestkit.backendRunDirectory("paper-incision").get().asFile, "incision-startup", "plugins/ServerProbe/config.yml")
+    }
+}
+
+wireE2eDependency("e2eIncisionStartup", prepareIncisionStartupConfiguration)
+
+// ── Folia 场景配置注入 ──
 
 val prepareFoliaObservedRegionsConfiguration by tasks.registering {
     group = "verification"
-    description = "为 FR12 Folia 场景写入快速采样与 region 过期配置"
+    description = "为 Folia 场景写入快速采样与 region 过期配置"
     dependsOn("prepareE2eFoliaObservedRegions")
     outputs.upToDateWhen { false }
     val runDirectory = mcTestkit.backendRunDirectory("folia")
@@ -882,11 +636,11 @@ val prepareFoliaObservedRegionsConfiguration by tasks.registering {
 
 wireE2eDependency("e2eFoliaObservedRegions", prepareFoliaObservedRegionsConfiguration)
 
-// ── FR14 MCP 场景配置注入 ──
+// ── MCP 场景配置注入 ──
 
 val prepareMcpDiagnosticsConfiguration by tasks.registering {
     group = "verification"
-    description = "在 Paper 启动前写入 FR14 MCP 场景配置"
+    description = "在 Paper 启动前写入 MCP 场景配置"
     dependsOn("prepareE2eMcpDiagnosticsPaper")
     outputs.upToDateWhen { false }
     val runDirectory = mcTestkit.backendRunDirectory("paper-mcp")

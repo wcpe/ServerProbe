@@ -1,6 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
-/** 把工具元数据拼成 `tools/list` 下发的结构化中文描述（FR-23）。 */
+/** 把工具元数据拼成 `tools/list`下发的结构化中文描述。 */
 object ToolDescriptionBuilder {
 
     private const val MAX_DESCRIPTION_CHARS = 1_500

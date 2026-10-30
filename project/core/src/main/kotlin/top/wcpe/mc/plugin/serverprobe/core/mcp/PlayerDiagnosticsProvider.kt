@@ -50,7 +50,7 @@ data class PlayerLookupResult(
     val reason: String? = null,
 )
 
-/** 玩家诊断提供者契约（FR-20）：平台模块实现并注册；代理端不注册，工具返回平台不支持。 */
+/** 玩家诊断提供者契约：平台模块实现并注册；代理端不注册，工具返回平台不支持。 */
 interface PlayerDiagnosticsProvider {
     fun lookup(request: PlayerLookupRequest): PlayerLookupResult?
 }

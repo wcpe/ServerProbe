@@ -6,14 +6,14 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.enums.ProbePlatform
-import top.wcpe.mc.plugin.serverprobe.api.model.JvmMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.MetricSnapshot
-import top.wcpe.mc.plugin.serverprobe.api.model.ObservedRegionMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.ServerMetrics
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ObservedRegionMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ServerMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics
 
 /**
- * FR-17：`server_status` 的 worlds 输出层增强（entityTypeCounts/regionStats）合并逻辑。
+ *：`server_status`的 worlds 输出层增强（entityTypeCounts/regionStats）合并逻辑。
  *
  * 覆盖三类行为：provider 缺失降级（保持既有快照输出）、字段合并（每世界按名对齐，输出层
  * 以同名字段 Map 承载新字段，不改动 [WorldMetrics] 模型）、向后兼容（快照无 worlds 或
@@ -152,10 +152,10 @@ private class FakeReadApi(private val snapshot: MetricSnapshot) : ProbeReadApi {
     override fun latestSnapshot(): MetricSnapshot = snapshot
     override fun recentSnapshots(limit: Int): List<MetricSnapshot> = emptyList()
     override fun recentSnapshotsSince(sinceMs: Long): List<MetricSnapshot> = emptyList()
-    override fun aggregated(windowSize: Int): top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics =
-        top.wcpe.mc.plugin.serverprobe.api.model.AggregatedMetrics.builder().windowSampleCount(0).build()
-    override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile? = null
-    override fun historyStartupProfiles(limit: Int): List<top.wcpe.mc.plugin.serverprobe.api.model.StartupProfile> = emptyList()
+    override fun aggregated(windowSize: Int): top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics =
+        top.wcpe.mc.plugin.serverprobe.api.model.metrics.AggregatedMetrics.builder().windowSampleCount(0).build()
+    override fun lastStartupProfile(): top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile? = null
+    override fun historyStartupProfiles(limit: Int): List<top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupProfile> = emptyList()
     override fun lastStartupComparisonSummary(): String? = null
 }
 

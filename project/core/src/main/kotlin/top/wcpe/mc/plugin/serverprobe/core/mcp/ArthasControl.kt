@@ -35,7 +35,7 @@ interface ArthasControl {
     fun retryAttach(): ArthasInstrumentationSnapshot = ArthasInstrumentationSnapshot(false, "UNAVAILABLE", "当前未注册 Arthas 诊断控制器")
 
     /**
-     * 读取指定类的当前已加载字节码（FR-19 补丁前自动备份）。
+     * 读取指定类的当前已加载字节码（补丁前自动备份）。
      *
      * 返回 null 表示备份能力未提供（既有实现未适配本方法），调用方应跳过备份并继续；
      * 返回非 null 但为空数组表示读取失败，调用方应拒绝替换。默认实现返回 null 以保持向后兼容。

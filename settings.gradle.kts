@@ -61,8 +61,6 @@ include("project:core")
 include("platform:platform-bukkit")
 include("platform:platform-bungee")
 include("platform:platform-velocity")
-include("integration:integration-multicurrencyeconomy")
-include("integration:integration-allininventorysync")
 include("diagnostics:diagnostics-arthas")
 include("plugin")
 

@@ -56,7 +56,7 @@ command-startup-compare-none: "§8无基线对比(首次启动,尚无上一份�
 command-tps-title: "§6===== §eTPS / MSPT §6====="
 command-tps-line: "§7TPS  §71分钟: §f{0}  §75分钟: §f{1}  §715分钟: §f{2}"
 command-mspt-line: "§7MSPT §7平均: §f{0}  §7p95: §f{1}  §7p99: §f{2}"
-# tps 聚合补充行(FR3.3,近 N 份快照跨快照统计)
+# tps 聚合补充行(近 N 份快照跨快照统计)
 command-tps-agg-title: "§7— 近期聚合 —"
 command-tps-agg-empty: "§8  (暂无聚合数据,采集中)"
 command-tps-agg-window: "§7样本数: §f{0}"
@@ -83,7 +83,7 @@ command-gc-pool-line: "§8  - §f{0}§7: §f{1} §7/ §f{2}"
 command-world-title: "§6===== §e世界指标 §6====="
 command-world-line: "§8  - §f{0}§7: 区块 §f{1} §7实体 §f{2} §7方块实体 §f{3}"
 
-# 告警(FR5)游戏内推送文案。占位:{0}=类型 {1}=观测值 {2}=阈值
+# 告警游戏内推送文案。占位:{0}=类型 {1}=观测值 {2}=阈值
 alert-firing-warn: "§e[告警] §6{0} §7触发警告:当前 §f{1}§7,阈值 §f{2}"
 alert-firing-critical: "§c[告警] §4{0} §7触发严重告警:当前 §f{1}§7,阈值 §f{2}"
 alert-recovered: "§a[告警恢复] §2{0} §7已恢复正常:当前 §f{1}§7,阈值 §f{2}"
@@ -104,13 +104,13 @@ command-proxy-routes-title: "§7玩家路由:"
 command-proxy-routes-empty: "§8  (无数据)"
 command-proxy-route-line: "§8  - §f{0}§7 → §f{1}"
 
-# ping 分布(FR2.4)
+# ping 分布
 command-help-ping: "§a/probe ping §7- 查看在线玩家 ping 分布"
 command-ping-title: "§6===== §e在线玩家 ping 分布 §6====="
 command-ping-empty: "§e暂无 ping 数据(可能当前无在线玩家或版本不支持)。"
 command-ping-line: "§8  - §f{0}§7: §f{1} §7人"
 
-# cpu 运行期归因(FR2.6)
+# cpu 运行期归因
 command-help-cpu: "§a/probe cpu §7- 查看运行期各插件 CPU 采样归因 Top-N"
 command-cpu-disabled: "§e运行期 CPU 归因未启用,请在 config.yml 设置 §fcpu.enabled: true §e后重启。"
 command-cpu-empty: "§e暂无 CPU 采样数据(采样窗口为空,请稍候再试)。"
@@ -133,7 +133,7 @@ command-alerts-empty: "§7暂无告警历史(引擎未触发过告警,或 alert.
 command-alerts-row: "§8[{0}] §{1}{2} §f{3} §7值={4} §8/ 阈值={5}"
 command-http-line: "§8- §e[{0}] §f{1} §7{2} §8({3}, {4}ms) §8← {5}"
 
-# MCP 控制面运行期开关(FR-24)
+# MCP 控制面运行期开关
 command-help-mcp: "§a/probe mcp <on|off|status|arthas on|arthas off> §7- 运行期开关 MCP 诊断控制面(仅控制台)"
 command-mcp-console-only: "§c该命令仅允许在服务器控制台执行(开启 MCP 等于授予 JVM 完整控制权,不接受游戏内执行)。"
 command-mcp-usage: "§e用法: §f/probe mcp <on|off|status> §e或 §f/probe mcp arthas <on|off>"

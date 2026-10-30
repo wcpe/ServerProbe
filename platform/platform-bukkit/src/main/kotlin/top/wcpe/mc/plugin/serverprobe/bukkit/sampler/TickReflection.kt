@@ -26,15 +26,15 @@ object TickReflection {
     /** 已解析但确认不可用的哨兵:与 null(未解析)区分,避免反复尝试。 */
     private val UNAVAILABLE = Any()
 
-    /** `Server#getTPS(): double[]` 反射缓存。 */
+    /** `Server#getTPS(): double[]`反射缓存。 */
     @Volatile
     private var tpsMethod: Any? = null
 
-    /** `Server#getAverageTickTime(): double` 反射缓存。 */
+    /** `Server#getAverageTickTime(): double`反射缓存。 */
     @Volatile
     private var avgTickMethod: Any? = null
 
-    /** `Server#getTickTimes(): long[]` 反射缓存(Paper)。 */
+    /** `Server#getTickTimes(): long[]`反射缓存(Paper)。 */
     @Volatile
     private var tickTimesMethod: Any? = null
 
@@ -81,8 +81,8 @@ object TickReflection {
     /**
      * 反射读取 NMS `MinecraftServer#recentTps`(无 Paper API 的旧版/纯 CraftBukkit 兜底)。
      *
-     * 取数链路:`Bukkit.getServer()`(CraftServer)→ `getServer()` 取 `MinecraftServer` 实例 →
-     * 在其类层级中查找名为 `recentTps` 的 `double[]` 字段。全程不 import 任何具体版本 NMS 类。
+     * 取数链路:`Bukkit.getServer()`(CraftServer)→ `getServer()`取 `MinecraftServer`实例 →
+     * 在其类层级中查找名为 `recentTps`的 `double[]`字段。全程不 import 任何具体版本 NMS 类。
      *
      * M2 完善:字段名在部分映射/混淆环境下可能不是 `recentTps`,届时可补充按类型(double[3])
      * 启发式扫描或 nmsProxy 适配;当前以标准字段名为准,失败即降级 null。
@@ -98,14 +98,14 @@ object TickReflection {
     }
 
     /**
-     * 探测 NMS `recentTps` 反射链路是否可用(供采样器工厂选路,不取实际值)。
+     * 探测 NMS `recentTps`反射链路是否可用(供采样器工厂选路,不取实际值)。
      *
      * @return 链路可解析返回 true,否则 false。
      */
     fun isRecentTpsAvailable(): Boolean = resolveRecentTpsField() != null
 
     /**
-     * 解析并缓存 `org.bukkit.Server` 上的无参方法。
+     * 解析并缓存 `org.bukkit.Server`上的无参方法。
      *
      * @param cache 对应方法的缓存属性引用。
      * @param methodName 目标方法名。
@@ -130,7 +130,7 @@ object TickReflection {
     }
 
     /**
-     * 解析并缓存 NMS `recentTps` 的反射访问对(CraftServer#getServer 方法 + recentTps 字段)。
+     * 解析并缓存 NMS `recentTps`的反射访问对(CraftServer#getServer 方法 + recentTps 字段)。
      *
      * @return (getServer 方法, recentTps 字段) 二元组;链路不可用时返回 null。
      */
@@ -157,7 +157,7 @@ object TickReflection {
     /**
      * 在类继承链中逐级查找声明字段。
      *
-     * MinecraftServer 的 `recentTps` 可能声明于父类,需沿 superclass 逐级回溯。
+     * MinecraftServer 的 `recentTps`可能声明于父类,需沿 superclass 逐级回溯。
      *
      * @param type 起始类型。
      * @param name 字段名。
@@ -176,18 +176,18 @@ object TickReflection {
         throw NoSuchFieldException("继承链中未找到字段 $name")
     }
 
-    /** `org.bukkit.Server#getTPS` 方法名。 */
+    /** `org.bukkit.Server#getTPS`方法名。 */
     private const val M_GET_TPS = "getTPS"
 
-    /** `org.bukkit.Server#getAverageTickTime` 方法名。 */
+    /** `org.bukkit.Server#getAverageTickTime`方法名。 */
     private const val M_GET_AVG_TICK = "getAverageTickTime"
 
-    /** `org.bukkit.Server#getTickTimes` 方法名。 */
+    /** `org.bukkit.Server#getTickTimes`方法名。 */
     private const val M_GET_TICK_TIMES = "getTickTimes"
 
     /** CraftServer 取 NMS 服务端实例的方法名。 */
     private const val M_GET_SERVER = "getServer"
 
-    /** NMS `MinecraftServer` 最近 TPS 字段名。 */
+    /** NMS `MinecraftServer`最近 TPS 字段名。 */
     private const val F_RECENT_TPS = "recentTps"
 }

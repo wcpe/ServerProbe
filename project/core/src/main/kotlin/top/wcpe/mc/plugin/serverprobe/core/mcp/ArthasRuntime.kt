@@ -5,14 +5,14 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Arthas 运行时的运行期启停契约（FR-24）。
+ * Arthas 运行时的运行期启停契约。
  *
  * 与 [ArthasControl] 的职责边界：后者负责**已加载运行时**内的任务提交/查询/取消；本接口负责
  * 【运行时自身的加载与卸载】——解包 Arthas 闭包、获取 Instrumentation、注册诊断控制器，或反向卸载。
  * 二者分离是因为端点级开关（[McpControlPlane]）不依赖 Arthas，只有深度诊断才需要付加载代价。
  *
  * core 不引用任何 Arthas 类型（ADR-0025），故本接口只暴露跨模块稳定形态：启停结果复用
- * [ArthasInstrumentationSnapshot]（其 `message` 为可直接回显的中文说明）。
+ * [ArthasInstrumentationSnapshot]（其 `message`为可直接回显的中文说明）。
  */
 interface ArthasRuntime {
 
@@ -23,7 +23,7 @@ interface ArthasRuntime {
      * "未加载"，后到的一次会落到已加载分支并回执上一次的结果，造成重复开启的误报。实现应在已加载时
      * 返回带"无需重复开启"说明的成功快照。
      *
-     * @return 加载后的 Instrumentation 状态快照；失败或未注册实现时以 `available=false` 的说明返回，不抛异常。
+     * @return 加载后的 Instrumentation 状态快照；失败或未注册实现时以 `available=false`的说明返回，不抛异常。
      */
     fun startRuntime(): ArthasInstrumentationSnapshot
 
@@ -49,10 +49,10 @@ interface ArthasRuntimeRegistration {
 }
 
 /**
- * core 与 diagnostics 模块之间的运行期装配点（FR-24）。
+ * core 与 diagnostics 模块之间的运行期装配点。
  *
  * 沿用 [ArthasControlRegistry] / [McpArtifactWorkspaceRegistry] 的 AtomicReference 范式：诊断模块于
- * `@PostEnable` 自注册，命令层经本注册表按需启停，core 编译期不依赖具体实现。
+ * `@PostEnable`自注册，命令层经本注册表按需启停，core 编译期不依赖具体实现。
  *
  * 未注册时全部方法降级为安全失败（不抛异常）：部分平台可能不装配 Arthas 诊断模块，此时命令仍须可执行。
  */

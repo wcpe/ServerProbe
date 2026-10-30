@@ -1,0 +1,12 @@
+# 事件主题订阅场景：ServerProbe 配置（一次性回环桥配置，token/端口由构建期随机生成）
+collect-period-ticks: 20
+bridge:
+  enabled: true
+  url: "ws://127.0.0.1:__PORT__/ws/plugin-bridge"
+  instance: "e2e-fixture"
+  token: "__TOKEN__"
+  # 显式写死订阅上限：E2E 要验证的是"按配置受理订阅"，而不是"读默认值恰好也够用"。
+  # 取值刻意小于默认(256/256)，与本场景只订阅 1 个表达式形成对照。
+  subscribe:
+    max-topics: 8
+    max-expression-chars: 64

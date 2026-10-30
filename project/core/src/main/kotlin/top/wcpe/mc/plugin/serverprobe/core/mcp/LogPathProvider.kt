@@ -4,9 +4,9 @@ import java.nio.charset.Charset
 import java.nio.file.Path
 
 /**
- * 日志文件位置与字符集契约（FR-16）。
+ * 日志文件位置与字符集契约。
  *
- * 由各平台适配器实现，把平台真实的 `logs/latest.log` 位置暴露给 core 的 [LogTailToolProvider]，
+ * 由各平台适配器实现，把平台真实的 `logs/latest.log`位置暴露给 core 的 [LogTailToolProvider]，
  * core 编译期不依赖任何平台 API。字符集由平台提供（如 Bukkit 取 `file.encoding`），
  * 禁止在 core 硬编码 UTF-8——低版本 Windows 服务器日志常为 GBK，硬编码会乱码。
  *

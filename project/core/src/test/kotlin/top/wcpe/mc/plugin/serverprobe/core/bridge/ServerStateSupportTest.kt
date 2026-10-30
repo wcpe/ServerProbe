@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [ServerStateSupport] 单元测试(FR-076 全量状态查询的平台无关支撑)。
+ * [ServerStateSupport] 单元测试(全量状态查询的平台无关支撑)。
  *
  * 仅覆盖不依赖任何 Bukkit/Bungee API 的逻辑:有界裁剪计数、类加载计数、加载器链摘要、JVM 快照。
  * 断言聚焦"在任意可运行 JVM 上恒成立"的不变量与有界/降级行为;Bukkit API 部分真机验。
@@ -74,7 +74,13 @@ class ServerStateSupportTest {
         val unloaded = counts["unloadedClassCount"] as Long
         assertTrue(loaded > 0, "当前已加载类数应大于 0")
         assertTrue(total >= loaded.toLong(), "累计加载类数应不小于当前已加载数")
-        assertTrue(unloaded >= 0, "已卸载类数应不小于 0")
+        // 已卸载数可以真的是 0（本测试进程可能从未卸载过类），所以这里不写
+        // `>= 0` 那种恒真断言，而是验证类型与上界关系：
+        // 卸载数不可能超过累计加载数。
+        assertTrue(
+            unloaded <= total,
+            "已卸载类数（$unloaded）不可能超过累计加载数（$total）",
+        )
     }
 
     /** classLoaderChain 自身在前、逐级 parent、以 bootstrap(null 加载器) 收尾。 */

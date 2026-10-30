@@ -10,12 +10,12 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
- * Bukkit/Paper/Folia 的日志路径适配器（FR-16）。
+ * Bukkit/Paper/Folia 的日志路径适配器。
  *
  * 返回服务端根目录下 `logs/latest.log`（与启动画像解析的 [top.wcpe.mc.plugin.serverprobe.bukkit.startup.StartupLoadListener] 一致）。
- * 服务端根目录优先取世界容器目录的父目录（`getWorldContainer()` 返回世界容器目录，其父目录即服务端根）；
+ * 服务端根目录优先取世界容器目录的父目录（`getWorldContainer()`返回世界容器目录，其父目录即服务端根）；
  * **取不到时回退进程工作目录的绝对路径**——Minecraft 服务器事实以 chdir 到服务端根的方式启动
- * （`StartupLoadListener` 同样用相对 `logs/latest.log` 解析并工作正常），故工作目录即服务端根，
+ * （`StartupLoadListener`同样用相对 `logs/latest.log`解析并工作正常），故工作目录即服务端根，
  * 回退它不构成"校验架空"（core 的路径前缀校验仍以该绝对路径为根，目标同源且正确）。
  * 每次调用实时解析（不 lazy 固化）：Bukkit 未就绪时回退工作目录，就绪后优先世界容器父目录。
  * 字符集取 `file.encoding`，与 JVM 默认一致，低版本 Windows 服务器日志常为 GBK，禁止硬编码 UTF-8。

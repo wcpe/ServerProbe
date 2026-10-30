@@ -1,14 +1,14 @@
 package top.wcpe.mc.plugin.serverprobe.core.agent
 
-import top.wcpe.mc.plugin.serverprobe.api.model.FoldedStack
-import top.wcpe.mc.plugin.serverprobe.api.model.HttpCall
-import top.wcpe.mc.plugin.serverprobe.api.model.LibraryTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.PluginTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.StackHotspot
-import top.wcpe.mc.plugin.serverprobe.api.model.StartupItemTiming
-import top.wcpe.mc.plugin.serverprobe.api.model.ThreadStackProfile
-import top.wcpe.mc.plugin.serverprobe.api.model.TimelineEvent
-import top.wcpe.mc.plugin.serverprobe.api.model.WorldTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.FoldedStack
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.HttpCall
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.LibraryTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.PluginTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.StackHotspot
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.StartupItemTiming
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.ThreadStackProfile
+import top.wcpe.mc.plugin.serverprobe.api.model.diagnostics.TimelineEvent
+import top.wcpe.mc.plugin.serverprobe.api.model.startup.WorldTiming
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 
 /**
@@ -21,12 +21,12 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
  *
  * **最大陷阱(务必遵守)**:**严禁**在本类(或任何插件侧代码)里直接 `import` agent 的
  * `ProbeAgentBridge` / `ProbeAgent`。插件由 PluginClassLoader 加载,直接 import 会读到**空数据**(不同 Class 实例)。
- * 因此本类一律经 `Class.forName` 反射,且只取/传 **纯 JDK 基础类型**(`long` / `String`)。
+ * 因此本类一律经 `Class.forName`反射,且只取/传 **纯 JDK 基础类型**(`long` / `String`)。
  *
  * **到底反射哪一份**:agent 启动期会先把数据桥注入 **bootstrap ClassLoader**,正常路径数据落在 bootstrap 那一份;
  * 仅 bootstrap 注入失败降级时才退落 system CL。故本类按 **先 bootstrap、后 system** 顺序解析。
  *
- * **挂载判定与降级**:判定"已挂载" = `forName` 成功 **且** `getPremainNanos() > 0`;否则视为未挂载,
+ * **挂载判定与降级**:判定"已挂载" = `forName`成功 **且** `getPremainNanos() > 0`;否则视为未挂载,
  * [read] 返回 [AgentStartupData.notAttached](全降级,不抛异常)。
  *
  * 无状态纯反射门面,无平台依赖,落位于 core。
@@ -36,7 +36,7 @@ object AgentDataReader {
     /**
      * 反射读取启动 agent 的早期数据并解析为结构化 [AgentStartupData]。
      *
-     * 流程:① 反射 `ProbeAgentBridge`;② 读 `getPremainNanos()` 判定是否挂载;③ 已挂载则逐项读取并解析。
+     * 流程:① 反射 `ProbeAgentBridge`;② 读 `getPremainNanos()`判定是否挂载;③ 已挂载则逐项读取并解析。
      * 任一环节失败均降级为未挂载结果,绝不向外抛异常。
      *
      * @param hotspotTopN 主线程栈采样热点取前若干(由折叠栈派生时截断;非正时无热点)。
@@ -171,37 +171,37 @@ object AgentDataReader {
         }.getOrNull()
 
     /**
-     * 反射调用无参、返回 `long` 的静态 getter。
+     * 反射调用无参、返回 `long`的静态 getter。
      */
     private fun Class<*>.invokeLong(method: String): Long =
         getMethod(method).invoke(null) as Long
 
     /**
-     * 反射调用无参、返回 `String` 的静态 getter(恒非 null,agent 侧约定无数据时为空串)。
+     * 反射调用无参、返回 `String`的静态 getter(恒非 null,agent 侧约定无数据时为空串)。
      */
     private fun Class<*>.invokeString(method: String): String =
         getMethod(method).invoke(null) as String
 
     /**
-     * 解析 agent 的 `name=ms;name=ms` 串为逐插件耗时列表。
+     * 解析 agent 的 `name=ms;name=ms`串为逐插件耗时列表。
      */
     private fun parsePluginTimings(raw: String): List<PluginTiming> =
         parseNameValue(raw).map { (name, value) -> PluginTiming.builder().name(name).enableMs(value).build() }
 
     /**
-     * 解析 agent 的 `name=ms;name=ms` 串为逐插件库加载耗时列表。
+     * 解析 agent 的 `name=ms;name=ms`串为逐插件库加载耗时列表。
      */
     private fun parseLibraryTimings(raw: String): List<LibraryTiming> =
         parseNameValue(raw).map { (name, value) -> LibraryTiming.builder().name(name).loadMs(value).build() }
 
     /**
-     * 解析 agent 的 `name=ms;name=ms` 串为逐世界创建耗时列表(M5)。
+     * 解析 agent 的 `name=ms;name=ms`串为逐世界创建耗时列表(M5)。
      */
     internal fun parseWorldTimings(raw: String): List<WorldTiming> =
         parseNameValue(raw).map { (name, value) -> WorldTiming.builder().name(name).loadMs(value).build() }
 
     /**
-     * 解析 agent 的 `name=ms;name=ms` 串为通用命名项耗时列表(M5,用于配置/事件/命令)。
+     * 解析 agent 的 `name=ms;name=ms`串为通用命名项耗时列表(M5,用于配置/事件/命令)。
      */
     internal fun parseItemTimings(raw: String): List<StartupItemTiming> =
         parseNameValue(raw).map { (name, value) -> StartupItemTiming.builder().name(name).costMs(value).build() }
@@ -209,7 +209,7 @@ object AgentDataReader {
     /**
      * 解析 agent 的时间线事件串(M5)。
      *
-     * 格式:`type|name|startNanos|endNanos;...`,每段 `|` 分隔为 4 字段,段间 `;` 分隔。时刻为相对 premain 的纳秒偏移。
+     * 格式:`type|name|startNanos|endNanos;...`,每段 `|`分隔为 4 字段,段间 `;`分隔。时刻为相对 premain 的纳秒偏移。
      *
      * @param raw agent 序列化串。
      * @return 时间线事件列表(保持串内顺序)。
@@ -230,11 +230,11 @@ object AgentDataReader {
     /**
      * 解析 agent 的折叠栈串(M5,火焰图数据源)。
      *
-     * 格式:每行 `线程名|栈底帧;...;栈顶帧|命中次数`,行间以 `\n` 分隔。按线程名分组,组内按命中降序;
-     * 帧序列以 `;` 切分(已是栈底→栈顶顺序)。
+     * 格式:每行 `线程名|栈底帧;...;栈顶帧|命中次数`,行间以 `\n`分隔。按线程名分组,组内按命中降序;
+     * 帧序列以 `;`切分(已是栈底→栈顶顺序)。
      *
      * 容错:空串返回空列表;字段不全、命中非数字、折叠栈为空的行跳过。线程名/帧不含 `|`,故以
-     * **首个**与**最后一个** `|` 框定折叠栈段,稳妥还原三字段。
+     * **首个**与**最后一个** `|`框定折叠栈段,稳妥还原三字段。
      *
      * @param raw agent 序列化串。
      * @return 按线程分组的折叠栈列表。
@@ -314,7 +314,7 @@ object AgentDataReader {
     /**
      * 通用解析:把 `key=value;key=value`(value 为 long)拆成有序键值对。
      *
-     * 容错:空串返回空列表;以 `;` 分段,每段以**最后一个** `=` 拆分;键为空、值非 long 的段跳过。
+     * 容错:空串返回空列表;以 `;`分段,每段以**最后一个** `=`拆分;键为空、值非 long 的段跳过。
      *
      * @param raw 待解析串。
      * @return 有序键值对列表(保持串内顺序)。
@@ -401,18 +401,18 @@ object AgentDataReader {
     /** 停采样/关窗方法名(在 `ProbeAgent`)。 */
     private const val STOP_STACK_SAMPLER = "stopStackSampler"
 
-    /** 序列化串的段分隔符(`name=ms;...` 与时间线 `event;...`)。 */
+    /** 序列化串的段分隔符(`name=ms;...`与时间线 `event;...`)。 */
     private const val SEGMENT_SEPARATOR = ";"
 
     /** 折叠栈串的行分隔符。 */
     private const val LINE_SEPARATOR = "\n"
 
-    /** 键值分隔符(`name=ms` 中的 `=`)。 */
+    /** 键值分隔符(`name=ms`中的 `=`)。 */
     private const val KEY_VALUE_SEPARATOR = '='
 
-    /** 字段分隔符(时间线 `type|name|...` 与折叠栈 `线程名|折叠栈|次数` 中的 `|`)。 */
+    /** 字段分隔符(时间线 `type|name|...`与折叠栈 `线程名|折叠栈|次数`中的 `|`)。 */
     private const val FIELD_SEPARATOR = "|"
 
-    /** 折叠栈内帧分隔符(`栈底;...;栈顶` 中的 `;`)。 */
+    /** 折叠栈内帧分隔符(`栈底;...;栈顶`中的 `;`)。 */
     private const val FRAME_SEPARATOR = ";"
 }

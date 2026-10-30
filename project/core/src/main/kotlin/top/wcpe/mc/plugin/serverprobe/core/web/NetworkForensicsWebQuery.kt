@@ -5,7 +5,7 @@ import top.wcpe.mc.plugin.serverprobe.api.forensics.PacketDirection
 import java.net.URLDecoder
 import java.net.URLEncoder
 
-/** Web 取证查询的受限参数模型，保证页面始终通过有界 FR8 查询读取数据。 */
+/** Web 取证查询的受限参数模型，保证页面始终通过有界查询读取数据。 */
 data class NetworkForensicsWebQuery(
     val sinceMs: Long,
     val untilMs: Long,
@@ -25,7 +25,7 @@ data class NetworkForensicsWebQuery(
         require((cursorCapturedAtMs == null) == (cursorId == null)) { "游标不完整" }
     }
 
-    /** 转换为既有 FR8 只读查询对象。 */
+    /** 转换为既有只读查询对象。 */
     fun toApiQuery(): NetworkPacketQuery = NetworkPacketQuery.builder()
         .sinceMs(sinceMs)
         .untilMs(untilMs)

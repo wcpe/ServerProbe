@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.registry
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.api.collector.ProxyMetricsCollector
-import top.wcpe.mc.plugin.serverprobe.api.model.ProxyMetrics
+import top.wcpe.mc.plugin.serverprobe.api.model.metrics.ProxyMetrics
 
 /** 探针注册中心的代理采集器生命周期测试。 */
 class ProbeRegistryTest {
