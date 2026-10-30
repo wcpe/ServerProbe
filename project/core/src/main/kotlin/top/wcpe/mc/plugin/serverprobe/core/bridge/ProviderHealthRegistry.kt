@@ -157,7 +157,12 @@ class ProviderHealthRegistry {
      */
     fun attach(domain: String, provider: BusinessProvider, digest: String? = null) {
         if (domain.isEmpty()) return
-        entries.computeIfAbsent(domain) { Entry() }.reset(provider, digest)
+        // 必须在 compute 内一次性完成「创建 + 初始化」：computeIfAbsent 会把尚未 reset 的
+        // Entry 先发布进 map，此刻它的 registered=false、unregisteredAtMs=0，而 sweep 的
+        // 过期判定 now - unregisteredAtMs() > retainAfterUnregisterMs 对 0 恒成立——
+        // 刚注册的域会被当成"早已注销"直接删掉，reset 之后改的只是一个已脱离 map 的孤儿。
+        // 下面的 requestRefresh 会立刻唤醒 sweep 线程，所以这个窗口被命中的概率很高。
+        entries.compute(domain) { _, existing -> (existing ?: Entry()).also { it.reset(provider, digest) } }
         requestRefresh(domain)
     }
 

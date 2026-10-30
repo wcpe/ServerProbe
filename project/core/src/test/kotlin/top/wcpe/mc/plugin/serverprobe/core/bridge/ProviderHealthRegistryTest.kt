@@ -15,6 +15,7 @@ import top.wcpe.mc.plugin.serverprobe.core.bridge.health.HealthProbeRunner
 import top.wcpe.mc.plugin.serverprobe.core.config.HealthSettings
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import top.wcpe.mc.plugin.serverprobe.api.bridge.ActionRequest
 import top.wcpe.mc.plugin.serverprobe.api.bridge.ActionResult
 import top.wcpe.mc.plugin.serverprobe.api.bridge.DomainManifest
@@ -541,6 +542,56 @@ class ProviderHealthRegistryTest {
             Thread.sleep(POLL_MS)
         }
         fail<Unit>("等待超时：$description")
+    }
+
+    // -------------------------------------------------- 回归：注册与过期清理的竞态
+
+    /**
+     * 已注册的域不会被过期清理误删（结果不变式）。
+     *
+     * ## 这个用例守什么
+     * `attach` 曾经写成 `computeIfAbsent(domain) { Entry() }.reset(...)`：新建的 Entry
+     * 先以 `registered=false` / `unregisteredAtMs=0` 的形态被发布进 map，之后才 `reset`。
+     * 这个中间态恰好满足 `sweepExpired` 的过期条件——`now - 0 > retainAfterUnregisterMs`
+     * 对 0 恒成立，于是刚注册的域被当成「早已注销」直接删除，`reset` 改的只是一个
+     * 已脱离 map 的孤儿实例。`attach` 末尾的 `requestRefresh` 恰好会唤醒 sweep 线程。
+     *
+     * 该缺陷曾在 CI 上导致 `BusinessDomainStatusTest#100个域响应小于100毫秒` 在
+     * **数量断言**（不是耗时断言）上失败：100 个域里有几个静默消失。
+     * 之所以能定位到它，靠的是排除法而非复现：`snapshot()` 不过滤条目（未注册域也在），
+     * 所以少返回只可能是条目被物理删除；而两条删除路径都要求 `!isRegistered()`。
+     *
+     * ## 能力边界（勿误读）
+     * 中间态窗口只有**纳秒级**，而 sweep 每周期才扫一次 entries，黑盒方式命中率约千分之一。
+     * **本用例在修复前的代码上同样能通过**（已实测），因此它 <b>不是</b>该竞态的复现证据，
+     * 只守住「已注册域不会被清理误删」这个**结果不变式**，用来拦住「把过期判定写得更宽」
+     * 这类后果更严重的回归。真正的修复依据是上面的排除法 + `entries.compute` 的原子初始化。
+     */
+    @Test
+    fun `并发注册不会因过期清理丢失已注册域`() {
+        // 周期 1ms：让 sweep 线程在注册期间持续跑清理。
+        val registry = newRegistry(settings(intervalMs = 1L))
+        registry.start()
+        val threads = 4
+        val perThread = 25
+        val failure = AtomicReference<Throwable?>(null)
+        val workers = (0 until threads).map { t ->
+            Thread({
+                repeat(perThread) { i ->
+                    val name = "d$t-$i"
+                    runCatching { registry.attach(name, ThreadRecordingProvider(name)) }
+                        .onFailure { failure.compareAndSet(null, it) }
+                }
+            }, "attach-$t").apply { isDaemon = true; start() }
+        }
+        workers.forEach { it.join(10_000L) }
+        failure.get()?.let { throw it }
+
+        // 再跑一会儿，让 sweep 反复执行过期清理：已注册域一个都不该被删。
+        Thread.sleep(200L)
+        val registered = registry.snapshot().domains.filter { it.registered }.map { it.domain }.toSet()
+        val expected = (0 until threads).flatMap { t -> (0 until perThread).map { i -> "d$t-$i" } }.toSet()
+        assertEquals(expected, registered, "所有已注册域都应保留在快照中")
     }
 
     /** 不覆写 `health()` 的"旧 Provider"（验收默认兼容）。 */
