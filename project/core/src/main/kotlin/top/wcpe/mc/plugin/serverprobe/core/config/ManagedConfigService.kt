@@ -19,6 +19,7 @@ import top.wcpe.taboolib.ioc.annotation.PostEnable
 import top.wcpe.taboolib.ioc.annotation.PreDestroy
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -262,13 +263,55 @@ class ManagedConfigService {
      * - `metricProducible`：能否取到一份非空指标快照（JVM 段非空）；
      * - `bridgeUsable`：当前桥上是否可发帧（[BridgeClient.isUplinkReady]，与 `sendUplink` 同口径）。
      *
+     * ## `metricProducible` 的有界宽限
+     * 首份指标快照要等一个采集周期才产出。控制面若在 hello 之后立刻下发配置，直接判“取不到快照”
+     * 会把**装配时序**误报成**能力缺失**（真机 E2E 实测：启动约 1s 内下发必定被拒）。
+     * 故改为：采集器在跑时最多等**一个采集周期**（夹在 [SNAPSHOT_GRACE_MIN_MS, SNAPSHOT_GRACE_MAX_MS]）
+     * 等首份快照，等到即通过，超时仍无快照才判不可产——语义仍是“真能产出快照”，只是不再把窗口期当失败。
+     *
+     * 等待发生在**桥的命令池线程**（`config_push` 由 [top.wcpe.mc.plugin.serverprobe.core.bridge.GovernanceRoute]
+     * 派发到池上），不占 MC 主线程，且有硬上限，不会拖住其它下行指令。
+     *
      * @return 自检结果。
      */
-    private fun selfCheck(): SelfCheckResult = SelfCheckResult(
-        collectorAlive = runCatching { orchestrator.isRunning() }.getOrDefault(false),
-        metricProducible = runCatching { readApi.latestSnapshot()?.jvm != null }.getOrDefault(false),
-        bridgeUsable = runCatching { bridge.isUplinkReady() }.getOrDefault(false),
-    )
+    private fun selfCheck(): SelfCheckResult {
+        val collectorAlive = runCatching { orchestrator.isRunning() }.getOrDefault(false)
+        return SelfCheckResult(
+            collectorAlive = collectorAlive,
+            metricProducible = hasUsableSnapshot(collectorAlive),
+            bridgeUsable = runCatching { bridge.isUplinkReady() }.getOrDefault(false),
+        )
+    }
+
+    /**
+     * 是否存在可用指标快照；采集器在跑且当前还没有时，给一个有界宽限再确认。
+     *
+     * @param collectorAlive 采集调度是否在运行（不在跑就不必等，直接判不可产）。
+     * @return true 表示确实能取到非空快照。
+     */
+    private fun hasUsableSnapshot(collectorAlive: Boolean): Boolean {
+        if (snapshotProducible()) return true
+        if (!collectorAlive) return false
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(graceMillis())
+        while (System.nanoTime() < deadline) {
+            val interrupted = runCatching { Thread.sleep(SNAPSHOT_POLL_INTERVAL_MS) }.isFailure
+            if (interrupted) {
+                Thread.currentThread().interrupt()
+                return snapshotProducible()
+            }
+            if (snapshotProducible()) return true
+        }
+        return snapshotProducible()
+    }
+
+    /** 是否能取到非空快照（JVM 段非空）。取数异常一律降级为“取不到”。 */
+    private fun snapshotProducible(): Boolean =
+        runCatching { readApi.latestSnapshot()?.jvm != null }.getOrDefault(false)
+
+    /** 宽限时长 = 一个采集周期（ticks × 50ms），夹在上下限之间。 */
+    private fun graceMillis(): Long = runCatching {
+        (ProbeConfig.collectPeriodTicks() * TICK_MILLIS).coerceIn(SNAPSHOT_GRACE_MIN_MS, SNAPSHOT_GRACE_MAX_MS)
+    }.getOrDefault(SNAPSHOT_GRACE_MIN_MS)
 
     private companion object {
 
@@ -288,6 +331,18 @@ class ManagedConfigService {
          * 不把装配线程永久卡住——超时即按"非托管"处理（等于不启用配置链路，保守且无副作用）。
          */
         private const val BOOTSTRAP_WAIT_MS = 5_000L
+
+        /** 一 tick 的毫秒数（采集周期按 ticks 配置，换算用）。 */
+        private const val TICK_MILLIS = 50L
+
+        /** 等首份快照的宽限下限（毫秒）：采集周期配得极快时也不小于它，避免浮点级别的空转。 */
+        private const val SNAPSHOT_GRACE_MIN_MS = 500L
+
+        /** 等首份快照的宽限上限（毫秒）：再慢的采集周期也不能把命令池线程卡超过该值。 */
+        private const val SNAPSHOT_GRACE_MAX_MS = 5_000L
+
+        /** 等首份快照的轮询间隔（毫秒）。 */
+        private const val SNAPSHOT_POLL_INTERVAL_MS = 100L
 
         /** 读不到配置时的兜底上报间隔（毫秒）：与代码默认值一致。 */
         private const val DEFAULT_INTERVAL_MS = 30_000L
