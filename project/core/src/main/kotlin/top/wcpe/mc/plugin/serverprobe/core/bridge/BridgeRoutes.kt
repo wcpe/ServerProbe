@@ -80,6 +80,9 @@ class BridgeStatusRoute(
                 "expressions" to expressions,
             ),
             "version" to PROTOCOL_VERSION,
+            // 能力**查询时刻**的活值（而非 hello 那一瞬的快照）：托管组件（如 MCP 挂桥）可能在
+            // hello 之后才装配完成，控制面据此刷新能力视图，不必等重连。
+            "capabilities" to BridgeCapabilities.snapshot(),
             "timestamp" to System.currentTimeMillis(),
         )
         return BridgeCommandResult.ok(encode(payload))
