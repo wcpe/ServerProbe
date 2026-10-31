@@ -15,6 +15,9 @@ import java.net.ServerSocket
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.Properties
+import top.wcpe.mc.testkit.dsl.ExecHook
+import top.wcpe.mc.testkit.dsl.ScenarioSpec
+import top.wcpe.mc.testkit.dsl.StopPidHook
 
 apply(plugin = "top.wcpe.mc-testkit")
 
@@ -27,6 +30,38 @@ val pluginJarFile: File = pluginJarFileProvider.asFile
 // 运行目录不再集中定义：mc-testkit 0.10.0 起每个后端一个独立目录（run-<backend>），
 // 需要定位时一律走 `mcTestkit.backendRunDirectory(backend)`（见 installE2eConfig / prepareDirectHarness）。
 
+// ── 托管代理场景（Bungee / Velocity）的一次性参数 ──
+// 代理运行目录由 mc-testkit 在**场景任务内部**用代理模板铺开，而场景钩子跑在那之前：
+// 钩子写进 `plugins/<数据目录>` 的文件会被模板覆盖掉（实测身份文件会消失，探针因此退回独立模式）。
+// 所以身份文件只能作为**模板的一部分**生成——端口与凭据在配置期一次确定，
+// 供「模板生成任务」与「模拟控制面钩子」共用，两处必须完全一致。
+val managedBungeeTemplateDir = "build/mc-testkit/templates/managed-bungee"
+val managedVelocityTemplateDir = "build/mc-testkit/templates/managed-velocity"
+val managedBungeeControlPort = freeLoopbackPort()
+val managedBungeeToken = e2eToken()
+val managedVelocityControlPort = freeLoopbackPort()
+val managedVelocityToken = e2eToken()
+
+/** 取一个当前空闲的回环端口（配置期取值，模板与模拟控制面共用）。 */
+private fun freeLoopbackPort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+
+/** 一次性回环凭据（测试夹具用，非生产密钥）。 */
+private fun e2eToken(): String = "e2e-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+
+/**
+ * 身份文件 JSON：连接目标写在文件里，文件即托管开关（字段与探针侧 `ControlPlaneModeService` 一致）。
+ *
+ * @param port 模拟控制面监听端口。
+ * @param token 一次性凭据。
+ * @return 身份文件内容。
+ */
+private fun managedIdentityJson(port: Int, token: String): String {
+    val createdAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
+    return """{"schemaVersion":1,"provider":"e2e","endpoint":"ws://127.0.0.1:$port/ws/plugin-bridge",""" +
+        """"instanceId":"e2e-fixture","credential":"$token","capabilities":[],""" +
+        """"createdAt":"$createdAt"}"""
+}
+
 
 // ── mc-testkit 拓扑声明 ──
 // harness 产物由收编后的子项目任务构建（原 9 个 Exec 调子 gradlew 的 hack 已删除）：
@@ -35,6 +70,37 @@ val pluginJarFile: File = pluginJarFileProvider.asFile
 
 val mcTestkit = extensions.getByType(top.wcpe.mc.testkit.dsl.McTestkitExtension::class.java)
 mcTestkit.apply {
+    /**
+     * 代理端托管场景的钩子装配：启模拟控制面 → 场景结束后收口。
+     *
+     * **身份文件与 config.yml 不在这里写**：mc-testkit 铺代理模板发生在钩子之后（`plugins/<数据目录>`
+     * 会被模板覆盖），钩子写进去会被冲掉。它们由 `prepareManagedProxyTemplates` 作为**模板的一部分**
+     * 生成，端口/凭据与本处的模拟控制面一致（均在配置期确定）。
+     *
+     * 结果文件由模拟控制面写入（mc-testkit 只看文件，不关心谁写的）。
+     */
+    fun ScenarioSpec.managedProxyHooks(scenarioId: String, port: Int, token: String) {
+        val simScript = rootProject.layout.projectDirectory
+            .file("e2e/tools/probe_control_plane_sim.py").asFile
+        val resultFile = rootProject.layout.buildDirectory.dir("mc-testkit/results").get().asFile
+            .resolve("$scenarioId.properties")
+        beforeScenario(
+            ExecHook(
+                command = listOf(
+                    "python", simScript.absolutePath,
+                    "--port", port.toString(),
+                    "--token", token,
+                    "--instance", "e2e-fixture",
+                    "--expect-zero-bind", "19941,19942,19943",
+                    "--result-file", resultFile.absolutePath,
+                ),
+                readyPort = port,
+                readyTimeoutMs = 120_000,
+            ),
+        )
+        afterScenario(StopPidHook("hook-$scenarioId.pid"))
+    }
+
     backend("paper") {
         platform = paper
         version = "1.20.1"
@@ -288,6 +354,25 @@ mcTestkit.apply {
         plugin("plugin/build/libs/$pluginJarName")
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
     }
+    // 托管模式下的代理：模板里含托管 `config.yml` 与一次性身份文件（由 prepareManagedProxyTemplates 生成）。
+    // 不能复用 bungee-mcp / velocity-mcp：模板按**代理声明**给出，而这两个模板是独立模式（bridge 段）配置。
+    proxy("bungee-managed") {
+        platform = bungeecord
+        // 与 bungee-mcp(25605) / velocity-mcp(25606) 错开。
+        port = 25609
+        routesTo("paper-mcp-proxy")
+        templateDirectory(managedBungeeTemplateDir)
+        plugin("plugin/build/libs/$pluginJarName")
+    }
+    proxy("velocity-managed") {
+        platform = velocity
+        version = "3.1.1"
+        // 25623：避开后端/矩阵已占用的 25576-25622 与 25630。
+        port = 25623
+        routesTo("paper-mcp-proxy")
+        templateDirectory(managedVelocityTemplateDir)
+        plugin("plugin/build/libs/$pluginJarName")
+    }
     scenario("read-api") { backend = "paper" }
     // Incision 织入的场景：必须开 `incision.enabled`，且要等首个启动画像落盘。
     // 单独一个 backend 是为了不把“开织入”这个变量泄到其他场景上。
@@ -303,6 +388,17 @@ mcTestkit.apply {
     // 版本矩阵：同一套托管断言在旧版与新版运行时上各跑一遍（1.8 锁 Java 8）。
     scenario("managed-config-paper188") { backend = "matrix-paper-1-8-8" }
     scenario("managed-config-paper1211") { backend = "matrix-paper-1-21-1" }
+    // 代理端托管：身份文件随代理模板生成（钩子早于模板铺设，写不进去），模拟控制面由钩子拉起。
+    scenario("managed-config-bungee") {
+        backend = "paper-mcp-proxy"
+        via = "bungee-managed"
+        managedProxyHooks("managed-config-bungee", managedBungeeControlPort, managedBungeeToken)
+    }
+    scenario("managed-config-velocity") {
+        backend = "paper-mcp-proxy"
+        via = "velocity-managed"
+        managedProxyHooks("managed-config-velocity", managedVelocityControlPort, managedVelocityToken)
+    }
     scenario("mcp-diagnostics-paper") { backend = "paper-mcp" }
     scenario("mcp-diagnostics-paper-java21") { backend = "paper-mcp-java21" }
     scenario("mcp-diagnostics-folia") { backend = "folia-mcp" }
@@ -661,6 +757,43 @@ val prepareManagedConfigPaper1211 by tasks.registering {
 }
 
 wireE2eDependency("e2eManagedConfigPaper1211", prepareManagedConfigPaper1211)
+
+// ── 托管代理场景模板生成（Bungee / Velocity）──
+// 代理运行目录是 mc-testkit 在**场景任务内部**用代理模板铺开的，场景钩子跑在那之前，
+// 所以身份文件与托管 config.yml 必须作为**模板的一部分**存在（见文件头的说明）。
+// 生成任务必须早于场景任务的 staging，故挂到 via 场景任务上。
+
+val prepareManagedProxyTemplates by tasks.registering {
+    group = "verification"
+    description = "生成托管代理场景模板（托管 config.yml + 一次性身份文件）"
+    outputs.upToDateWhen { false }
+    doLast {
+        writeManagedProxyTemplate(managedBungeeTemplateDir, "ServerProbe", managedBungeeControlPort, managedBungeeToken)
+        writeManagedProxyTemplate(managedVelocityTemplateDir, "serverprobe", managedVelocityControlPort, managedVelocityToken)
+    }
+}
+
+// 任务名由 mc-testkit 按 `e2e<场景>Via<代理>` 生成（代理名 bungee-managed → BungeeManaged）。
+wireE2eDependency("e2eManagedConfigBungeeViaBungeeManaged", prepareManagedProxyTemplates)
+wireE2eDependency("e2eManagedConfigVelocityViaVelocityManaged", prepareManagedProxyTemplates)
+
+/**
+ * 生成一个托管代理模板目录：托管 `config.yml`（无 `bridge` 段）+ 身份文件。
+ *
+ * @param templateDir 模板目录（相对 rootProject，与 ProxySpec.templateDirectory 一致）。
+ * @param pluginDataDir 插件数据目录名（Bungee 大写 `ServerProbe`，Velocity 小写 `serverprobe`）。
+ * @param port 模拟控制面端口（与钩子里拉起的一致）。
+ * @param token 一次性凭据（与钩子里拉起的一致）。
+ */
+private fun Project.writeManagedProxyTemplate(templateDir: String, pluginDataDir: String, port: Int, token: String) {
+    val dataDir = File(rootProject.layout.projectDirectory.asFile, "$templateDir/plugins/$pluginDataDir")
+    dataDir.mkdirs()
+    val template = rootProject.layout.projectDirectory
+        .file("e2e/templates/configs/managed-config/plugins/ServerProbe/config.yml").asFile
+    check(template.isFile) { "托管场景配置模板缺失：${template.absolutePath}" }
+    template.copyTo(File(dataDir, "config.yml"), overwrite = true)
+    File(dataDir, identityFileName).writeText(managedIdentityJson(port, token))
+}
 
 /**
  * 写入托管模式场景的两份输入：不带 `bridge` 段的 `config.yml` + 身份文件（端口/凭据一次性随机）。
