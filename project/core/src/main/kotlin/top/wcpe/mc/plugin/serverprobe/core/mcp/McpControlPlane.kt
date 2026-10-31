@@ -139,36 +139,62 @@ class McpControlPlane {
 
     private fun startServer(settings: McpSettings) {
         stopServer()
-        val workspace = getDataFolder().toPath().resolve("mcp-workspace")
-        val artifactWorkspace = McpArtifactWorkspace(workspace.resolve("artifacts"), artifactSettings())
-        artifactWorkspace.cleanup()
-        artifacts = artifactWorkspace
-        val audit = McpAuditTrail(
-            workspace,
-            maxFileBytes = ProbeConfig.mcpAuditMaxFileMb() * 1024L * 1024L,
-            retentionDays = ProbeConfig.mcpAuditRetentionDays(),
-        )
-        McpHttpServer(settings, McpJsonRpcDispatcher(
-            providers(),
-            audit = audit,
-            encodeResult = McpJsonWriter::encode,
-        )).also { server ->
+        ensureRuntime()
+        McpHttpServer(
+            settings,
+            McpJsonRpcDispatcher(providers(), audit = auditTrail, encodeResult = McpJsonWriter::encode),
+        ).also { server ->
             server.start()
-            // HttpServer.start() 成功后才注册工作区与审计，避免启动失败（端口占用等）留下幽灵注册与线程泄漏
-            mcpArtifactWorkspaceRegistry.register(artifactWorkspace)
             httpServer = server
-            auditTrail = audit
             artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
             }.also { executor ->
                 executor.scheduleWithFixedDelay({
-                    runCatching(artifactWorkspace::cleanup).onFailure { error ->
+                    runCatching { artifacts?.cleanup() }.onFailure { error ->
                         ProbeLogger.warn("MCP 工件定期清理失败：${error.javaClass.simpleName}")
                     }
                 }, CLEANUP_INTERVAL_HOURS, CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS)
             }
         }
         ProbeLogger.info("MCP 控制面已启动，监听 ${settings.host}:${settings.port}/mcp")
+    }
+
+    /**
+     * 按需创建工件工作区与审计轨迹（幂等）。
+     *
+     * ## 为什么与 "起监听" 拆开
+     * 托管模式下 MCP 不再监听本地端口（零监听端口承诺），但仍需完整的工具面——工件工作区（堆 dump、
+     * GC JFR 等大产物落盘）与审计轨迹与端口无关。不拆开就只能二选一：要么开端口（违背承诺），
+     * 要么退化成“只能调无状态工具”。
+     *
+     * @return 工件工作区；数据目录不可用时为 null（工具面仍可用，只是大产物类工具降级）。
+     */
+    @Synchronized
+    internal fun ensureRuntime(): McpArtifactWorkspace? {
+        artifacts?.let { return it }
+        val workspace = runCatching { getDataFolder().toPath().resolve("mcp-workspace") }.getOrNull() ?: return null
+        val created = McpArtifactWorkspace(workspace.resolve("artifacts"), artifactSettings())
+        runCatching { created.cleanup() }
+        artifacts = created
+        auditTrail = McpAuditTrail(
+            workspace,
+            maxFileBytes = ProbeConfig.mcpAuditMaxFileMb() * 1024L * 1024L,
+            retentionDays = ProbeConfig.mcpAuditRetentionDays(),
+        )
+        mcpArtifactWorkspaceRegistry.register(created)
+        return created
+    }
+
+    /**
+     * 供桥（WS 传输）复用的 JSON-RPC 分发器：**不绑定任何端口**。
+     *
+     * 与本地 HTTP 端点共用同一份工具面、工件工作区与审计口径，因此两条通道的行为一致；
+     * 由调用方持有生命周期，停机时调 [disable] 释放工作区与审计。
+     */
+    @Synchronized
+    internal fun bridgeDispatcher(): McpJsonRpcDispatcher {
+        ensureRuntime()
+        return McpJsonRpcDispatcher(providers(), audit = auditTrail, encodeResult = McpJsonWriter::encode)
     }
 
     private fun stopServer() {

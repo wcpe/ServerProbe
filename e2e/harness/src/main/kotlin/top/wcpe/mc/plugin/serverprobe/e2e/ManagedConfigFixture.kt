@@ -68,6 +68,7 @@ internal class ManagedConfigFixture private constructor(
         record(ASSERT_HELLO_MANAGED, managed && missing.isEmpty(), "managed=$managed missing=$missing")
         startZeroBindCheck()
         startConfigPushRetry()
+        startMcpProbeRetry()
     }
 
     private fun onEvent(text: String) {
@@ -114,10 +115,20 @@ internal class ManagedConfigFixture private constructor(
     /** `metrics_now` 的回执必须带同一个 requestId（控制面据此匹配等待者）。 */
     private fun onCommandResult(text: String) {
         val data = jsonObjectAt(text, "data") ?: return
-        if (jsonString(data, "requestId") != REQUEST_METRICS_NOW) return
-        val success = jsonBoolean(data, "success") == true
-        record(ASSERT_METRICS_NOW, success, jsonString(data, "error") ?: "")
-        maybeComplete()
+        when (jsonString(data, "requestId")) {
+            REQUEST_METRICS_NOW -> {
+                val success = jsonBoolean(data, "success") == true
+                record(ASSERT_METRICS_NOW, success, jsonString(data, "error") ?: "")
+                maybeComplete()
+            }
+            REQUEST_MCP_INIT -> {
+                val output = jsonString(data, "output") ?: ""
+                val success = jsonBoolean(data, "success") == true && output.contains("protocolVersion")
+                record(ASSERT_MCP_BRIDGE, success, "success=${jsonBoolean(data, "success")} output=${output.take(120)}")
+                maybeComplete()
+            }
+            else -> Unit
+        }
     }
 
     /**
@@ -176,6 +187,37 @@ internal class ManagedConfigFixture private constructor(
     }
 
     /**
+     * 探测 MCP 是否已经挂到桥上：下发一条 MCP `initialize`（JSON-RPC 2.0 原文）。
+     *
+     * 为什么用 `initialize` 而不 `tools/list`：后者回执可达数十万字符，会触发桥的分片帧而测试桩不重组，
+     * 验的就不再是 MCP 通道本身；`initialize` 体积小且能证明“请求确实进了 MCP 分发器”（回体含 protocolVersion）。
+     */
+    private fun sendMcpProbe() {
+        sendText(
+            """{"type":"command","domain":"core","action":"mcp","requestId":"$REQUEST_MCP_INIT",""" +
+                """"payload":{"jsonrpc":"2.0","id":1,"method":"initialize"}}""",
+        )
+    }
+
+    /**
+     * 重发 MCP 探测，直到拿到回执或用完次数。
+     *
+     * 与 `config_push` 同理：动作挂载发生在探针自己的后台线程里，与 hello 存在毫秒级先后差。
+     */
+    private fun startMcpProbeRetry() {
+        Thread({
+            repeat(MCP_PROBE_ATTEMPTS) {
+                if (assertions.containsKey(ASSERT_PREFIX + ASSERT_MCP_BRIDGE)) return@Thread
+                sendMcpProbe()
+                runCatching { Thread.sleep(MCP_PROBE_RETRY_INTERVAL_MS) }
+            }
+        }, "serverprobe-e2e-managed-mcp").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /**
      * 按需推送：必须在「配置已生效」且「已见过至少一帧快照」之后才发。
      *
      * 早发会撞上探针采集器尚未产出首份快照的窗口，回执是"当前无可推送的指标快照"——
@@ -225,6 +267,7 @@ internal class ManagedConfigFixture private constructor(
         private const val ASSERT_METRIC_PUSH = "metricPush"
         private const val ASSERT_CONFIG_STATE = "configState"
         private const val ASSERT_METRICS_NOW = "metricsNow"
+        private const val ASSERT_MCP_BRIDGE = "mcpBridge"
         private const val ASSERT_ZERO_BIND = "zeroBind"
 
         /** 交卷前必须到齐的判定项。 */
@@ -235,6 +278,7 @@ internal class ManagedConfigFixture private constructor(
             ASSERT_CONFIG_STATE,
             ASSERT_METRICS_NOW,
             ASSERT_ZERO_BIND,
+            ASSERT_MCP_BRIDGE,
         )
 
         /** 托管模式必须声明的能力位。 */
@@ -258,6 +302,11 @@ internal class ManagedConfigFixture private constructor(
         /** 命令 requestId（回执必须原样带回）。 */
         private const val REQUEST_CONFIG_PUSH = "e2e-managed-config-push"
         private const val REQUEST_METRICS_NOW = "e2e-managed-metrics-now"
+        private const val REQUEST_MCP_INIT = "e2e-managed-mcp"
+
+        /** MCP 探测的最多尝试次数与间隔（覆盖“动作尚未挂载”的窗口）。 */
+        private const val MCP_PROBE_ATTEMPTS = 5
+        private const val MCP_PROBE_RETRY_INTERVAL_MS = 3_000L
 
         /** 只触发一次的阶段标记。 */
         private const val STAGE_HELLO = "hello"
@@ -268,8 +317,8 @@ internal class ManagedConfigFixture private constructor(
         private const val CONFIG_PUSH_ATTEMPTS = 5
         private const val CONFIG_PUSH_RETRY_INTERVAL_MS = 3_000L
 
-        /** 模板配置里故意开启的两个监听面端口：托管模式下必须连不上。 */
-        private val ZERO_BIND_PORTS = listOf(19941, 19942)
+        /** 模板配置里故意开启的三个监听面端口：托管模式下必须都连不上。 */
+        private val ZERO_BIND_PORTS = listOf(19941, 19942, 19943)
 
         /** 零监听判定的等待时长（毫秒）：覆盖探针后台判定 + 一次采集周期。 */
         private const val ZERO_BIND_DELAY_MS = 8_000L

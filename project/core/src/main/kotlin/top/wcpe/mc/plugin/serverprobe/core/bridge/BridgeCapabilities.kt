@@ -37,6 +37,13 @@ object BridgeCapabilities {
     /** 能力：Provider 健康状态查询（`core.business_status`）。 */
     const val CAP_BUSINESS_STATUS = "business_status"
 
+    /**
+     * 能力：MCP 工具面经插件桥暴露（`core.mcp` 动作，托管模式下取代本地 HTTP 端点）。
+     *
+     * 声明时机：仅在托管模式且 MCP 工具面已装配后声明——否则控制面会以为能调工具而拿到“未实现”回执。
+     */
+    const val CAP_MCP_BRIDGE = "mcp_bridge"
+
     /** 已注册能力（保序，便于断言与日志）。 */
     private val capabilities = LinkedHashSet<String>()
 

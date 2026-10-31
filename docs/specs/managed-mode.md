@@ -135,6 +135,30 @@ config_push 到达
 
 理由：已被认定为"托管中"的探针若偷偷按旧文件跑，会造成认知分裂 —— 控制面以为托管着，实际行为却是另一套。
 
+### 3.8 MCP 经桥（托管模式下的事故诊断通道）
+
+零监听承诺关断了 metrics / web / mcp 三个本地监听面。前两者有替代（指标走推送、面板由控制面渲染），
+**事故诊断（MCP + Arthas）此前没有替代** —— 一台被托管的机器出事时，最需要的恰好是它。
+
+因此托管模式把 MCP 工具面挂到**已有的桥连接**上：
+
+```
+控制面 ── command(domain=core, action=mcp, payload=<JSON-RPC 2.0 请求>) ──▶ 探针
+控制面 ◀── command_result(requestId 原样, output=<JSON-RPC 响应>) ───────── 探针
+```
+
+- **整包透传 JSON-RPC**：`initialize` / `ping` / `tools/list` / `tools/call` 均由现有分发器处理，
+  新增工具不需要改桥协议，也不会出现“桥的命令集”与“MCP 工具集”两张能力表各自漂移。
+- **错误分级**：传输/格式问题（载荷为空、非 JSON、超 2 MiB、解码异常）→ 桥 `fail(中文原因)`；
+  协议层问题（版本不符、方法未实现、工具不存在）→ 桥 `ok` + JSON-RPC `error` 对象保留 `id` 与 `error.code`。
+- **与本地端点同装配**：工具面、工件工作区（堆 dump / GC JFR 等大产物）与审计轨迹共用一份，
+  所以“经桥调”与“经本地 HTTP 调”行为一致；大回执由既有帧分片承载。
+- **开关语义不变、只换传输**：`mcp.enabled` 仍决定“是否启用 MCP 控制面”，传输方式才按模式决定（独立=本地 HTTP，托管=插件桥）。两个方向都不新增绕过口：
+  独立模式下不开 `mcp.enabled` 就没通道；托管模式下同样要 `mcp.enabled=true` 才挂桥，且该键属禁止档、不能远程开启。
+- **只在托管模式挂载**：独立模式仍只保留 `mcp.enabled` 控制的本地端点。挂载成功后 hello 才声明 `mcp_bridge` 能力位。
+- **权限语义**：桥的持有凭据方本来就已被授权管理这台探针（可下发配置、执行平台治理指令），
+  MCP 不引入新的信任边界；审计轨迹记录来源为 `bridge`。
+
 ## 4. 任务拆分
 
 - [x] FR-42 `ControlPlaneIdentity` + 状态机 + 自动迁移
@@ -142,6 +166,7 @@ config_push 到达
 - [x] FR-44 `config_push` 处理 + 自检 + 回退 + `ManagedConfigStore`
 - [x] FR-45 `config_state` 周期上报
 - [x] FR-46 `metric_snapshot` 推送 + `metrics_now` + 托管模式停用 HTTP 监听
+- [x] FR-47 MCP 经桥（`core.mcp` 透传 JSON-RPC，零监听下保住事故诊断）
 - [x] 真机 E2E：`managed-config` 场景（hello 托管位 / 配置下发 / 指标推送 / 状态上报 / 按需推送 / 零监听）
 - [ ] 文档同步：ARCHITECTURE、CHANGELOG、PRD 状态
 - [ ] 真机矩阵：Paper 1.8/1.21 × Windows/Linux + BungeeCord + Velocity

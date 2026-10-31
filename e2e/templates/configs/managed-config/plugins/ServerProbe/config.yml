@@ -11,3 +11,8 @@ web:
   enabled: true
   host: "127.0.0.1"
   port: 19942
+# MCP 开关语义不变（控制“是否启用 MCP 控制面”），托管模式下传输方式改为插件桥、不再监听端口。
+mcp:
+  enabled: true
+  host: "127.0.0.1"
+  port: 19943
