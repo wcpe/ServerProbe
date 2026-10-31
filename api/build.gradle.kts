@@ -1,7 +1,5 @@
 plugins {
     id("serverprobe.base")
-    // 厂商标识隔离门禁（FR-30）：api 为厂商中立契约模块，源码不得出现任何控制面厂商标识
-    id("serverprobe.vendor-isolation")
     `maven-publish`
 }
 

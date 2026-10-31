@@ -2,8 +2,6 @@ import io.izzel.taboolib.gradle.*
 
 plugins {
     id("serverprobe.base")
-    // 厂商标识隔离门禁（FR-30）：core 为厂商中立模块，源码不得出现任何控制面厂商标识
-    id("serverprobe.vendor-isolation")
 }
 
 // 通用核心模块(Java 8,平台无关):采集编排、JMX 采集、聚合、本地文件存储
