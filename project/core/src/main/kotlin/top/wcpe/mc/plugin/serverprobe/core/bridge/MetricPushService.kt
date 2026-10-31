@@ -3,6 +3,8 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneModeService
+import top.wcpe.mc.plugin.serverprobe.core.control.ProbeMode
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
@@ -34,6 +36,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * ## 桥断开即停
  * 桥未连接时不推帧、不告警、不补发旧值——这是协议规格 §3.6 R1 已确认接受的取舍。
+ *
+ * ## 只在托管模式启用
+ * 指标上行是控制面专属能力：独立模式的桥只承载业务转发，拿到 `metric_snapshot` 既无用也无处安放。
+ * 故先等模式判定，确认是托管模式才注册 `metrics_now` 并起周期推送——否则手工配了 `bridge` 的独立模式
+ * 用户会持续收到自己的 WS 服务根本用不上的指标帧。
  */
 @Service
 class MetricPushService {
@@ -50,21 +57,57 @@ class MetricPushService {
     @Inject
     lateinit var commandRegistry: BridgeCommandRegistry
 
-    /** 运行标志：start 置 true，stop 置 false。 */
+    /**
+     * 托管模式判定服务：推送必须先等它给出结论。
+     *
+     * 指标上行只在托管模式下启用，而模式判定本身是异步的（要知道身份文件能不能用、控制面连不连得上），
+     * 故推送的启动收在装配线程里、判定完成之后。
+     */
+    @Inject
+    lateinit var modeService: ControlPlaneModeService
+
+    /** 装配幂等标志：`@PostEnable` 只应装配一次。 */
+    private val started = AtomicBoolean(false)
+
+    /** 运行标志：装配成功置 true，stop 置 false。 */
     private val running = AtomicBoolean(false)
+
+    /** 是否已进入停止流程：防止“stop 先到、装配后到”时白白起一个没人打断的循环。 */
+    @Volatile
+    private var stopping = false
+
+    /** 装配与停止的串行化锁。 */
+    private val startLock = Any()
 
     /** 推送后台线程；未启动时为 null。 */
     @Volatile
     private var thread: Thread? = null
 
     /**
-     * 启动周期推送线程，并注册 `metrics_now` 内置动作。
+     * 启动推送服务：起装配线程，等模式判定后再决定是否真的推。
      *
-     * 幂等：重复回调不会起第二个线程、也不会重复注册动作。
+     * 幂等：重复回调不会起第二个装配线程。
      */
     @PostEnable
     fun start() {
-        if (!running.compareAndSet(false, true)) {
+        if (!started.compareAndSet(false, true)) {
+            return
+        }
+        Thread({ bootstrap() }, BOOT_THREAD_NAME).apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /**
+     * 装配（跑在后台线程）：等模式判定 → 只在托管模式注册 `metrics_now` 并起周期推送。
+     *
+     * 独立模式下直接返回：指标上行是控制面专属能力，独立模式的桥只做业务转发。
+     */
+    private fun bootstrap() {
+        modeService.awaitReady(BOOTSTRAP_WAIT_MS)
+        if (modeService.mode() != ProbeMode.MANAGED) {
+            ProbeLogger.info("独立模式：指标不向插件桥上行（上行端点在托管模式下才启用）")
             return
         }
         val pusher = MetricPusher(
@@ -83,18 +126,26 @@ class MetricPushService {
                 BridgeCommandResult.ok("已推送一帧 $EVENT(sequence=$sequence)")
             }
         }
-        val worker = Thread({ pushLoop(pusher) }, THREAD_NAME)
-        worker.isDaemon = true
-        thread = worker
-        worker.start()
+        synchronized(startLock) {
+            // stop 已先到：不再起推送线程，避免留下无人打断的循环
+            if (stopping) {
+                return
+            }
+            running.set(true)
+            val worker = Thread({ pushLoop(pusher) }, THREAD_NAME)
+            worker.isDaemon = true
+            thread = worker
+            worker.start()
+        }
         ProbeLogger.debug("指标 WS 推送已启动(间隔 ${runCatching { ProbeConfig.metricsPushIntervalMs() }.getOrDefault(0L)}ms)")
     }
 
     /**
-     * 停止周期推送。置停标志并打断休眠中的线程，让循环尽快退出。
+     * 停止推送。置停标志并打断休眠中的线程，让循环尽快退出；未真的起过推送时直接返回。
      */
     @PreDestroy
     fun stop() {
+        stopping = true
         if (!running.getAndSet(false)) {
             return
         }
@@ -131,6 +182,12 @@ class MetricPushService {
 
         /** 推送线程名（便于线上排查）。 */
         private const val THREAD_NAME = "ServerProbe-MetricPush"
+
+        /** 装配线程名（等模式判定，与推送线程分开以区分线上堆栈）。 */
+        private const val BOOT_THREAD_NAME = "ServerProbe-MetricPushBoot"
+
+        /** 等托管模式判定的上限（毫秒）：与其它托管组件保持同一口径。 */
+        private const val BOOTSTRAP_WAIT_MS = 5_000L
 
         /** `metrics_now` 动作名（协议规格 §3.4.5）。 */
         private const val ACTION_METRICS_NOW = "metrics_now"

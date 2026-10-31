@@ -99,7 +99,7 @@ class ConfigStateReporterTest {
         assertTrue(capabilities.containsAll(listOf("config_push", "metric_push", "config_state")), "实际:$capabilities")
     }
 
-    /** 独立模式下同一方法也要如实报 standalone（供对账分辨），且能力位不得虚报配置能力。 */
+    /** 独立模式下同一方法也要如实报 standalone（供对账分辨），且能力位不得虚报任何托管能力。 */
     @Test
     fun `独立模式上报 standalone`() {
         ControlPlaneRuntime.reset()
@@ -109,7 +109,7 @@ class ConfigStateReporterTest {
         assertEquals("standalone", payload()["mode"])
         @Suppress("UNCHECKED_CAST")
         val capabilities = payload()["capabilities"] as List<String>
-        assertEquals(listOf("metric_push"), capabilities, "独立模式不得声明 config_push/config_state")
+        assertTrue(capabilities.isEmpty(), "独立模式不推指标、不声明 config_push/config_state，实际:$capabilities")
     }
 
     /** `effective` 必须脱敏：敏感键不得原文上行，普通键原样保留。 */

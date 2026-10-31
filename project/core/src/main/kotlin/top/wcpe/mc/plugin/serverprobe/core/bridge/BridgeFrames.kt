@@ -39,8 +39,15 @@ internal object BridgeFrames {
     /** 事件名：托管状态周期上报（协议规格 §3.4.3）。 */
     const val EVENT_CONFIG_STATE = "config_state"
 
-    /** 独立模式的能力位：只有指标推送（与引入托管能力前一致）。 */
-    private val STANDALONE_CAPABILITIES: List<String> = listOf(CAPABILITY_METRIC_PUSH)
+    /**
+     * 独立模式的能力位：**空**。
+     *
+     * 指标上行（[CAPABILITY_METRIC_PUSH]）属托管模式能力：独立模式的桥只承载业务转发，
+     * 不再周期推送 `metric_snapshot`（模式门槛在 `MetricPushService` 装配阶段判定）。
+     * 既然不推就不能声明——否则旧 Worker 见到该位会一直等推送帧，而正确行为是回退到 HTTP 拉取 `/metrics`
+     * （独立模式下该端点语义与引入托管能力前完全一致）。
+     */
+    private val STANDALONE_CAPABILITIES: List<String> = emptyList()
 
     /** 托管模式的能力位：指标推送 + 配置下发 + 状态上报。 */
     private val MANAGED_CAPABILITIES: List<String> =
@@ -49,12 +56,13 @@ internal object BridgeFrames {
     /**
      * hello 帧（带 `capabilities`；托管模式再追加配置类两项）。
      *
-     * 既有字段语义不变，旧对端忽略不认识的字段即可（向后兼容）；新对端不认该字段时仍按老路径拉取，
-     * 故独立模式与老 Worker 的行为都不受影响。
+     * 既有字段语义不变，旧对端忽略不认识的字段即可（向后兼容）；新对端不认该字段时仍按老路径拉取。
      *
-     * **能力位必须与真实能力一致**：`config_push` / `config_state` 只在托管模式下真正启用
-     * （独立模式既不注册该动作也不上报状态），故此时不声明——否则控制面会误以为可以对一台
-     * 独立探针下发配置。
+     * **能力位必须与真实能力一致**：
+     * - `metric_push` / `config_push` / `config_state` 都只在托管模式下真正成立（独立模式既不周期推送、
+     *   也不注册 `config_push` 动作、不上报状态），故独立模式**一项都不声明**；旧 Worker 因而不见到
+     *   `metric_push`，会按约定回退到 HTTP 拉取 `/metrics`——那正是独立模式仍保留的能力；
+     * - 否则控制面会误以为可以对一台独立探针下发配置，或一直等一份永远不会到的推送帧。
      *
      * @param instance 实例标识。
      * @param platform 平台名（bukkit/bungee/unknown）。

@@ -92,9 +92,9 @@ class BridgeClientCommandTest {
         assertFalse(result.success, "平台未注册执行器时应降级为失败回执")
     }
 
-    /** hello 帧声明 `metric_push` 能力位（协议规格 §3.6），且既有字段语义不变。 */
+    /** 独立模式 hello 不声明任何能力位：指标上行属托管能力（不推就不能声明）。 */
     @Test
-    fun `hello 声明 metric_push 能力位`() {
+    fun `独立模式 hello 不声明能力位`() {
         val hello = BridgeFrames.hello("instance-7", "bukkit")
 
         assertEquals("hello", hello["type"])
@@ -103,8 +103,7 @@ class BridgeClientCommandTest {
         assertTrue(hello.containsKey("version"), "既有字段不得缺失")
         @Suppress("UNCHECKED_CAST")
         val capabilities = hello["capabilities"] as List<String>
-        assertTrue(capabilities.contains("metric_push"), "必须声明指标推送能力位")
-        assertEquals(listOf("metric_push"), capabilities, "独立模式能力位只有指标推送")
+        assertTrue(capabilities.isEmpty(), "独立模式不推指标、不下发配置、不上报状态，实际:$capabilities")
         assertFalse(capabilities.contains("metrics_push"), "能力位名称以协议规格为准:metric_push")
     }
 
