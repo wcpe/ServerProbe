@@ -3,8 +3,11 @@ package top.wcpe.mc.plugin.serverprobe.core.mcp
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommand
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
 import top.wcpe.mc.plugin.serverprobe.core.testsupport.testJsonObject
+import java.nio.file.Path
 
 /**
  * [McpBridgeEndpoint] 单测：托管模式下 MCP 经桥的**分发语义**。
@@ -104,6 +107,48 @@ class McpBridgeEndpointTest {
 
         assertTrue(result.success)
         assertTrue(result.output.contains("-32600"), result.output)
+    }
+
+    /**
+     * 操作者必须进审计：经桥的调用同样可能是人按下的按钮，审计里只写 `bridge` 就没法追责。
+     *
+     * 这里走真实 [McpAuditTrail]（异步写 JSONL），因此先 `flush()` 再读文件内容断言。
+     */
+    @Test
+    fun `审计来源带上操作者`(@TempDir dir: Path) {
+        val trail = McpAuditTrail(dir)
+        val audited = McpBridgeEndpoint(McpJsonRpcDispatcher(listOf(EchoProvider), trail, McpJsonWriter::encode))
+
+        audited.handle(
+            testJsonObject(
+                mapOf(
+                    "jsonrpc" to "2.0",
+                    "id" to 9,
+                    "method" to "tools/call",
+                    "params" to mapOf("name" to TOOL_NAME, "arguments" to mapOf("echo" to "audit")),
+                ),
+            ),
+            "bridge:alice",
+        )
+        trail.flush()
+
+        val content = trail.fileContent()
+        assertTrue(content.contains("bridge:alice"), "审计应记录操作者，实际：$content")
+        trail.close()
+    }
+
+    /** 未带操作者时退化为 `bridge`（老控制面不注入 principal 也要能审计）。 */
+    @Test
+    fun `无操作者时审计来源退化为 bridge`(@TempDir dir: Path) {
+        val trail = McpAuditTrail(dir)
+        val audited = McpBridgeEndpoint(McpJsonRpcDispatcher(listOf(EchoProvider), trail, McpJsonWriter::encode))
+        val command = BridgeCommand(action = "mcp", target = "", reason = "", requestId = "r-empty", payload = "")
+
+        audited.handle(command)
+        trail.flush()
+
+        assertTrue(trail.fileContent().isEmpty(), "空载荷应直接被拒，不产生审计：${trail.fileContent()}")
+        trail.close()
     }
 
     private fun request(method: String, withId: Boolean = true): JsonObject = testJsonObject(

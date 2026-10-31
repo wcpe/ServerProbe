@@ -91,7 +91,7 @@ class McpBridgeService {
         }
         val dispatcher = controlPlane.bridgeDispatcher()
         val endpoint = McpBridgeEndpoint(dispatcher)
-        commandRegistry.registerCoreAction(ACTION_MCP) { command -> endpoint.handle(command.payload) }
+        commandRegistry.registerCoreAction(ACTION_MCP) { command -> endpoint.handle(command) }
         // 能力位只在真的挂上之后声明：提前声明会让控制面调工具时拿到“未实现”回执。
         BridgeCapabilities.addCapability(BridgeCapabilities.CAP_MCP_BRIDGE)
         mounting = true
