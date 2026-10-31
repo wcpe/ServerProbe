@@ -16,6 +16,8 @@ dependencies {
     compileOnly(project(":api"))
     // 仅编译期链接被测插件公开 API；运行期由同一测试服内的 ServerProbe 提供。
     implementation(kotlin("stdlib"))
+    // 夹具核心（WS 服务端 / 断言 / 结果文件）：平台无关，随 harness jar 一起打进去。
+    implementation(project(":e2e:fixture-core"))
     testImplementation(kotlin("test"))
 }
 

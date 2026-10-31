@@ -65,7 +65,10 @@ include("diagnostics:diagnostics-arthas")
 include("plugin")
 
 // E2E 验收桩（原独立 Gradle 工程收编为子项目，产物仍为 mc-testkit-*-harness jar）
+include("e2e:fixture-core")
 include("e2e:harness")
+include("e2e:harness-managed-bungee")
+include("e2e:harness-managed-velocity")
 include("e2e:harness-network-bukkit")
 include("e2e:harness-network-bungee")
 include("e2e:harness-network-velocity")

@@ -480,7 +480,7 @@ abstract class WebSocketFixtureServer(
  * 单列成对象而不是散在各 fixture 的 companion 里：握手、帧编解码与配置解析都是
  * "多场景共用"的协议细节，改名或补常量时只应有一处可改。
  */
-internal object WsFixtureProtocol {
+object WsFixtureProtocol {
 
     /** 探针桥的 WS 路径。 */
     const val BRIDGE_PATH = "/ws/plugin-bridge"
@@ -521,10 +521,15 @@ internal object WsFixtureProtocol {
  * 那会让场景在错误的地址上等待超时，掩盖真实问题。
  *
  * @param pluginsDirectory 服务端的 `plugins` 目录。
+ * @param pluginDataDir 探针插件的数据目录名（Bukkit/Bungee 为 `ServerProbe`，Velocity 为 `serverprobe`）。
  * @param scenario 场景名（仅用于失败提示）。
  */
-internal fun openFixtureEndpoint(pluginsDirectory: File, scenario: String): FixtureEndpoint {
-    val config = File(pluginsDirectory, "${WsFixtureProtocol.SERVER_PROBE_PLUGIN}/config.yml")
+fun openFixtureEndpoint(
+    pluginsDirectory: File,
+    scenario: String,
+    pluginDataDir: String = WsFixtureProtocol.SERVER_PROBE_PLUGIN,
+): FixtureEndpoint {
+    val config = File(pluginsDirectory, "$pluginDataDir/config.yml")
     val values = config.readText()
     check(probeConfigValue(values, "enabled") == "true") { "$scenario 测试桥未启用" }
     check(probeConfigValue(values, "instance") == WsFixtureProtocol.INSTANCE_ID) { "$scenario 测试实例标识错误" }
@@ -539,7 +544,7 @@ internal fun openFixtureEndpoint(pluginsDirectory: File, scenario: String): Fixt
 }
 
 /** fixture 的监听端点与一次性凭据。 */
-internal class FixtureEndpoint(val serverSocket: ServerSocket, val token: String)
+class FixtureEndpoint(val serverSocket: ServerSocket, val token: String)
 
 /**
  * 从**身份文件**读取托管连接目标，并在其回环端口启动 fixture。
@@ -549,10 +554,15 @@ internal class FixtureEndpoint(val serverSocket: ServerSocket, val token: String
  * 地址填错时宁可立即失败，也不要让场景在错误的端口上等到超时。
  *
  * @param pluginsDirectory 服务端的 `plugins` 目录。
+ * @param pluginDataDir 探针插件的数据目录名（与插件平台声明一致：Bungee 大写、Velocity 小写）。
  * @param scenario 场景名（仅用于失败提示）。
  */
-internal fun openFixtureEndpointFromIdentity(pluginsDirectory: File, scenario: String): FixtureEndpoint {
-    val identity = File(pluginsDirectory, "${WsFixtureProtocol.SERVER_PROBE_PLUGIN}/agent-identity.json")
+fun openFixtureEndpointFromIdentity(
+    pluginsDirectory: File,
+    pluginDataDir: String = WsFixtureProtocol.SERVER_PROBE_PLUGIN,
+    scenario: String = "managed-config",
+): FixtureEndpoint {
+    val identity = File(pluginsDirectory, "$pluginDataDir/agent-identity.json")
     check(identity.isFile) { "$scenario 缺少身份文件:${identity.path}" }
     val content = identity.readText()
     val rawEndpoint = checkNotNull(jsonField(content, "endpoint")) { "$scenario 身份文件缺少 endpoint" }
@@ -572,6 +582,6 @@ private fun jsonField(content: String, key: String): String? =
     Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"([^\"]*)\"").find(content)?.groupValues?.get(1)
 
 /** 读取本测试生成的最小 YAML 配置项；配置缺失立即失败，禁止悄然降级。 */
-internal fun probeConfigValue(content: String, key: String): String = checkNotNull(
+fun probeConfigValue(content: String, key: String): String = checkNotNull(
     Regex("(?m)^\\s*${Regex.escape(key)}:\\s*\"?([^\"\\r\\n]+)\"?\\s*$").find(content)?.groupValues?.get(1)?.trim(),
 ) { "测试配置缺少:$key" }

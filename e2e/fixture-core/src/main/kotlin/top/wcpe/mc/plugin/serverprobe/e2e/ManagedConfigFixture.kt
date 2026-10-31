@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * ## 失败必须大声
  * 任何契约漂移都直接记成断言失败（带实际值），绝不静默放过；缺项则由 `awaitEvidence` 超时兜底。
  */
-internal class ManagedConfigFixture private constructor(
+class ManagedConfigFixture private constructor(
     endpoint: FixtureEndpoint,
 ) : WebSocketFixtureServer(endpoint.serverSocket, endpoint.token, "serverprobe-e2e-managed") {
 
@@ -253,8 +253,12 @@ internal class ManagedConfigFixture private constructor(
         const val ASSERT_PREFIX = "assert."
 
         /** 从探针数据目录下的身份文件起服：端口与凭据都由该文件给出，证明"身份文件即开关"。 */
-        fun startFromIdentityFile(pluginsDirectory: File): ManagedConfigFixture =
-            ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, "managed-config"))
+        fun startFromIdentityFile(
+            pluginsDirectory: File,
+            pluginDataDir: String = WsFixtureProtocol.SERVER_PROBE_PLUGIN,
+            scenario: String = "managed-config",
+        ): ManagedConfigFixture =
+            ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario))
 
         /** 断言通过标记（结果写入器按此判真）。 */
         private const val ASSERT_PASSED = "true"
