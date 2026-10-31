@@ -243,8 +243,16 @@ class BusinessDomainRoute(private val businessHost: () -> BusinessHost?) : Inbou
  *
  * 命中条件:domain 为空或 `core`,且未被更早的路由(如 `bridge_status`)认领。
  * 平台未注册执行器时优雅降级为失败回执。
+ *
+ * ## core 内置动作先于平台执行器
+ * `metrics_now` / `config_push` 这类**不需要平台 API** 的动作由 core 组件自注册(见
+ * `BridgeCommandRegistry.registerCoreAction`)。本路由先问内置动作表:未命中(返回 null)才交平台执行器,
+ * 因此独立探针收到这类指令仍是"本平台未实现治理执行"的失败回执,行为与引入托管能力前一致。
  */
-class GovernanceRoute(private val registry: () -> BridgeCommandHandler?) : InboundRoute {
+class GovernanceRoute(
+    private val registry: () -> BridgeCommandHandler?,
+    private val coreAction: (BridgeCommand) -> BridgeCommandResult? = { null },
+) : InboundRoute {
 
     override val order: Int = ORDER
 
@@ -252,6 +260,7 @@ class GovernanceRoute(private val registry: () -> BridgeCommandHandler?) : Inbou
         command.domain.isEmpty() || command.domain == DOMAIN_CORE
 
     override fun handle(command: BridgeCommand): BridgeCommandResult {
+        runCatching { coreAction(command) }.getOrNull()?.let { return it }
         val handler = registry() ?: return BridgeCommandResult.fail("本平台未实现治理执行")
         return runCatching { handler.handle(command) }
             .getOrElse { BridgeCommandResult.fail("治理执行异常:${it.javaClass.simpleName}") }

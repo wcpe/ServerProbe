@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
 import java.lang.management.ManagementFactory
 
 /**
- * 全量服务器状态查询(JianManager ADR-016)的**平台无关**支撑工具。
+ * 全量服务器状态查询(控制面 ADR-016)的**平台无关**支撑工具。
  *
  * 把不依赖任何 Bukkit/Bungee API 的部分收口到 core(便于单测):
  * - **JVM 快照**:经 `java.lang.management.*` MXBean 取堆/非堆/线程/运行时长/处理器数等。

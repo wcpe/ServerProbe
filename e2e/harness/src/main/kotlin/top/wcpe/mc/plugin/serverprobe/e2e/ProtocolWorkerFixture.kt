@@ -64,7 +64,16 @@ class ProtocolWorkerFixture private constructor(
             "command_result" -> handleCommandResult(text)
             "${E2E_DOMAIN}_change" -> handleBusinessEvent(text)
             "connected" -> Unit
+            // FR-30：存量 bridge 段自动迁移完成后上报的一次性管理事件（端点/实例/备份文件名），
+            // 不影响治理与业务状态机，与 connected 同属"知道了即可"的事件
+            "identity_migrated" -> Unit
             "player_join", "player_quit", "chat", "cross_server" -> Unit
+            // FR-34：周期指标推送帧（与 connected 同属"知道了即可"的事件），不参与治理/业务状态机
+            "metric_snapshot" -> Unit
+            // FR-32/FR-33：托管配置回执与状态上报（托管实例才会发；e2e 桩以独立模式为主，
+            // 但白名单必须预先收录——否则一旦用托管身份文件跑 e2e，本桩会以"未知业务事件"直接失败）
+            "config_applied" -> Unit
+            "config_state" -> Unit
             else -> throw IllegalStateException("收到未知业务事件:$text")
         }
     }

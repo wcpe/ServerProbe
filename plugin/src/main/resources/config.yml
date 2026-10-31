@@ -172,6 +172,12 @@ web:
   allowed-ips:
     - "127.0.0.1"
 
+# 托管模式下上行节拍(毫秒)。托管面可经下发热调，详见 docs/specs/managed-mode.md。
+# 指标经反向 WS 推送的间隔，与 /metrics 抓取同源同口径；物理下限 1000ms，小于该值按 1000 生效。
+metrics-push-interval-ms: 5000
+# 托管状态 config_state 的周期上报间隔；物理下限 5000ms，小于该值按 5000 生效。
+config-state-interval-ms: 30000
+
 # 插件桥反向 WebSocket(JianManager 托管时使用,见 JianManager ADR-016 /)。
 # 探针启用后主动反向连入【本机 Worker】的 /ws/plugin-bridge,建立实时双向通道:上报玩家 join/quit/chat
 # 与跨服路由(BC 端),并接收治理指令。独立使用探针(非 JianManager 托管)时保持 enabled=false,

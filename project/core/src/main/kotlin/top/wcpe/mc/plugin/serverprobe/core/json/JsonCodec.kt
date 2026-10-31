@@ -67,4 +67,16 @@ interface JsonObject {
 
     /** 取嵌套对象；缺失返回 null。 */
     fun getObject(key: String): JsonObject?
+
+    /**
+     * 把整棵树还原为普通键值 Map（嵌套对象递归还原，数组为 List）。
+     *
+     * 接口其余方法只能**按已知键**取值，无法枚举；托管配置下发（FR-32）的 `values` 与托管缓存
+     * 里的同名对象都是"键名事先不可知"的自由映射，故需要本方法。
+     *
+     * 默认实现**直接抛出**：实现方若无法枚举键（例如只包了一层的测试桩）应显式覆盖，
+     * 不允许静默返回空表——空表在本项目里会被当成"配置为空"生效，是比异常更危险的失败模式。
+     */
+    fun toMap(): Map<String, Any?> =
+        throw UnsupportedOperationException("该 JSON 树实现不支持整体还原为 Map")
 }

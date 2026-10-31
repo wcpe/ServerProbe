@@ -442,6 +442,10 @@ mcTestkit.apply {
 
 // ── e2e 场景配置注入统一工具：模板文件 + 占位符替换，禁止在脚本内嵌 YAML 字符串 ──
 
+/** 身份文件名（与探针侧 `ControlPlaneModeService` 的常量保持一致）。 */
+private val identityFileName = "agent-identity.json"
+
+
 /**
  * 读取 `e2e/templates/configs/<scenario>/` 下的配置模板，替换占位符后写入**目标后端运行目录**。
  *
@@ -461,6 +465,14 @@ private fun Project.installE2eConfig(
     var content = template.readText()
     replacements.forEach { (key, value) -> content = content.replace(key, value) }
     target.writeText(content)
+    // FR-30 托管模式：带 bridge 段的夹具在首次启动时会被自动迁移成身份文件（bridge 段随之移除）。
+    // 夹具每次 prepare 都重新生成端口与 token，若上一次运行留下的 agent-identity.json 不被清掉，
+    // 探针会按**旧身份**连**旧端口**，表现为桥连不上——故"重新注入配置"即等同"重新下发探针"，
+    // 一并清除同目录下的身份文件。
+    val identityFile = File(target.parentFile, identityFileName)
+    if (identityFile.isFile && !identityFile.delete()) {
+        logger.warn("无法清理残留身份文件：${identityFile.absolutePath}")
+    }
 }
 
 /** 为 e2e 任务统一挂 prepare 依赖（支持任务路径字符串与 TaskProvider）。 */
