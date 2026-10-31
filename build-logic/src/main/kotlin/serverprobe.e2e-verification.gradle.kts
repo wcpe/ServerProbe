@@ -298,6 +298,8 @@ mcTestkit.apply {
     scenario("topic-fixture") { backend = "paper" }
     scenario("health-fixture") { backend = "paper" }
     scenario("reload-fixture") { backend = "paper" }
+    // 托管模式：连接目标写在身份文件里（身份文件即开关），故没有 bridge 段可自动迁移。
+    scenario("managed-config") { backend = "paper" }
     scenario("mcp-diagnostics-paper") { backend = "paper-mcp" }
     scenario("mcp-diagnostics-paper-java21") { backend = "paper-mcp-java21" }
     scenario("mcp-diagnostics-folia") { backend = "folia-mcp" }
@@ -617,6 +619,37 @@ val prepareReloadFixture by tasks.registering {
 }
 
 wireE2eDependency("e2eReloadFixture", prepareReloadFixture)
+
+// ── 托管模式 fixture ──
+// 与桥场景的关键差别：连接目标写在**身份文件**里（身份文件即托管开关），config.yml 不含 bridge 段。
+// 身份文件必须在服启动前就位，故与配置一起在 prepare 阶段落盘；installE2eConfig 会清理残留身份文件，
+// 因此必须写在它之后。
+
+val prepareManagedConfig by tasks.registering {
+    group = "verification"
+    description = "为托管模式 fixture 写入身份文件与不带 bridge 段的配置"
+    dependsOn("prepareE2eManagedConfig")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
+    doLast {
+        val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val runDir = runDirectory.get().asFile
+        installE2eConfig(runDir, "managed-config", "plugins/ServerProbe/config.yml")
+        // 身份文件名与探针侧 ControlPlaneModeService 的常量一致；实例标识与 fixture 的 INSTANCE_ID 一致。
+        val identity = File(runDir, "plugins/ServerProbe/$identityFileName")
+        identity.parentFile.mkdirs()
+        val createdAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
+        identity.writeText(
+            """{"schemaVersion":1,"provider":"e2e","endpoint":"ws://127.0.0.1:$port/ws/plugin-bridge",""" +
+                """"instanceId":"e2e-fixture","credential":"$token","capabilities":[],""" +
+                """"createdAt":"$createdAt"}""",
+        )
+    }
+}
+
+wireE2eDependency("e2eManagedConfig", prepareManagedConfig)
 
 // ── Incision 织入场景配置注入 ──
 // 必须在服启动前写入：`incision.enabled` 由 TabooLib 在 LOAD 阶段读入并缓存，

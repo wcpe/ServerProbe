@@ -1,0 +1,13 @@
+# 托管模式场景：身份文件即开关（本场景不写 bridge 段），
+# 监听面故意写成 enabled=true，用来验证“托管模式下必须零监听”的强制关断。
+collect-period-ticks: 20
+metrics-push-interval-ms: 1000
+config-state-interval-ms: 5000
+metrics:
+  enabled: true
+  host: "127.0.0.1"
+  port: 19941
+web:
+  enabled: true
+  host: "127.0.0.1"
+  port: 19942

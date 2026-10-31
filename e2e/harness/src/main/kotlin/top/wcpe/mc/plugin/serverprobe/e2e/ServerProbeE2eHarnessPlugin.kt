@@ -47,6 +47,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private var healthFixture: HealthFrameFixture? = null
     /** 配置重载通知的回环 fixture（独立状态机，见 ReloadFrameFixture）。 */
     private var reloadFixture: ReloadFrameFixture? = null
+    /** 托管模式的回环 fixture：由身份文件驱动的控制面，验收配置下发 / 状态上报 / 指标推送与零监听。 */
+    private var managedFixture: ManagedConfigFixture? = null
     /** 场景的监听器观测点：fixture 与三个监听器共享同一实例（计数即证据）。 */
     private val reloadState = ReloadFixtureState()
     /** 场景的三个监听器注册句柄：onDisable 一并关闭，避免留下未注销的监听器。 */
@@ -99,6 +101,10 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.RELOAD_FIXTURE -> {
                 reloadFixture = ReloadFrameFixture.startFromProbeConfiguration(dataFolder.parentFile, reloadState)
             }
+            // 托管模式场景：探针同样一连上就发 hello，fixture 必须提前监听（端口来自身份文件）。
+            E2eScenario.MANAGED_CONFIG -> {
+                managedFixture = ManagedConfigFixture.startFromIdentityFile(dataFolder.parentFile)
+            }
             E2eScenario.READ_API,
             E2eScenario.STORAGE_SPI,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -145,6 +151,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.TOPIC_FIXTURE -> startTopicScenario()
             E2eScenario.HEALTH_FIXTURE -> startHealthScenario()
             E2eScenario.RELOAD_FIXTURE -> startReloadScenario()
+            E2eScenario.MANAGED_CONFIG -> startManagedScenario()
             E2eScenario.READ_API,
             E2eScenario.INCISION_STARTUP,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -202,7 +209,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             // Folia 场景需要该事件在“服务端刚就绪”这一刻预热实体类型表，
             // 否则首个 bot 登录会在 global region 线程上慢过 watchdog 阈值。
             scenario == E2eScenario.FOLIA_OBSERVED_REGIONS ||
-            scenario == E2eScenario.RELOAD_FIXTURE
+            scenario == E2eScenario.RELOAD_FIXTURE ||
+            // 托管模式同样在启动完成后才开验收：探针需先完成模式判定与首份指标快照。
+            scenario == E2eScenario.MANAGED_CONFIG
         if (!needsStartupEvent) return
         if (runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isFailure) {
             return
@@ -223,6 +232,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         unregisterBusinessProvider()
         stopFoliaRegionTasks()
         bridgeFixture?.close()
+        managedFixture?.close()
         chunkFixture?.close()
         topicFixture?.close()
         healthFixture?.close()
@@ -894,6 +904,27 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     }
 
     /**
+     * 托管模式场景：fixture 扮演**身份文件驱动的控制面**，逐项验收托管链路。
+     *
+     * 判定全部发生在 fixture 侧（hello 托管位与能力位 / 配置下发应用 / 周期指标推送 / 状态上报 /
+     * 按需推送回执 / 托管下零监听），这里只负责把结论落成结果文件。
+     */
+    private fun startManagedScenario() {
+        runCatching {
+            val activeFixture = checkNotNull(managedFixture) { "托管 fixture 未启动" }
+            awaitFixture(
+                activeFixture,
+                MANAGED_FIXTURE_TIMEOUT_SECONDS,
+                "托管 fixture 完成 配置下发与指标推送验收",
+                "托管 fixture 验收失败",
+                assertPrefix = ManagedConfigFixture.ASSERT_PREFIX,
+            )
+        }.onFailure {
+            fail("启动托管模式验收失败:${it.message}")
+        }
+    }
+
+    /**
      * 累计调用次数必须与逐条命令推导出的期望值一致（推导见 [ReloadFixtureState.EXPECTED_CALLS]）。
      *
      * 这条断言的分量在于"**恰好**"：少了说明有通知没送达，多了说明同一路径被重复通知或
@@ -1321,6 +1352,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         TOPIC_FIXTURE("topic-fixture"),
         HEALTH_FIXTURE("health-fixture"),
         RELOAD_FIXTURE("reload-fixture"),
+        MANAGED_CONFIG("managed-config"),
         NETWORK_FORENSICS_BUNGEE("network-forensics-bungee"),
         FOLIA_OBSERVED_REGIONS("folia-observed-regions"),
         MCP_DIAGNOSTICS_PAPER("mcp-diagnostics-paper"),
@@ -1419,6 +1451,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
          * 给足余量只为让失败路径仍能拿到"哪条断言先破"的完整消息，而不是提前超时。
          */
         private const val RELOAD_FIXTURE_TIMEOUT_SECONDS = 60L
+
+        /** 托管模式场景：等配置应用 + 一次指标/状态推送 + 零监听判定（故意比其它场景宽）。 */
+        private const val MANAGED_FIXTURE_TIMEOUT_SECONDS = 120L
         /** 断言成立时 fixture 写入的值；此处按同一口径判定该条断言通过。 */
         private const val ASSERT_PASSED_VALUE = "true"
         private const val REQUIRED_FOLIA_PLAYERS = 2

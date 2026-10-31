@@ -541,6 +541,36 @@ internal fun openFixtureEndpoint(pluginsDirectory: File, scenario: String): Fixt
 /** fixture 的监听端点与一次性凭据。 */
 internal class FixtureEndpoint(val serverSocket: ServerSocket, val token: String)
 
+/**
+ * 从**身份文件**读取托管连接目标，并在其回环端口启动 fixture。
+ *
+ * 与 [openFixtureEndpoint] 的分工：那个读 `config.yml` 的 `bridge` 段（独立模式场景），
+ * 本函数读 `agent-identity.json`（托管模式场景）。两者都只读不写，且一律拒绝非本机 WS 地址——
+ * 地址填错时宁可立即失败，也不要让场景在错误的端口上等到超时。
+ *
+ * @param pluginsDirectory 服务端的 `plugins` 目录。
+ * @param scenario 场景名（仅用于失败提示）。
+ */
+internal fun openFixtureEndpointFromIdentity(pluginsDirectory: File, scenario: String): FixtureEndpoint {
+    val identity = File(pluginsDirectory, "${WsFixtureProtocol.SERVER_PROBE_PLUGIN}/agent-identity.json")
+    check(identity.isFile) { "$scenario 缺少身份文件:${identity.path}" }
+    val content = identity.readText()
+    val rawEndpoint = checkNotNull(jsonField(content, "endpoint")) { "$scenario 身份文件缺少 endpoint" }
+    val token = checkNotNull(jsonField(content, "credential")) { "$scenario 身份文件缺少 credential" }
+    check(jsonField(content, "instanceId") == WsFixtureProtocol.INSTANCE_ID) { "$scenario 身份文件实例标识错误" }
+    val endpoint = URI(rawEndpoint)
+    check(endpoint.scheme == "ws" && endpoint.host == "127.0.0.1") { "$scenario 身份文件地址必须为本机 WS" }
+    check(endpoint.port in 1..WsFixtureProtocol.MAX_PORT && endpoint.path == WsFixtureProtocol.BRIDGE_PATH) {
+        "$scenario 身份文件地址无效"
+    }
+    val socket = ServerSocket(endpoint.port, 1, InetAddress.getLoopbackAddress())
+    return FixtureEndpoint(socket, token)
+}
+
+/** 读取单层 JSON 对象的字符串字段（身份文件是扁平的，无需完整解析器）。 */
+private fun jsonField(content: String, key: String): String? =
+    Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"([^\"]*)\"").find(content)?.groupValues?.get(1)
+
 /** 读取本测试生成的最小 YAML 配置项；配置缺失立即失败，禁止悄然降级。 */
 internal fun probeConfigValue(content: String, key: String): String = checkNotNull(
     Regex("(?m)^\\s*${Regex.escape(key)}:\\s*\"?([^\"\\r\\n]+)\"?\\s*$").find(content)?.groupValues?.get(1)?.trim(),
