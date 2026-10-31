@@ -176,7 +176,9 @@ class FrameSenderTest {
         // 不 attach 连接：发送线程会把帧判为"写不出去"，走未连接分支。
         sender.submit(event(OutboundFrame.Priority.RELIABLE_EVENT, 0))
         Thread { sender.runLoop() }.apply { isDaemon = true }.start()
-        waitUntil { sender.status().reliableQueue == 0 }
+        // 等**计数**而不是等队列变空：队列在写出尝试之前就已出队，用队列当条件会先返回，
+        // 此时 reliableRejected 还没递增，断言必然时而为 0（曾因此偶发杠红）。
+        waitUntil { sender.status().reliableRejected == 1L }
 
         val status = sender.status()
         assertEquals(1, status.reliableRejected, "可靠事件落盘失败必须计入 reliableRejected")
@@ -195,7 +197,8 @@ class FrameSenderTest {
         sender.attach(FakeWs { throw IOException("模拟写失败") })
         sender.submit(event(OutboundFrame.Priority.RELIABLE_EVENT, 0))
         Thread { sender.runLoop() }.apply { isDaemon = true }.start()
-        waitUntil { sender.status().reliableQueue == 0 }
+        // 同上一用例：必须以计数为等待条件，否则会抢在计数递增之前断言。
+        waitUntil { sender.status().reliableRejected == 1L }
 
         val status = sender.status()
         assertEquals(1, status.reliableRejected, "写失败且落盘失败必须计入 reliableRejected")
