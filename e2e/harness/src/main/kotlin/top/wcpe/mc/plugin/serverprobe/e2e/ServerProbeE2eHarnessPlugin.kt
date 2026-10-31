@@ -101,8 +101,11 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.RELOAD_FIXTURE -> {
                 reloadFixture = ReloadFrameFixture.startFromProbeConfiguration(dataFolder.parentFile, reloadState)
             }
-            // 托管模式场景：探针同样一连上就发 hello，fixture 必须提前监听（端口来自身份文件）。
-            E2eScenario.MANAGED_CONFIG -> {
+            // 托管模式场景（含版本矩阵）：探针同样一连上就发 hello，fixture 必须提前监听（端口来自身份文件）。
+            E2eScenario.MANAGED_CONFIG,
+            E2eScenario.MANAGED_CONFIG_PAPER188,
+            E2eScenario.MANAGED_CONFIG_PAPER1211,
+            -> {
                 managedFixture = ManagedConfigFixture.startFromIdentityFile(dataFolder.parentFile)
             }
             E2eScenario.READ_API,
@@ -152,6 +155,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.HEALTH_FIXTURE -> startHealthScenario()
             E2eScenario.RELOAD_FIXTURE -> startReloadScenario()
             E2eScenario.MANAGED_CONFIG -> startManagedScenario()
+            E2eScenario.MANAGED_CONFIG_PAPER188 -> startManagedScenario()
+            E2eScenario.MANAGED_CONFIG_PAPER1211 -> startManagedScenario()
             E2eScenario.READ_API,
             E2eScenario.INCISION_STARTUP,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -211,9 +216,13 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             scenario == E2eScenario.FOLIA_OBSERVED_REGIONS ||
             scenario == E2eScenario.RELOAD_FIXTURE ||
             // 托管模式同样在启动完成后才开验收：探针需先完成模式判定与首份指标快照。
-            scenario == E2eScenario.MANAGED_CONFIG
+            scenario == E2eScenario.MANAGED_CONFIG ||
+            scenario == E2eScenario.MANAGED_CONFIG_PAPER188 ||
+            scenario == E2eScenario.MANAGED_CONFIG_PAPER1211
         if (!needsStartupEvent) return
         if (runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isFailure) {
+            // 旧版服务端（1.8~1.12）没有 ServerLoadEvent：按固定延时进场景，否则永远等不到“启动完成”信号。
+            runLater(FALLBACK_START_TICKS) { handleServerLoad(true) }
             return
         }
         server.pluginManager.registerEvents(ServerLoadBridge(this), this)
@@ -1353,6 +1362,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         HEALTH_FIXTURE("health-fixture"),
         RELOAD_FIXTURE("reload-fixture"),
         MANAGED_CONFIG("managed-config"),
+        // 版本矩阵：同一套托管断言换后端（1.8 锁 Java 8，1.21 用默认 JDK）。
+        MANAGED_CONFIG_PAPER188("managed-config-paper188"),
+        MANAGED_CONFIG_PAPER1211("managed-config-paper1211"),
         NETWORK_FORENSICS_BUNGEE("network-forensics-bungee"),
         FOLIA_OBSERVED_REGIONS("folia-observed-regions"),
         MCP_DIAGNOSTICS_PAPER("mcp-diagnostics-paper"),
@@ -1454,6 +1466,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
         /** 托管模式场景：等配置应用 + 一次指标/状态推送 + 零监听判定（故意比其它场景宽）。 */
         private const val MANAGED_FIXTURE_TIMEOUT_SECONDS = 120L
+
+        /** 旧版服务端（无 ServerLoadEvent）的兜底启动延时（ticks）：按 20 tps 约 20 秒，覆盖 1.8 冷启动。 */
+        private const val FALLBACK_START_TICKS = 400L
         /** 断言成立时 fixture 写入的值；此处按同一口径判定该条断言通过。 */
         private const val ASSERT_PASSED_VALUE = "true"
         private const val REQUIRED_FOLIA_PLAYERS = 2

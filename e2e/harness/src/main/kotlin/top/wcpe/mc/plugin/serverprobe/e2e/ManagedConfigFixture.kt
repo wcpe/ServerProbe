@@ -305,7 +305,7 @@ internal class ManagedConfigFixture private constructor(
         private const val REQUEST_MCP_INIT = "e2e-managed-mcp"
 
         /** MCP 探测的最多尝试次数与间隔（覆盖“动作尚未挂载”的窗口）。 */
-        private const val MCP_PROBE_ATTEMPTS = 5
+        private const val MCP_PROBE_ATTEMPTS = 12
         private const val MCP_PROBE_RETRY_INTERVAL_MS = 3_000L
 
         /** 只触发一次的阶段标记。 */
@@ -313,15 +313,15 @@ internal class ManagedConfigFixture private constructor(
         private const val STAGE_METRIC = "metric"
         private const val STAGE_METRICS_NOW = "metrics_now"
 
-        /** 配置下发最多尝试次数与间隔：覆盖“探针刚连上、core 动作还未注册”的窗口。 */
-        private const val CONFIG_PUSH_ATTEMPTS = 5
+        /** 配置下发最多尝试次数与间隔：覆盖“探针刚连上、core 动作还未注册”的窗口，并兼容旧版服务端较慢的启动。 */
+        private const val CONFIG_PUSH_ATTEMPTS = 12
         private const val CONFIG_PUSH_RETRY_INTERVAL_MS = 3_000L
 
         /** 模板配置里故意开启的三个监听面端口：托管模式下必须都连不上。 */
         private val ZERO_BIND_PORTS = listOf(19941, 19942, 19943)
 
-        /** 零监听判定的等待时长（毫秒）：覆盖探针后台判定 + 一次采集周期。 */
-        private const val ZERO_BIND_DELAY_MS = 8_000L
+        /** 零监听判定的等待时长（毫秒）：覆盖探针后台判定 + 一次采集周期；旧版服务端启动更慢，故取宽。 */
+        private const val ZERO_BIND_DELAY_MS = 15_000L
 
         /** 回环连接判定的超时（毫秒）。 */
         private const val CONNECT_TIMEOUT_MS = 400
