@@ -104,7 +104,7 @@ mcTestkit.apply {
     backend("paper") {
         platform = paper
         version = "1.20.1"
-        // 25575 与用户测试服(luminol)冲突,改用 25620。
+        // 25575 与外部测试服端口冲突，改用 25620。
         port = 25620
     }
     backend("paper-incision") {
