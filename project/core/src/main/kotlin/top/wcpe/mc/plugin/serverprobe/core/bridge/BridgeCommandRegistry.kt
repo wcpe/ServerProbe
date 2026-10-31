@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
  * 故持有单个 [handler] 而非列表;重复注册以最后一次为准并 WARN(理论上不应发生)。
  * 未注册(探针独立使用、或平台模块缺失)时 [handler] 为 null——[BridgeClient] 据此回 success=false 优雅降级。
  *
- * ## core 内置动作(FR-34)
+ * ## core 内置动作(FR-46)
  * 除平台治理动作外,还有一类**不需要平台 API** 的指令(如 `metrics_now`):它们由 core 组件自注册并按
  * 动作名分发([registerCoreAction] / [dispatchCoreAction])。这样 `metrics_now` 与治理指令共用同一套
  * 分发中心与同一份回执语义,不必在桥里为每个新动作加分支。

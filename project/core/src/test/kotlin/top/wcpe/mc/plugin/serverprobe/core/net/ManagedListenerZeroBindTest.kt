@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 托管模式**零监听端口**验收测试（FR-34，协议规格 §3.6）。
+ * 托管模式**零监听端口**验收测试（协议规格 §3.6）。
  *
  * 断言方式不是"看配置开关"，而是**证明 bind 没被调用**：`metrics` / `web` 两个监听面通过
  * [HttpListenerFactory] 注入记录型替身，托管模式下调用其真实 bind 入口后计数必须为 0；

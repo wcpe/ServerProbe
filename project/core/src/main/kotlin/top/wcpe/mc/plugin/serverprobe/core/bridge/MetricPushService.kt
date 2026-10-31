@@ -12,7 +12,7 @@ import top.wcpe.taboolib.ioc.annotation.Service
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 指标经反向 WS 推送的服务（FR-34，协议规格 §3.4.4 / §3.4.5）。
+ * 指标经反向 WS 推送的服务（协议规格 §3.4.4 / §3.4.5）。
  *
  * ## 职责
  * 1. **周期推送**：按 `metrics-push-interval-ms`（默认 5000，下限 1000）推 `metric_snapshot`；

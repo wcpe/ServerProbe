@@ -8,7 +8,7 @@ import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneRuntime
 import top.wcpe.mc.plugin.serverprobe.core.testsupport.testConfiguration
 
 /**
- * `metrics-push-interval-ms` 取值单测（FR-34，协议规格 §3.3 / §3.5）。
+ * `metrics-push-interval-ms` 取值单测（协议规格 §3.3 / §3.5）。
  *
  * 锁定两件事：默认 5000ms；低于物理下限 1000ms 时按 1000 生效（防止把反向 WS 打满）。
  */

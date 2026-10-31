@@ -11,7 +11,7 @@ import java.lang.reflect.Proxy
  * 探针实际会问到的那几个取值方法，缺键时回落调用方传入的默认值，与真实配置语义一致。
  *
  * 现有单测（`ProbeConfigStandaloneTest` / `ManagedConfigResolverTest`）各自内联了同样的替身；
- * FR-34 的监听面与推送测试也要用，故抽到此处共用，避免第三份拷贝。
+ * FR-46 的监听面与推送测试也要用，故抽到此处共用，避免第三份拷贝。
  *
  * @param values 键 → 值。
  * @return 可直接赋给 `ProbeConfig.conf` 的替身。

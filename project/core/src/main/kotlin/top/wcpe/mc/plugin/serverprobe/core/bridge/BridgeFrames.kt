@@ -27,10 +27,10 @@ internal object BridgeFrames {
      */
     const val CAPABILITY_METRIC_PUSH = "metric_push"
 
-    /** 能力位：接受托管面下发配置（FR-32，只在托管模式声明）。 */
+    /** 能力位：接受托管面下发配置（只在托管模式声明）。 */
     const val CAPABILITY_CONFIG_PUSH = "config_push"
 
-    /** 能力位：周期上报托管状态（FR-33，只在托管模式声明）。 */
+    /** 能力位：周期上报托管状态（只在托管模式声明）。 */
     const val CAPABILITY_CONFIG_STATE = "config_state"
 
     /** 事件名：配置应用回执（协议规格 §3.4.2）。 */
@@ -47,7 +47,7 @@ internal object BridgeFrames {
         listOf(CAPABILITY_METRIC_PUSH, CAPABILITY_CONFIG_PUSH, CAPABILITY_CONFIG_STATE)
 
     /**
-     * hello 帧（FR-34 起带 `capabilities`，FR-32/33 起按模式追加两项）。
+     * hello 帧（带 `capabilities`；托管模式再追加配置类两项）。
      *
      * 既有字段语义不变，旧对端忽略不认识的字段即可（向后兼容）；新对端不认该字段时仍按老路径拉取，
      * 故独立模式与老 Worker 的行为都不受影响。
@@ -141,7 +141,7 @@ internal object BridgeFrames {
      *
      * 顶层 `type=event` + `event=command_result`，结构化字段放在嵌套 `data` 内
      * （requestId/success/output/error）。requestId 须与下发指令一致，Worker 据此把回执路由给
-     * 同步等待的调用方——FR-34 的 `metrics_now` 回执同样依赖本约定。
+     * 同步等待的调用方——FR-46 的 `metrics_now` 回执同样依赖本约定。
      *
      * @param instance 实例标识。
      * @param timestampMs 回执时刻（epoch 毫秒）。
@@ -168,7 +168,7 @@ internal object BridgeFrames {
     )
 
     /**
-     * 配置应用回执帧（FR-32，协议规格 §3.4.2）。
+     * 配置应用回执帧（协议规格 §3.4.2）。
      *
      * 拓扑与既有事件帧略有不同：规格把结构化字段直接放在 `payload` 下（而非 `data`），
      * 本方法照规格输出；`instance` / `timestamp` 沿用既有信封字段，便于 Worker 统一路由与排序。
@@ -197,7 +197,7 @@ internal object BridgeFrames {
     )
 
     /**
-     * 托管状态上报帧（FR-33，协议规格 §3.4.3）。
+     * 托管状态上报帧（协议规格 §3.4.3）。
      *
      * 字段语义全部由调用方（[ConfigStateReporter]）决定并原样放进 `payload`：本对象只负责
      * 信封结构与字段命名，不解释 `connection` / `cacheAgeSeconds` 这类运行态。

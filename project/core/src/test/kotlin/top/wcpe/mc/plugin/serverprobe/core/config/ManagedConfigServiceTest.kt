@@ -17,7 +17,7 @@ import top.wcpe.mc.plugin.serverprobe.core.control.ProbeMode
 import top.wcpe.mc.plugin.serverprobe.core.testsupport.testConfiguration
 
 /**
- * [ManagedConfigService] 的模式装配单测（FR-32 / FR-33）。
+ * [ManagedConfigService] 的模式装配单测（FR-44 / FR-45）。
  *
  * 守的是**独立模式零回归**这条硬约束：
  * - 独立模式：`config_push` 不注册（指令自然回落到平台执行器并按既有语义降级），`config_state` 不起线程；

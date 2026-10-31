@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
 /**
- * 插件桥与控制面的连接态(FR-33,协议规格 §3.4.3 的 `connection` 四态)。
+ * 插件桥与控制面的连接态(FR-45,协议规格 §3.4.3 的 `connection` 四态)。
  *
  * ## 四态必须区分的理由
  * 排障时"连不上"和"凭据被拒"是两条完全不同的处置链路:前者等网络恢复即可,

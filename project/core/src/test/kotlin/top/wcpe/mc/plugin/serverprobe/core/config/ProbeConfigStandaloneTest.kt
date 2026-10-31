@@ -14,7 +14,7 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 
 /**
- * 独立模式**逐键回归**单测(FR-31 最重要的验收项)。
+ * 独立模式**逐键回归**单测(FR-43 最重要的验收项)。
  *
  * 断言两件事,合起来就是"与改造前逐字节一致":
  * 1. **取值形状**:66 个取值方法各自问 `config.yml` 哪个**键**、用哪个**方法**、什么**默认值**——
@@ -283,7 +283,7 @@ class ProbeConfigStandaloneTest {
         /**
          * 改造前的读取形状基线:`方法|键|默认值`。
          *
-         * 这张表是"独立模式零回归"的判据——它逐字对应 FR-31 之前的 66 个取值方法。
+         * 这张表是"独立模式零回归"的判据——它逐字对应 FR-43 之前的 66 个取值方法。
          */
         private val EXPECTED_READS = listOf(
             "getLong|collect-period-ticks|100",

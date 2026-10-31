@@ -14,7 +14,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.metrics.TickSample
 import top.wcpe.mc.plugin.serverprobe.api.model.metrics.WorldMetrics
 
 /**
- * [MetricSnapshotFrame] 单测（FR-34，协议规格 §3.4.4 帧结构 + §7.2 字段对照表）。
+ * [MetricSnapshotFrame] 单测（协议规格 §3.4.4 帧结构 + §7.2 字段对照表）。
  *
  * 断言口径取自**协议规格**而不是实现：
  * - 帧头：`type=event` / `event=metric_snapshot` / `dedupKey=metric:<instanceId>:<ts>`；

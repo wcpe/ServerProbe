@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.config
 
 /**
- * 托管配置的**运行期版本状态**(FR-32 / FR-33)。
+ * 托管配置的**运行期版本状态**(FR-44 / FR-45)。
  *
  * 与 [ManagedConfigStore](只存值)分工:本类记"这些值是第几版、什么时候生效、上次为什么没生效"。
  * 三份数据必须一起被读到,故收在同一个对象里,而不是各自一个散落的全局变量。

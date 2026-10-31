@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [ConfigPushPayload] 解析单测（FR-32，协议规格 §3.4.1 的载荷形态）。
+ * [ConfigPushPayload] 解析单测（协议规格 §3.4.1 的载荷形态）。
  *
  * 载荷来自控制面、可能残缺，故"解析失败 → 中文拒绝原因"本身就是一条要守的行为；
  * 本测同时锁定 `values` / `removals` 的落型（数字统一为 Long，数组只保留字符串项）。

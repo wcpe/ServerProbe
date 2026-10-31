@@ -12,7 +12,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * [ManagedCacheStore] 单测（FR-32 的 `managed-cache.json`）。
+ * [ManagedCacheStore] 单测（FR-44 的 `managed-cache.json`）。
  *
  * 锁定四件事：
  * - **原子写**：落盘后不留 `.tmp` 残留，内容可被原样读回；

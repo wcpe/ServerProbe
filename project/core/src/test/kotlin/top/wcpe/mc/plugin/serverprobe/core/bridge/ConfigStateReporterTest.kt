@@ -13,7 +13,7 @@ import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneRuntime
 import top.wcpe.mc.plugin.serverprobe.core.control.ProbeMode
 
 /**
- * [ConfigStateReporter] 单测（FR-33，协议规格 §3.4.3）。
+ * [ConfigStateReporter] 单测（协议规格 §3.4.3）。
  *
  * 重点锁三件事：
  * - **`connection` 四态**逐态可判定（`online` / `degraded` / `unauthorized` / `disconnected`）——

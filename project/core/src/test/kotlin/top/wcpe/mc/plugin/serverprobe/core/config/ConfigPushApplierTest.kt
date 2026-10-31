@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * [ConfigPushApplier] 单测（FR-32）：配置下发状态机的**每一条分支**逐条锁定。
+ * [ConfigPushApplier] 单测：配置下发状态机的**每一条分支**逐条锁定。
  *
  * 覆盖协议规格 §3.5 的配置应用状态机：
  * - 版本陈旧 → `rejected(stale)`，且**不降级**（内存与版本号都不动）；

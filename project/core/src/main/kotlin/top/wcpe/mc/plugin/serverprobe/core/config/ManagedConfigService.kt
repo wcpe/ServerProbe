@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 托管配置的服务端装配点（FR-32 `config_push` + FR-33 `config_state`）。
+ * 托管配置的服务端装配点（FR-44 `config_push` + FR-45 `config_state`）。
  *
  * ## 独立模式零回归
  * 只有判定为托管模式才

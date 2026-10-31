@@ -9,7 +9,7 @@ import top.wcpe.mc.plugin.serverprobe.api.model.metrics.JvmMetrics
 import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 
 /**
- * [MetricPusher] 单测（FR-34）：推送节奏之外的**语义**逐条锁定。
+ * [MetricPusher] 单测：推送节奏之外的**语义**逐条锁定。
  *
  * 覆盖：无快照不推帧、去重键与 sequence 单调递增、桥断开时静默跳过（不补旧值）、
  * 失败原因变化才更新状态、恢复后清理失败状态。帧内字段细节由 [MetricSnapshotFrameTest] 负责。

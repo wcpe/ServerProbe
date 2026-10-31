@@ -1,7 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.config
 
 /**
- * 托管配置**键路径**的合并与显式删除（FR-32，协议规格 §3.4.1 的 `values` / `removals`）。
+ * 托管配置**键路径**的合并与显式删除（协议规格 §3.4.1 的 `values` / `removals`）。
  *
  * ## 为什么单独抽出来
  * "删除一个键"在托管配置里有两种形态并存（[ManagedConfigStore.valueOf] 两种都支持）：

@@ -20,7 +20,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * 托管配置链路的**跨层联动**测试（FR-32）：下行帧 → 分发 → 应用 → 内存/缓存/状态。
+ * 托管配置链路的**跨层联动**测试：下行帧 → 分发 → 应用 → 内存/缓存/状态。
  *
  * 与 [ConfigPushApplierTest]（应用器语义）和 [ManagedConfigServiceTest]（模式装配）互补：
  * 这里走的是 `BridgeClient.handleCommand` 的**真实分发路径**，载荷是协议规格 §3.4.1 的嵌套对象形态，

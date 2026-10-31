@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [ManagedConfigValues] 单测（FR-32 的 `values` / `removals` 语义）。
+ * [ManagedConfigValues] 单测（FR-44 的 `values` / `removals` 语义）。
  *
  * 这层是"下发值怎么合并、删除怎么落地"的唯一实现，被应用链路与两代快照回退共用，
  * 故三种存放形态（扁平点分键 / 点分前缀对象 / 逐层嵌套）都要能正确删除。

@@ -16,7 +16,7 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 
 /**
- * [ManagedConfigResolver] 单测(FR-31):托管取值优先级、禁止档回落、bridge 身份文件取值。
+ * [ManagedConfigResolver] 单测(FR-43):托管取值优先级、禁止档回落、bridge 身份文件取值。
  *
  * 配置源用动态代理替身(单测 classpath 无配置后端,无法构造真实 [Configuration]),只实现本用例用到的
  * 取值方法;托管缓存与运行模式走真实实现,故断言的正是生产取值链路。

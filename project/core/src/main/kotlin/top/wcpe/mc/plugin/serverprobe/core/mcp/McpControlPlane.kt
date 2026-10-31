@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 /**
  * 默认关闭的 MCP 控制面生命周期；仅启用后才创建监听 socket。
  *
- * ## 托管模式下零监听（FR-34，协议规格 §3.6）
+ * ## 托管模式下零监听（协议规格 §3.6）
  * 托管模式下本控制面**一律不起服**，运行期开启命令同样被拒——判断依据是运行模式，不是 `mcp.enabled`：
  * 该键虽属 FORBIDDEN 档，但本地 `config.yml` 里遗留的 `true` 不会被迁移清掉，故必须由
  * [LocalListenerGate] 按模式强制关断。独立模式行为与引入托管能力前完全一致。
@@ -99,7 +99,7 @@ class McpControlPlane {
      */
     @Synchronized
     fun enable(): McpToggleOutcome {
-        // 托管模式下零监听（FR-34）：判断依据是运行模式而非配置值，本地遗留的 mcp.enabled=true 不作数。
+        // 托管模式下零监听：判断依据是运行模式而非配置值，本地遗留的 mcp.enabled=true 不作数。
         // 这是全类唯一的 bind 入口，故启动期与运行期命令两条路径都被这一道闸门覆盖。
         if (!LocalListenerGate.allows(LocalListenerGate.Surface.MCP)) {
             return McpToggleOutcome(false, "托管模式下不启动本地监听端口（零监听端口承诺），MCP 控制面已跳过。")

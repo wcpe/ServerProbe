@@ -54,7 +54,7 @@ interface BridgeCommandHandler {
 }
 
 /**
- * core 内置动作的执行器(FR-34,如 `metrics_now`)。
+ * core 内置动作的执行器(FR-46,如 `metrics_now`)。
  *
  * 与 [BridgeCommandHandler] 的区别:内置动作**不需要平台 API**(core 自己能完成),故按动作名注册到
  * [BridgeCommandRegistry],与平台治理动作共用同一套分发与回执语义。实现须线程安全且绝不抛。

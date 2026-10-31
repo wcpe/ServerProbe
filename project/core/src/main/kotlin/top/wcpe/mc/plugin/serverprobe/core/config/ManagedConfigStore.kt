@@ -10,12 +10,12 @@ import top.wcpe.mc.plugin.serverprobe.core.control.ConfigTier
  * 其中 previous 的用途是"当前版本里缺某个键时仍能给出上一次下发的值"。
  *
  * ## 线程模型
- * 写入方是桥的后台线程(FR-32 的 `config_push` 应用链路),读取方是采集线程与主线程。
+ * 写入方是桥的后台线程(FR-44 的 `config_push` 应用链路),读取方是采集线程与主线程。
  * 故 [replace] 只做**整表原子替换**:两代值装在一个不可变对象里,一次 `@Volatile` 读就能拿到自洽的一对,
  * 读方不会读到"current 是新一代、previous 却是再上一代"这种错位组合。**不做逐键修改**,也就没有中间态。
  *
  * ## 不做校验
- * 本类只存值。档位与物理边界校验在 [ConfigTier.validate](写入前由 FR-32 执行),FORBIDDEN 键的回落
+ * 本类只存值。档位与物理边界校验在 [ConfigTier.validate](写入前由 FR-44 执行),FORBIDDEN 键的回落
  * 在读取侧由 [ManagedConfigResolver] 统一执行——两处都不在本类,避免同一规则出现多份实现。
  */
 object ManagedConfigStore {
@@ -45,12 +45,12 @@ object ManagedConfigStore {
      * 原子替换成新一代生效值:旧 current 变为 previous。
      *
      * @param values 新的一代(键为配置键名,值为 JSON 解析后的原值);内部做防御性拷贝。
-     * @return true 表示内容确有变化(供 FR-32 决定是否回报 `config_applied`);false 表示与当前一致。
+     * @return true 表示内容确有变化(供 FR-44 决定是否回报 `config_applied`);false 表示与当前一致。
      */
     fun replace(values: Map<String, Any?>): Boolean = replace(values, emptyList())
 
     /**
-     * 原子替换成新一代生效值,并按 [removals] 显式删键(FR-32)。
+     * 原子替换成新一代生效值,并按 [removals] 显式删键(FR-44)。
      *
      * 与单参版本的区别只有一处:**删除也要作用在上一代上**。否则 `previous → current` 的回落顺序
      * (见 [ManagedConfigResolver]) 会把刚删掉的键从上一代"复活",表现为"下发了删除却仍然生效"。
@@ -73,7 +73,7 @@ object ManagedConfigStore {
     }
 
     /**
-     * 回退到应用前的两代快照(FR-32 自检失败时使用)。
+     * 回退到应用前的两代快照(FR-44 自检失败时使用)。
      *
      * 与"再 replace 一次上一代"不同:本方法把**两代都还原**成下发前的组合,
      * 不会留下"current 是回退值、previous 反而成了失败值"的错位。

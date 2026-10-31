@@ -58,7 +58,7 @@ class MetricOrchestrator {
     private var task: PlatformExecutor.PlatformTask? = null
 
     /**
-     * 采集调度是否在运行（FR-32 自检的 `collectorAlive`）。
+     * 采集调度是否在运行（FR-44 自检的 `collectorAlive`）。
      *
      * 由采集线程外的调用方（桥的读线程）读取，故 `@Volatile`。语义是"定时采集任务已提交且未被取消"，
      * 而不是"最近一次采集成功"——后者由 `metricProducible` 那一项负责判定，两项刻意不重复。

@@ -7,7 +7,7 @@ import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneRuntime
 import java.util.Locale
 
 /**
- * `config_state` 周期上报的执行体（FR-33，协议规格 §3.4.3）。
+ * `config_state` 周期上报的执行体（协议规格 §3.4.3）。
  *
  * 与线程、IOC 装配刻意解耦（同 [MetricPusher] 的做法），只依赖三个函数式入参，
  * 故可被单测直接驱动：字段含义、`connection` 四态判定与"从不抛"的语义都能逐一断言。

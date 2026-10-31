@@ -147,7 +147,7 @@ object ManagedConfigResolver {
      * 校验一次下发(单键,带当前生效值上下文)。
      *
      * 校验规则全部在 [ConfigTier] 里(与 CP 写入侧共用一份),本方法只负责补上
-     * 跨键约束所需的"当前生效值"回调。FR-32 应用 `config_push` 时逐个键调用。
+     * 跨键约束所需的"当前生效值"回调。FR-44 应用 `config_push` 时逐个键调用。
      *
      * @param key 配置键名。
      * @param value 下发的值。
@@ -156,7 +156,7 @@ object ManagedConfigResolver {
     fun validate(key: String, value: Any?): String? = ConfigTier.validate(key, value) { effectiveRaw(it) }
 
     /**
-     * 热替换托管生效值(内存原子替换,供 FR-32 调用)。
+     * 热替换托管生效值(内存原子替换,供 FR-44 调用)。
      *
      * @param values 新的一代生效值。
      * @return true 表示内容确有变化。

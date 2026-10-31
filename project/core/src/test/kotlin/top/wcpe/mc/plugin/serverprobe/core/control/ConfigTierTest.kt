@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
 
 /**
- * [ConfigTier] 单测(FR-31):66 键定档表与物理下限校验。
+ * [ConfigTier] 单测(FR-43):66 键定档表与物理下限校验。
  *
  * 守的是协议规格 `probe-managed-mode/spec.md` §7.1 的权威表:数量、分档、逐键一致。
  * 其中"与 [ProbeConfig] 实际键常量逐个对齐"的断言是防漂移闸门——新加配置键而不定档时这里会红。
@@ -152,7 +152,7 @@ class ConfigTierTest {
     }
 
     /**
-     * 托管状态上报周期(FR-33)按 **SAFE** 档校验：只校验类型，不做边界判定。
+     * 托管状态上报周期(FR-45)按 **SAFE** 档校验：只校验类型，不做边界判定。
      *
      * 下限由读取侧 `ProbeConfig.configStateIntervalMs()` 兜底（协议规格 §3.4.3 只说"可经 SAFE 档键调整"，
      * 未给出协议级下限）；此处锁住"类型错被拒、值不设界"这一档位语义，防后续被误改成 GUARDED。

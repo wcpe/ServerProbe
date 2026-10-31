@@ -30,7 +30,7 @@ import java.util.concurrent.Executors
  * 本类位于平台无关的 core 模块,不触碰任何平台 API:数据经注入的 [ProbeReadApi] 取得,文本经
  * [PrometheusTextFormatter] 渲染。Bukkit 与代理端各为独立进程,各自按本端 `config.yml`的端口起**一个**端点。
  *
- * ## 托管模式下零监听(FR-34,协议规格 §3.6)
+ * ## 托管模式下零监听(FR-46,协议规格 §3.6)
  * 托管模式下本端点**一律不起服**——判断依据是运行模式,不是 `metrics.enabled`:
  * 该键虽属 FORBIDDEN 档(禁止远程开启),但本地 `config.yml` 里遗留的 `true` 不会被迁移清掉,
  * 故由 [LocalListenerGate] 按模式强制关断。独立模式下起停行为与引入托管能力前完全一致。
@@ -63,8 +63,8 @@ class PrometheusExporter {
     lateinit var traffic: PacketTrafficService
 
     /**
-     * 托管模式判定服务(FR-30):本端点必须先等它给出结论,再决定是否 bind——
-     * 否则托管探针可能在判定完成前抢先把端口开起来(FR-34 零监听承诺)。
+     * 托管模式判定服务(FR-42):本端点必须先等它给出结论,再决定是否 bind——
+     * 否则托管探针可能在判定完成前抢先把端口开起来(FR-46 零监听承诺)。
      */
     @Inject
     lateinit var modeService: ControlPlaneModeService
@@ -78,7 +78,7 @@ class PrometheusExporter {
 
     /**
      * 本地监听器工厂:把 `HttpServer.create` 收口为单一可替换注入点。
-     * 单测据此断言"托管模式下一次 bind 都没有发生"(FR-34 验收手段)。
+     * 单测据此断言"托管模式下一次 bind 都没有发生"(FR-46 验收手段)。
      */
     internal var listenerFactory: HttpListenerFactory = JdkHttpListenerFactory
 

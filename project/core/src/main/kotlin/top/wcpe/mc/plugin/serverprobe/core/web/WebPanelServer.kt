@@ -26,7 +26,7 @@ import java.util.concurrent.Executors
  * 提供三个只读页面:总览(`/`)、启动画像(`/startup`)、历史趋势(`/history`),
  * 数据经注入的 [ProbeReadApi] 读取(最新快照 / 最近启动画像 / 近期历史),HTML 由 [WebPanelHtml] 渲染。
  *
- * ## 托管模式下零监听(FR-34,协议规格 §3.6)
+ * ## 托管模式下零监听(FR-46,协议规格 §3.6)
  * 托管模式下本面板**一律不起服**——判断依据是运行模式,不是 `web.enabled`:该键虽属 FORBIDDEN 档,
  * 但本地 `config.yml` 里遗留的 `true` 不会被迁移清掉,故由 [LocalListenerGate] 按模式强制关断。
  * 独立模式起停行为与引入托管能力前完全一致。
@@ -51,15 +51,15 @@ class WebPanelServer {
     lateinit var readApi: ProbeReadApi
 
     /**
-     * 托管模式判定服务(FR-30):面板必须先等它给出结论,再决定是否 bind——
-     * 否则托管探针可能在判定完成前抢先把端口开起来(FR-34 零监听承诺)。
+     * 托管模式判定服务(FR-42):面板必须先等它给出结论,再决定是否 bind——
+     * 否则托管探针可能在判定完成前抢先把端口开起来(FR-46 零监听承诺)。
      */
     @Inject
     lateinit var modeService: ControlPlaneModeService
 
     /**
      * 本地监听器工厂:把 `HttpServer.create` 收口为单一可替换注入点。
-     * 单测据此断言"托管模式下一次 bind 都没有发生"(FR-34 验收手段)。
+     * 单测据此断言"托管模式下一次 bind 都没有发生"(FR-46 验收手段)。
      */
     internal var listenerFactory: HttpListenerFactory = JdkHttpListenerFactory
 

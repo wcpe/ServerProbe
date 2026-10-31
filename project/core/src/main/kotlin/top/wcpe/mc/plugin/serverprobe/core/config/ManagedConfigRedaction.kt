@@ -3,7 +3,7 @@ package top.wcpe.mc.plugin.serverprobe.core.config
 import java.util.Locale
 
 /**
- * 托管生效值的**脱敏**(FR-33,协议规格 §3.4.3 的 `effective` 标注为"脱敏")。
+ * 托管生效值的**脱敏**(FR-45,协议规格 §3.4.3 的 `effective` 标注为"脱敏")。
  *
  * ## 边界
  * 托管配置面本身已不可能出现凭据：[ConfigTier] 把 `bridge` 整组与 `metrics` / `mcp` / `web` 的

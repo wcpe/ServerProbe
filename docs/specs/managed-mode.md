@@ -1,6 +1,6 @@
 # 功能规格：托管模式（厂商中立的外部控制面接入）
 
-> 状态：草拟　·　关联 PRD：FR-30 / FR-31 / FR-32 / FR-33 / FR-34
+> 状态：开发中（Paper 1.20.1 真机 E2E 已通过）　·　关联 PRD：FR-42 / FR-43 / FR-44 / FR-45 / FR-46
 > 协议权威定义：`JianManager docs/specs/probe-managed-mode/spec.md`（本文引用，不复制帧定义）
 
 ## 1. 背景与目标
@@ -55,7 +55,8 @@ integration:integration-<厂商>         ← 仅当出现厂商特有逻辑时�
                                         （首个对接方当前无需此类模块）
 ```
 
-**CI 断言**：`api` 与 `project:core` 模块中不得出现任何控制面厂商标识（大小写不敏感）。厂商名只允许出现在文档与 integration 模块。
+**评审约定（不是构建门禁）**：`api` 与 `project:core` 模块中不得出现任何控制面厂商标识（大小写不敏感）。厂商名只允许出现在文档与 integration 模块。
+该约束由代码评审保证——**不使用“扫描源码文本”的构建任务/CI 步骤来卡**（理由见 `.claude/rules/static-analysis.md` §4）。
 
 ### 3.2 身份文件
 
@@ -136,18 +137,19 @@ config_push 到达
 
 ## 4. 任务拆分
 
-- [ ] FR-30 `ControlPlaneIdentity` + 状态机 + 自动迁移
-- [ ] FR-31 `ManagedConfigResolver` + `ConfigTier` + `ProbeConfig` 66 键改造
-- [ ] FR-32 `config_push` 处理 + 自检 + 回退 + `ManagedConfigStore`
-- [ ] FR-33 `config_state` 周期上报
-- [ ] FR-34 `metric_snapshot` 推送 + `metrics_now` + 托管模式停用 HTTP 监听
-- [ ] CI 断言：core/api 无厂商标识
-- [ ] 文档同步：PRD 状态、ARCHITECTURE、CHANGELOG
+- [x] FR-42 `ControlPlaneIdentity` + 状态机 + 自动迁移
+- [x] FR-43 `ManagedConfigResolver` + `ConfigTier` + `ProbeConfig` 66 键改造
+- [x] FR-44 `config_push` 处理 + 自检 + 回退 + `ManagedConfigStore`
+- [x] FR-45 `config_state` 周期上报
+- [x] FR-46 `metric_snapshot` 推送 + `metrics_now` + 托管模式停用 HTTP 监听
+- [x] 真机 E2E：`managed-config` 场景（hello 托管位 / 配置下发 / 指标推送 / 状态上报 / 按需推送 / 零监听）
+- [ ] 文档同步：ARCHITECTURE、CHANGELOG、PRD 状态
+- [ ] 真机矩阵：Paper 1.8/1.21 × Windows/Linux + BungeeCord + Velocity
 
 ## 5. 验收标准
 
 1. **独立模式零回归**：无身份文件时全部 66 键取值与改造前一致（逐键断言）。
-2. **厂商标识隔离**：`api` / `project:core` grep 无控制面厂商名（CI 门禁）。
+2. **厂商标识隔离**：`api` / `project:core` 中不出现控制面厂商名（**评审保证**；不用源码扫描做门禁，见 `.claude/rules/static-analysis.md` §4）。
 3. 有身份文件 → 用托管缓存秒起，控制面不在场可启动。
 4. 自动迁移幂等：中途 kill 后重跑结果一致，备份文件名带时间戳。
 5. 截断的身份文件 → 独立模式 + WARN，不崩。

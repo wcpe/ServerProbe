@@ -16,7 +16,7 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
  * 以 `object`实现并对外暴露**带默认值兜底的取值方法**:配置缺项或类型不符时回退默认值,确保即使配置异常也不致空指针。
  * 各取值方法对应一个配置键,集中收口默认值与键名,避免散落的魔法值(规范第 6 条)。
  *
- * ## 取值一律经 [ManagedConfigResolver](FR-31,协议规格 §3.3)
+ * ## 取值一律经 [ManagedConfigResolver](FR-43,协议规格 §3.3)
  * 全部 66 个取值方法都不再直接读 [conf],而是经 [ManagedConfigResolver]:
  * - **托管模式**:托管缓存当前值 → 上一次的值 → `config.yml` → 代码默认值;`bridge.*` 四键另取身份文件。
  * - **独立模式**:`config.yml` → 代码默认值,与引入托管能力前**逐字节一致**(键名/默认值/类型转换/兜底全部不变)。

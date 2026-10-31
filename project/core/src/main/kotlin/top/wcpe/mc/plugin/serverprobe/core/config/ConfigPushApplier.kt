@@ -5,7 +5,7 @@ import top.wcpe.mc.plugin.serverprobe.core.util.IsoInstant
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 
 /**
- * `config_push` 的应用链路:版本校验 → 档位校验 → 内存替换 → 自检 → 落盘 / 回退(FR-32)。
+ * `config_push` 的应用链路:版本校验 → 档位校验 → 内存替换 → 自检 → 落盘 / 回退(FR-44)。
  *
  * 状态机严格照协议规格 §3.5:
  * ```

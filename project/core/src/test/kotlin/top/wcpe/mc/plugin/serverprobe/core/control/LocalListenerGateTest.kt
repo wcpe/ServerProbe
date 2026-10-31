@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * [LocalListenerGate] 单测（FR-34，协议规格 §3.6「零监听端口」）。
+ * [LocalListenerGate] 单测（协议规格 §3.6「零监听端口」）。
  *
  * 只验证纯判定：**托管模式**下三个监听面全部关断，**独立模式**下全部放行。
  * "真的没有 bind"由 `ManagedListenerZeroBindTest` 经可注入监听器工厂断言。

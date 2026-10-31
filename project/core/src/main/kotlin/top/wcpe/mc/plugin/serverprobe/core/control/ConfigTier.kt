@@ -54,10 +54,10 @@ enum class ConfigTier {
         /** 配置键:调试日志开关。 */
         private const val KEY_DEBUG = "debug"
 
-        /** 托管配置键:指标推送间隔(规格 §3.3,FR-34 起已接入 `config.yml` 与取值面,见 [RESERVED_GUARDED_KEYS])。 */
+        /** 托管配置键:指标推送间隔(规格 §3.3,FR-46 起已接入 `config.yml` 与取值面,见 [RESERVED_GUARDED_KEYS])。 */
         private const val KEY_METRICS_PUSH_INTERVAL_MS = "metrics-push-interval-ms"
 
-        /** 托管配置键:托管状态上报周期(FR-33,协议规格 §3.4.3,见 [RESERVED_SAFE_KEYS])。 */
+        /** 托管配置键:托管状态上报周期(FR-45,协议规格 §3.4.3,见 [RESERVED_SAFE_KEYS])。 */
         private const val KEY_CONFIG_STATE_INTERVAL_MS = "config-state-interval-ms"
 
         /** 采集周期下限(ticks,约 1 秒)。 */
@@ -152,7 +152,7 @@ enum class ConfigTier {
         /**
          * 预定档表但**不计入 66 键定档表**的键:出现时按 GUARDED 校验。
          *
-         * 目前只有托管指标推送间隔(规格 §3.3 给出 `>= 1000ms` 下限):FR-34 起 `config.yml` 与
+         * 目前只有托管指标推送间隔(规格 §3.3 给出 `>= 1000ms` 下限):FR-46 起 `config.yml` 与
          * [top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig] 都已带上该键,但它不在协议规格
          * §7.1 的 66 键权威表内——保留在表外是为了不破坏"66 键"这一可断言的数量契约。
          */
@@ -161,7 +161,7 @@ enum class ConfigTier {
         /**
          * 预定档表但**不计入 66 键定档表**的键:出现时按 SAFE 校验。
          *
-         * 目前只有托管状态上报周期(FR-33,协议规格 §3.4.3 "周期默认 30s,可经 SAFE 档键调整")。
+         * 目前只有托管状态上报周期(FR-45,协议规格 §3.4.3 "周期默认 30s,可经 SAFE 档键调整")。
          * 按 SAFE 而非 GUARDED 的理由:它是**纯上报节奏**,不改变指标采集的数据量,也不影响外发能力;
          * 规格已明确"由 SAFE 档键调整"。其物理下限(5s)在读取侧兜底(见
          * [top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig.configStateIntervalMs]),与 SAFE 档

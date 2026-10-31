@@ -8,7 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * 托管配置的磁盘缓存 `managed-cache.json`(FR-32,协议规格 §3.5 的 fail-static 关键)。
+ * 托管配置的磁盘缓存 `managed-cache.json`(FR-44,协议规格 §3.5 的 fail-static 关键)。
  *
  * ## 为什么必须有它
  * 托管模式的配置真源在控制面。控制面不可达时探针**不能**回落到 `config.yml`(那会让"以为托管着"
