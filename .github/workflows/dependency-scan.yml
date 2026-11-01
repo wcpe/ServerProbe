@@ -44,7 +44,7 @@ jobs:
             ./gradlew ":$m:dependencies" --configuration compileClasspath --console=plain -q >> deps.txt
             ./gradlew ":$m:dependencies" --configuration runtimeClasspath --console=plain -q >> deps.txt
           done
-          python3 .github/scripts/gradle-deps-to-osv.py deps.txt osv-scanner.json
+          ./gradlew generateOsvScanInput -PdepsFile=deps.txt -PoutputFile=osv-scanner.json --console=plain
 
       # 版本策略：该 action 仓库不提供 v1/v2 浮动 tag(实际只有 v1.7.1、v1.9.2、v2.6.0 等固定 tag)，
       # 故锁定到已验证存在的 v2.6.0。

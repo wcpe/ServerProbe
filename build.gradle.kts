@@ -6,4 +6,6 @@ plugins {
     id("serverprobe.bundle") apply false
     // e2e 编排：应用 top.wcpe.mc-testkit 并声明全部 mcTestkit{} 拓扑 + 场景配置注入任务（见 build-logic）
     id("serverprobe.e2e-verification")
+    // CI 辅助任务：字节码门禁 / 依赖清单转换 / 覆盖率汇总 / E2E 结果断言（替代原脚本工具）
+    id("serverprobe.ci-verification")
 }

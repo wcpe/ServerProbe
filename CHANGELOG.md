@@ -23,6 +23,7 @@
 
 - 版本号进入 `0.8.0-SNAPSHOT`（**未发布**）。
 - 指标上行改为**只在托管模式**启用：独立模式的桥不推 `metric_snapshot`、hello 也不再声明 `metric_push` 能力位（能力位必须与真实能力一致），旧 Worker 会按协议回退到 HTTP 拉取 `/metrics`——独立模式下该端点语义不变。
+- CI 辅助判定全部改为 Gradle 任务（`verifyBytecodeGate` / `generateOsvScanInput` / `coverageSummary` / `verifyE2eResults`，在 `build-logic`）：字节码门禁、依赖清单转换、覆盖率汇总与 E2E 结果断言不再依赖额外运行时，仓库不再携带任何外置校验脚本；判定阈值与失败口径不变。
 - 治理：需求编号不再进入代码与配置；厂商标识只作为数据，不成为代码分支。
 
 ### 修复
@@ -33,7 +34,7 @@
 ### 测试
 
 - 新增真机 E2E 场景 `managed-config`（Paper 1.20.1）及版本矩阵 `managed-config-paper188` / `managed-config-paper1211`：逐项断言托管 hello 与能力位、配置下发热应用、周期指标推送、状态上报、按需推送回执、MCP 经桥、以及托管下三个监听端口全部不可连。
-- 新增代理端托管场景 `managed-config-bungee` / `managed-config-velocity`（经 `e2e<Key>Via<Proxy>` 任务运行）：身份文件与托管配置作为**代理模板**生成——mc-testkit 在场景任务内部才铺代理目录，而钩子跑在那之前，写进去的文件会被模板覆盖。模拟控制面由 Bungee / Velocity 的夹具插件（`harness-managed-bungee` / `-velocity`，运行于代理进程内）提供，与 Bukkit harness 共用平台无关的 `e2e/fixture-core`；原 Python 模拟控制面脚本已删除。**状态**：受本机外网不可用所限（mc-testkit 在 jar 解析阶段需访问远端 API），两个 via 场景本轮**尚未真机验证**。
+- 新增代理端托管场景 `managed-config-bungee` / `managed-config-velocity`（经 `e2e<Key>Via<Proxy>` 任务运行）：身份文件与托管配置作为**代理模板**生成——mc-testkit 在场景任务内部才铺代理目录，而钩子跑在那之前，写进去的文件会被模板覆盖。模拟控制面由 Bungee / Velocity 的夹具插件（`harness-managed-bungee` / `-velocity`，运行于代理进程内）提供，与 Bukkit harness 共用平台无关的 `e2e/fixture-core`；原外置模拟控制面脚本已删除。**状态**：受本机外网不可用所限（mc-testkit 在 jar 解析阶段需访问远端 API），两个 via 场景本轮**尚未真机验证**。
 - 修复 `FrameSenderTest` 两处以“队列深度归零”为等待条件的竞态（计数在出队之后才递增）。
 
 ---

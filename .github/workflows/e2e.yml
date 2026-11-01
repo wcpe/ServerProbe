@@ -154,44 +154,6 @@ jobs:
           # 桩判定 MC_TESTKIT_E2E_SCENARIO 的字面量一致，不由 gradle 任务名推导）。
           # 清单按手动触发的范围收窄；标签推送没有 inputs，按全量校验。
           EXPECTED_SCENARIOS: ${{ inputs.scope == 'batch1' && 'read-api storage-spi bridge-fixture' || 'read-api storage-spi bridge-fixture mcp-diagnostics-paper mcp-diagnostics-paper-java21 mcp-diagnostics-spigot mcp-diagnostics-bungee mcp-diagnostics-velocity' }}
-        run: |
-          python3 - <<'PY'
-          import glob
-          import os
-          import sys
-
-          RESULTS_DIR = 'build/mc-testkit/results'
-          expected = os.environ['EXPECTED_SCENARIOS'].split()
-          paths = sorted(glob.glob(os.path.join(RESULTS_DIR, '*.properties')))
-          failed = False
-          present = {}
-
-          for path in paths:
-              with open(path, encoding='utf-8') as handle:
-                  text = handle.read()
-              props = {}
-              for line in text.splitlines():
-                  stripped = line.strip()
-                  # 跳过注释与空行，按第一个等号切分键值
-                  if stripped and not stripped.startswith('#') and '=' in stripped:
-                      key, value = stripped.split('=', 1)
-                      props[key.strip()] = value.strip()
-              name = os.path.basename(path)[: -len('.properties')]
-              present[name] = props
-              if props.get('status') == 'PASS':
-                  print('[PASS] %s' % name)
-              else:
-                  print('[FAIL] %s -> status=%r' % (name, props.get('status')))
-                  print(text)
-                  failed = True
-
-          # 场景根本没产出结果文件（如服务端未能启动）同样判失败，不能静默放过
-          for scenario in expected:
-              if scenario not in present:
-                  print('[缺失] 未找到结果文件: %s' % scenario)
-                  failed = True
-
-          print('---')
-          print('结果文件 %d 个，期望场景 %d 个' % (len(present), len(expected)))
-          sys.exit(1 if failed else 0)
-          PY
+        # 判定逻辑在 build-logic 的 serverprobe.ci-verification（原内联脚本的等价实现）：
+        # 结果文件非 PASS、或期望场景根本没有结果文件，均以非零退出码失败。
+        run: ./gradlew verifyE2eResults --console=plain

@@ -57,6 +57,6 @@ jobs:
       - name: 构建
         run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
 
-      # runner 自带 python3，无需额外安装依赖
+      # 判定逻辑在 build-logic 的 serverprobe.ci-verification（原独立脚本的等价实现）
       - name: 扫描字节码版本
-        run: python3 .github/scripts/check-bytecode.py "$GITHUB_WORKSPACE"
+        run: ./gradlew verifyBytecodeGate --console=plain -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
