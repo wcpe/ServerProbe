@@ -56,8 +56,12 @@ internal class MetricPusher(
                 onSent()
                 current
             }
-            // 桥断开：指标自然停止推送，不告警（已接受的取舍），更不重发旧值
-            UplinkOutcome.NotConnected -> null
+            // 桥断开：指标自然停止推送，不告警（已接受的取舍），更不重发旧值。
+            // 同时清掉历史失败原因：断连期间拿旧原因当“本次失败”会误导 `metrics_now` 的回执。
+            UplinkOutcome.NotConnected -> {
+                failure.set(null)
+                null
+            }
             is UplinkOutcome.Failed -> {
                 onFailed(outcome.reason)
                 null

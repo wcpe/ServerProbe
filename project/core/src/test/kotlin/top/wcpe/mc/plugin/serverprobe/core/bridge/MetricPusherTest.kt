@@ -81,6 +81,25 @@ class MetricPusherTest {
         assertNull(pusher.lastFailureReason, "成功后应清理失败状态")
     }
 
+    /**
+     * 断连也要清掉历史失败原因。
+     *
+     * 否则断连期间的 `metrics_now` 回执会拿上一次失败（例如“写锁忙”）当本次原因，
+     * 让人误以为链路仍在写、只是忙。
+     */
+    @Test
+    fun `断连时清理历史失败原因`() {
+        var outcome: UplinkOutcome = UplinkOutcome.Failed("写锁忙")
+        val pusher = pusher(snapshot = snapshot(), outcome = { outcome })
+
+        pusher.pushOnce()
+        assertEquals("写锁忙", pusher.lastFailureReason)
+
+        outcome = UplinkOutcome.NotConnected
+        assertNull(pusher.pushOnce())
+        assertNull(pusher.lastFailureReason, "断连后不应继续持有旧失败原因")
+    }
+
     /** 读取快照抛异常：降级为"不推帧 + 记失败"，绝不向调用方抛。 */
     @Test
     fun `读快照异常时降级为不推帧`() {

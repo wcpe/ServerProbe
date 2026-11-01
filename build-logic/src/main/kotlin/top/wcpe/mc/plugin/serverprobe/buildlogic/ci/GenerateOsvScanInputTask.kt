@@ -33,13 +33,12 @@ abstract class GenerateOsvScanInputTask : DefaultTask() {
     @TaskAction
     fun generate() {
         val source = dependenciesExport.get().asFile
-        // 输入声明已保证文件存在；这里保留显式提示，避免用错 -P 指向时只看到 Gradle 的通用报文
-        if (!source.isFile) {
-            throw GradleException("依赖树文本不存在：${source.absolutePath}（先用 ./gradlew :<模块>:dependencies 导出）")
-        }
         val resolved = GradleDepsOsv.parse(source.readText())
         if (resolved.isEmpty()) {
-            logger.warn("[警告] 未从 ${source.name} 解析出任何依赖")
+            // 一条依赖都解析不出来，说明导出/解析链路断了（例如 deps.txt 是空文件、
+            // 或 `gradle dependencies` 在 `-q` 下什么都没输出）。此时若生成 `"packages": []`，
+            // 扫描步骤会“成功但什么也没扫”，静默空跑比报错危险得多。
+            throw GradleException("未从 ${source.name} 解析出任何依赖：依赖导出或解析链路已断，拒绝生成空清单")
         }
         val target = osvManifest.get().asFile
         target.parentFile?.mkdirs()

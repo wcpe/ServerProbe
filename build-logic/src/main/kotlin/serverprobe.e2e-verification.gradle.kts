@@ -30,16 +30,13 @@ val pluginJarFile: File = pluginJarFileProvider.asFile
 // ── 托管代理场景（Bungee / Velocity）的一次性参数 ──
 // 代理运行目录由 mc-testkit 在**场景任务内部**用代理模板铺开，而场景钩子跑在那之前：
 // 钩子写进 `plugins/<数据目录>` 的文件会被模板覆盖掉（实测身份文件会消失，探针因此退回独立模式）。
-// 所以身份文件只能作为**模板的一部分**生成——端口与凭据在配置期一次确定，
-// 供「模板生成任务」与「夹具插件读取」共用。
+// 所以身份文件只能作为**模板的一部分**生成。端口与凭据只在生成模板的那一刻取一次
+// （见 `prepareManagedProxyTemplates`）——配置期取会得到一个 TOCTOU 窗口等于整个构建的空闲端口，
+// 且对 configuration cache 不友好。
 val managedBungeeTemplateDir = "build/mc-testkit/templates/managed-bungee"
 val managedVelocityTemplateDir = "build/mc-testkit/templates/managed-velocity"
-val managedBungeeControlPort = freeLoopbackPort()
-val managedBungeeToken = e2eToken()
-val managedVelocityControlPort = freeLoopbackPort()
-val managedVelocityToken = e2eToken()
 
-/** 取一个当前空闲的回环端口（配置期取值，写进代理模板的身份文件）。 */
+/** 取一个当前空闲的回环端口（在任务动作里调用，端口占用窗口最小）。 */
 private fun freeLoopbackPort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
 
 /** 一次性回环凭据（测试夹具用，非生产密钥）。 */
@@ -780,8 +777,10 @@ val prepareManagedProxyTemplates by tasks.registering {
     description = "生成托管代理场景模板（托管 config.yml + 一次性身份文件）"
     outputs.upToDateWhen { false }
     doLast {
-        writeManagedProxyTemplate(managedBungeeTemplateDir, "ServerProbe", managedBungeeControlPort, managedBungeeToken)
-        writeManagedProxyTemplate(managedVelocityTemplateDir, "serverprobe", managedVelocityControlPort, managedVelocityToken)
+        // 端口/凭据在动作里取：配置期取会得到一个“空闲窗口 = 整个构建”的 TOCTOU 空隙，
+        // 且 configuration cache 会把值冻结进缓存条目。
+        writeManagedProxyTemplate(managedBungeeTemplateDir, "ServerProbe", freeLoopbackPort(), e2eToken())
+        writeManagedProxyTemplate(managedVelocityTemplateDir, "serverprobe", freeLoopbackPort(), e2eToken())
     }
 }
 

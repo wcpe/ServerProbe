@@ -686,9 +686,11 @@ class BridgeClient {
     // 连接/握手/读全过程必须广捕兜底:任何异常都只降级重连、绝不让后台线程挂掉(桥的韧性设计)。
     @Suppress("TooGenericExceptionCaught")
     private fun runLoop(line: top.wcpe.mc.plugin.serverprobe.core.config.LineSettings, bridgeKernel: BridgeKernel) {
-        var backoff = configSource.reconnect().initialBackoffMs
+        var backoff = ReconnectBackoff.initial(configSource.reconnect())
         while (running.get()) {
             val endpoint = resolveEndpoint(backoff)
+            // 本次尝试前的“最近连上时刻”：结束后若变大，说明真的连上过
+            val connectedAtAttemptStart = link.snapshot().lastConnectedAtMs
             if (endpoint != null) {
                 try {
                     connectAndRead(line, bridgeKernel, endpoint)
@@ -707,6 +709,10 @@ class BridgeClient {
                 }
             }
             if (!running.get()) break
+            // 连上过就把退避拉回初始值：否则稳定运行数小时后再掉线，会直接吃满最大退避
+            if (link.snapshot().lastConnectedAtMs > connectedAtAttemptStart) {
+                backoff = ReconnectBackoff.initial(configSource.reconnect())
+            }
             backoff = sleepBackoff(backoff)
         }
     }
@@ -852,20 +858,14 @@ class BridgeClient {
      *   凭据持续冲击（同时保留恢复可能，不是彻底放弃）。
      *
      * 成功连着时由 [BridgeLinkState.markConnected] 清零 `consecutiveFailures`，退避自动恢复常规节奏。
+     *
+     * 退避值的夹取（下界防紧循环、封顶防无限增长）与“下一轮取值”收口在 [ReconnectBackoff]，
+     * 本方法只负责“睡一下 + 取下一个值”。
      */
     private fun sleepBackoff(current: Long): Long {
         val reconnect = configSource.reconnect()
-        runCatching { Thread.sleep(current) }
-
-        val snapshot = link.snapshot()
-        val authFailed = snapshot.lastDisconnectReason == BridgeLinkState.REASON_AUTH_FAILED
-        if (!authFailed) {
-            return (current * 2).coerceAtMost(reconnect.maxBackoffMs)
-        }
-        if (snapshot.consecutiveFailures >= reconnect.authFailedDegradeThreshold) {
-            return reconnect.authFailedDegradedBackoffMs
-        }
-        return (current * 2).coerceAtMost(reconnect.authFailedMaxBackoffMs)
+        runCatching { Thread.sleep(ReconnectBackoff.waitMs(current, reconnect)) }
+        return ReconnectBackoff.next(current, link.snapshot(), reconnect)
     }
 
     /**

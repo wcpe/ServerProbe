@@ -9,16 +9,15 @@ import javax.xml.parsers.DocumentBuilderFactory
 /**
  * 汇总各模块 JaCoCo XML 的行/分支覆盖率并输出可读数字。
  *
- * 数据源与原先 `.github/workflows/ci.yml` 里的内联脚本一致：项目根与一级子项目下
- * `build/reports/jacoco/test/jacocoTestReport.xml` 的根元素 `<counter>` 子元素。
+ * 数据源与原先 `.github/workflows/ci.yml` 里的内联脚本一致：各模块
+ * `build/reports/jacoco/test/jacocoTestReport.xml` 的根元素 `<counter>` 子元素；
+ * 具体收集哪些模块由构建脚本按“应用了 jacoco 插件的子项目”接线（见 `CoverageSummaryTask`），
+ * 本对象只负责解析与累加。
  *
  * **只打印、不设门槛**：先积累几个月的真实基线数据，再据此讨论阈值；
  * 避免凭空定一个数把 PR 卡住或催生凑数测试（与原口径一致）。
  */
 object CoverageSummary {
-
-    /** 报告文件相对仓库根的两种层级：项目根项目与一级子项目。 */
-    private const val REPORT_PATH = "build/reports/jacoco/test/jacocoTestReport.xml"
 
     /** 计数器类型：行与分支。 */
     private const val COUNTER_LINE = "LINE"
@@ -31,26 +30,6 @@ object CoverageSummary {
         val branchCovered: Long = 0,
         val branchMissed: Long = 0,
     )
-
-    /**
-     * 枚举待汇总的报告文件（按路径排序，与原脚本的 `sorted(glob(...) + glob(...))` 一致）。
-     *
-     * @param root 仓库根目录。
-     * @return 已存在的报告文件。
-     */
-    fun reportFiles(root: File): List<File> {
-        val direct = root.listFiles { file -> file.isDirectory }
-            ?.map { File(it, REPORT_PATH) }
-            .orEmpty()
-        val nested = root.listFiles { file -> file.isDirectory }
-            ?.flatMap { child ->
-                child.listFiles { file -> file.isDirectory }
-                    ?.map { grandChild -> File(grandChild, REPORT_PATH) }
-                    .orEmpty()
-            }
-            .orEmpty()
-        return (direct + nested).filter { it.isFile }.sortedBy { it.invariantSeparatorsPath }
-    }
 
     /**
      * 汇总给定报告文件的行与分支覆盖数。

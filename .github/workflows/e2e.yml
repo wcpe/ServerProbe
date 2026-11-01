@@ -81,11 +81,15 @@ jobs:
 
       # 被测发行 jar 与各 harness 桩先单独构建：harness 的 compileOnly 依赖 :plugin:jar，
       # 独立一步可在进入漫长的起服流程之前就暴露编译问题。
+      # 新增夹具模块必须同步加进来，否则它的编译错会拖到对应批次才炸。
       - name: 构建被测产物与验收桩
         run: >-
           ./gradlew
           :plugin:jar
+          :e2e:fixture-core:jar
           :e2e:harness:jar
+          :e2e:harness-managed-bungee:jar
+          :e2e:harness-managed-velocity:jar
           :e2e:harness-mcp-bukkit:jar
           :e2e:harness-mcp-bungee:jar
           :e2e:harness-mcp-velocity:jar

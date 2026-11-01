@@ -36,21 +36,19 @@ class CoverageSummaryTest {
     @DisplayName("按模块累加 LINE/BRANCH，忽略其它计数器")
     @Test
     fun `累加两个模块`(@TempDir root: File) {
-        writeReport(
+        val core = writeReport(
             root,
             "core",
             "<counter type=\"LINE\" missed=\"2\" covered=\"8\"/><counter type=\"BRANCH\" missed=\"1\" covered=\"1\"/>",
         )
-        writeReport(
+        val bukkit = writeReport(
             root,
             "platform/bukkit",
             "<counter type=\"LINE\" missed=\"8\" covered=\"2\"/><counter type=\"BRANCH\" missed=\"0\" covered=\"3\"/>",
         )
 
-        val files = CoverageSummary.reportFiles(root)
-        val totals = CoverageSummary.summarize(files)
+        val totals = CoverageSummary.summarize(listOf(core, bukkit))
 
-        assertEquals(2, files.size, "两级目录下的报告都要被枚举")
         assertEquals(10L, totals.lineCovered)
         assertEquals(10L, totals.lineMissed)
         assertEquals(4L, totals.branchCovered)
@@ -73,8 +71,8 @@ class CoverageSummaryTest {
 
     @DisplayName("没有报告时汇总为全 0，不抛异常")
     @Test
-    fun `无报告`(@TempDir root: File) {
-        val totals = CoverageSummary.summarize(CoverageSummary.reportFiles(root))
+    fun `无报告`() {
+        val totals = CoverageSummary.summarize(emptyList())
 
         assertTrue(totals.lineCovered == 0L && totals.branchMissed == 0L)
     }

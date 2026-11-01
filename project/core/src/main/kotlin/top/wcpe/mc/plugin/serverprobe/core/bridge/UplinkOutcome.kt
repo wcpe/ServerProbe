@@ -11,7 +11,12 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
  */
 internal sealed class UplinkOutcome {
 
-    /** 已写入连接。 */
+    /**
+     * 已交给发送队列（**不代表已经写进 socket**）。
+     *
+     * 发送器有自己的写线程与背压策略：这里只表示“帧被接纳”，是否真正落到连接上由发送器内部计数。
+     * 回执文案因此不应承诺“已发送成功”。
+     */
     internal object Sent : UplinkOutcome()
 
     /** 当前没有桥连接；指标自然停止推送（绝不补发旧值）。 */

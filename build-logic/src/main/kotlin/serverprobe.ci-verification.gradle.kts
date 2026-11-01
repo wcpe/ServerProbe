@@ -16,6 +16,7 @@
  */
 import org.gradle.api.Project
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.kotlin.dsl.register
 import top.wcpe.mc.plugin.serverprobe.buildlogic.ci.BytecodeGate
@@ -72,14 +73,20 @@ tasks.register<GenerateOsvScanInputTask>("generateOsvScanInput") {
 }
 
 // ── 覆盖率汇总（只打印、不设门槛）──
-// 报告由各子项目的 jacocoTestReport 产出：用 file collection 接线 + 任务依赖，使本任务可单独运行。
+// 报告只从**应用了 jacoco 插件**的子项目收集：靠任务名猜（`tasks.matching { name == "jacocoTestReport" }`）
+// 在插件没应用时会静默变少，而覆盖率数字是给 PR 看的基线，静默变少比报错更糟。
+// 任务依赖同样按类型取（[JacocoReport]），不猜名字。
+val jacocoReports = project.objects.fileCollection()
+project.subprojects.forEach { sub ->
+    sub.plugins.withId("jacoco") {
+        jacocoReports.from(sub.layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml"))
+    }
+}
 tasks.register<CoverageSummaryTask>("coverageSummary") {
     group = "verification"
     description = "汇总各模块 JaCoCo 行/分支覆盖率（不设门槛）"
-    reports.from(
-        project.subprojects.map { sub -> sub.layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml") },
-    )
-    dependsOn(project.subprojects.map { sub -> sub.tasks.matching { it.name == "jacocoTestReport" } })
+    reports.from(jacocoReports)
+    dependsOn(project.subprojects.map { sub -> sub.tasks.withType(JacocoReport::class.java) })
 }
 
 // ── E2E 结果断言 ──

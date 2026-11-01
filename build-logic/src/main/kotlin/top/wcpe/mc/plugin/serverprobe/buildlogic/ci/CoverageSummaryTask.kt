@@ -24,7 +24,8 @@ abstract class CoverageSummaryTask : DefaultTask() {
     fun summarize() {
         val files = reports.files.filter { it.isFile }.sortedBy { it.invariantSeparatorsPath }
         if (files.isEmpty()) {
-            logger.lifecycle("未找到 JaCoCo 报告（先跑 ./gradlew test jacocoTestReport）")
+            // 不静默：一个模块的报告都没收到，说明 jacoco 未应用或测试未跑，数字会整体变少
+            logger.warn("未收到任何模块的 JaCoCo 报告（jacoco 插件未应用或未跑测试），本次汇总无可信数据")
         }
         CoverageSummary.lines(CoverageSummary.summarize(files)).forEach { line -> logger.lifecycle(line) }
     }

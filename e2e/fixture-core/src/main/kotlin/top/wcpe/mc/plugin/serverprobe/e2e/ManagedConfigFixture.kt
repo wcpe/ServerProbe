@@ -36,6 +36,13 @@ class ManagedConfigFixture private constructor(
     endpoint: FixtureEndpoint,
     /** 拒绝计划：第 n 次握手回什么状态码；空表示不拒绝（既有托管场景）。 */
     private val rejectStatuses: List<Int> = emptyList(),
+    /**
+     * 模板里故意开启的三个监听面端口（从探针 `config.yml` 读出）。
+     *
+     * **必须来自配置本身**：若夹具写死一份常量，改模板端口就会让“零监听”断言退化成
+     * “这几个没人监听的端口确实没人监听”——恒真的假断言。
+     */
+    private val zeroBindPorts: List<Int>,
 ) : WebSocketFixtureServer(endpoint.serverSocket, endpoint.token, "serverprobe-e2e-managed") {
 
     /** 已登记的断言：键为「前缀 + 断言名」，值为通过标记或失败详情。 */
@@ -106,7 +113,7 @@ class ManagedConfigFixture private constructor(
         if (!rejectWindowCheckScheduled.compareAndSet(false, true)) return
         Thread({
             runCatching { Thread.sleep(REJECT_WINDOW_ZERO_BIND_DELAY_MS) }
-            val reachable = ZERO_BIND_PORTS.filter { canConnect(it) }
+            val reachable = zeroBindPorts.filter { canConnect(it) }
             record(ASSERT_NO_STANDALONE_FALLBACK, reachable.isEmpty(), "拒绝窗口内仍有端口可连:$reachable")
             maybeComplete()
         }, "serverprobe-e2e-managed-auth-zerobind").apply {
@@ -204,7 +211,7 @@ class ManagedConfigFixture private constructor(
     private fun startZeroBindCheck() {
         Thread({
             runCatching { Thread.sleep(ZERO_BIND_DELAY_MS) }
-            val reachable = ZERO_BIND_PORTS.filter { canConnect(it) }
+            val reachable = zeroBindPorts.filter { canConnect(it) }
             record(ASSERT_ZERO_BIND, reachable.isEmpty(), "托管模式下仍有端口可连:$reachable")
             maybeComplete()
         }, "serverprobe-e2e-managed-zerobind").apply {
@@ -326,7 +333,10 @@ class ManagedConfigFixture private constructor(
             pluginDataDir: String = WsFixtureProtocol.SERVER_PROBE_PLUGIN,
             scenario: String = "managed-config",
         ): ManagedConfigFixture =
-            ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario))
+            ManagedConfigFixture(
+                openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario),
+                zeroBindPorts = readZeroBindPorts(pluginsDirectory, pluginDataDir, scenario),
+            )
 
         /**
          * 同上，但带**拒绝计划**：前几次握手按 [rejectStatuses] 回 401/403，之后正常升级。
@@ -342,7 +352,60 @@ class ManagedConfigFixture private constructor(
             scenario: String = "managed-auth-reject",
             rejectStatuses: List<Int> = AUTH_REJECT_CODES,
         ): ManagedConfigFixture =
-            ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario), rejectStatuses)
+            ManagedConfigFixture(
+                openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario),
+                rejectStatuses,
+                zeroBindPorts = readZeroBindPorts(pluginsDirectory, pluginDataDir, scenario),
+            )
+
+        /**
+         * 从探针的 `config.yml` 读三个监听面端口。
+         *
+         * 读不到就**直接失败**（而不是回退到硬编码）：零监听断言依赖这三个值，取不到时
+         * 继续跑等于拿一份无法证伪的断言充数。
+         *
+         * @param pluginsDirectory 后端/代理的 `plugins` 目录。
+         * @param pluginDataDir 探针插件数据目录名。
+         * @param scenario 场景名（仅用于失败提示）。
+         * @return 三个端口。
+         */
+        private fun readZeroBindPorts(pluginsDirectory: File, pluginDataDir: String, scenario: String): List<Int> {
+            val configFile = File(File(pluginsDirectory, pluginDataDir), "config.yml")
+            check(configFile.isFile) { "$scenario 缺少探针配置:$configFile（零监听断言无从取值）" }
+            val content = configFile.readText()
+            return ZERO_BIND_SECTIONS.map { section ->
+                readNestedPort(content, section)
+                    ?: error("$scenario 的配置里 $section.port 缺失或不是合法端口")
+            }
+        }
+
+        /**
+         * 从嵌套 YAML 里读某个段的 `port`（模板写成 `metrics:` + 缩进的 `port:`，不是点号平铺）。
+         *
+         * 只支持这一种形状（顶格段名 + 缩进键），足够读我们自己维护的模板；解析不到返回 null，
+         * 由调用方当作“配置不可用”直接失败——绝不静默回退到硬编码端口。
+         *
+         * @param content 配置文件全文。
+         * @param section 段名（`metrics` / `web` / `mcp`）。
+         * @return 端口；段不存在或没有合法 `port` 时为 null。
+         */
+        private fun readNestedPort(content: String, section: String): Int? {
+            val lines = content.lines()
+            val start = lines.indexOfFirst { line -> line.trim() == "$section:" }
+            if (start < 0) return null
+            val baseIndent = lines[start].takeWhile { it == ' ' }.length
+            for (index in start + 1 until lines.size) {
+                val line = lines[index]
+                val trimmed = line.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
+                // 缩进回到段头同级或更浅，说明已离开该段
+                if (line.takeWhile { it == ' ' }.length <= baseIndent) return null
+                if (trimmed.startsWith("port:")) {
+                    return trimmed.removePrefix("port:").trim().trim('"').toIntOrNull()
+                }
+            }
+            return null
+        }
 
         /** 断言通过标记（结果写入器按此判真）。 */
         private const val ASSERT_PASSED = "true"
@@ -413,8 +476,12 @@ class ManagedConfigFixture private constructor(
         private const val CONFIG_PUSH_ATTEMPTS = 12
         private const val CONFIG_PUSH_RETRY_INTERVAL_MS = 3_000L
 
-        /** 模板配置里故意开启的三个监听面端口：托管模式下必须都连不上。 */
-        private val ZERO_BIND_PORTS = listOf(19941, 19942, 19943)
+        /**
+         * 零监听断言要探测的三个监听面（模板里分别是 `metrics` / `web` / `mcp` 段）。
+         *
+         * 端口值一律从探针的 `config.yml` 读：与模板同源，改端口不会让断言退化成恒真。
+         */
+        private val ZERO_BIND_SECTIONS = listOf("metrics", "web", "mcp")
 
         /**
          * 拒绝窗口内的零监听检查延时（毫秒）。
