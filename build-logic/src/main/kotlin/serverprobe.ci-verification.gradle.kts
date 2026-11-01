@@ -73,12 +73,14 @@ tasks.register<GenerateOsvScanInputTask>("generateOsvScanInput") {
 }
 
 // ── 覆盖率汇总（只打印、不设门槛）──
-// 报告只从**应用了 jacoco 插件**的子项目收集：靠任务名猜（`tasks.matching { name == "jacocoTestReport" }`）
-// 在插件没应用时会静默变少，而覆盖率数字是给 PR 看的基线，静默变少比报错更糟。
-// 任务依赖同样按类型取（[JacocoReport]），不猜名字。
+// 报告从 **应用了 jacoco 插件的子项目** 收集：任务依赖按类型取（不猜任务名），
+// 报告路径用 `jacocoTestReport` 的默认产物路径（本仓无自定义报告位置；如有，需同步这里）。
+// 注：e2e 系列模块（fixture-core / harness-*）不应用 jacoco，它们的单测覆盖率不在统计内——这是事实，不是缺陷。
+val jacocoExpectedModules = project.objects.listProperty(String::class.java)
 val jacocoReports = project.objects.fileCollection()
 project.subprojects.forEach { sub ->
     sub.plugins.withId("jacoco") {
+        jacocoExpectedModules.add(sub.path)
         jacocoReports.from(sub.layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml"))
     }
 }
@@ -86,6 +88,7 @@ tasks.register<CoverageSummaryTask>("coverageSummary") {
     group = "verification"
     description = "汇总各模块 JaCoCo 行/分支覆盖率（不设门槛）"
     reports.from(jacocoReports)
+    expectedReportCount.set(jacocoExpectedModules.map { it.size })
     dependsOn(project.subprojects.map { sub -> sub.tasks.withType(JacocoReport::class.java) })
 }
 

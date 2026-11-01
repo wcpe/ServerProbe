@@ -628,7 +628,54 @@ fun openFixtureEndpointFromIdentity(
 private fun jsonField(content: String, key: String): String? =
     Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"([^\"]*)\"").find(content)?.groupValues?.get(1)
 
-/** 读取本测试生成的最小 YAML 配置项；配置缺失立即失败，禁止悄然降级。 */
-fun probeConfigValue(content: String, key: String): String = checkNotNull(
-    Regex("(?m)^\\s*${Regex.escape(key)}:\\s*\"?([^\"\\r\\n]+)\"?\\s*$").find(content)?.groupValues?.get(1)?.trim(),
-) { "测试配置缺少:$key" }
+/**
+ * 读取本测试生成的最小 YAML 配置项；配置缺失立即失败，禁止悄然降级。
+ *
+ * 同一份实现同时支持顶层键（`enabled`）与嵌套段（`metrics.port`）：调大前夹具与断言各写一份解析器，
+ * 两份契约不同（一个缺了直接失败、一个返回 null），一旦模板形状变化就会出现“一侧变恒真”的隐患。
+ *
+ * 只支持本仓库自己维护的模板形状（顶格段名 + 缩进键 + 裸值或引号值），额外容忍行尾注释；
+ * 遇到不支持的写法时返回 null，由调用方当作“配置不可用”失败——绝不静默回退默认值。
+ *
+ * @param content 配置文件全文。
+ * @param key 键名（如 `enabled` / `port`）。
+ * @param section 段名（如 `metrics`）；为 null 时按顶层键读取。
+ * @return 去除引号与行尾注释后的原始值。
+ * @throws IllegalStateException 键或段缺失时（调用方无需自行判空）。
+ */
+fun probeConfigValue(content: String, key: String, section: String? = null): String = checkNotNull(
+    lookupConfigValue(content, key, section),
+) { if (section == null) "测试配置缺少:$key" else "测试配置缺少:$section.$key" }
+
+/** 配置项查找的单实现：顶层键与嵌套段共用一套“去注释/去引号”规则。 */
+private fun lookupConfigValue(content: String, key: String, section: String?): String? {
+    val lines = content.lines()
+    if (section == null) {
+        val index = lines.indexOfFirst { line -> indentOf(line) == 0 && keyOf(line) == key }
+        return if (index < 0) null else scalarOf(lines[index])
+    }
+    val headerIndex = lines.indexOfFirst { line -> keyOf(line) == section && scalarOf(line) == null }
+    if (headerIndex < 0) return null
+    val baseIndent = indentOf(lines[headerIndex])
+    for (index in headerIndex + 1 until lines.size) {
+        val line = lines[index]
+        if (line.isBlank() || line.trimStart().startsWith("#")) continue
+        // 缩进回到段头同级或更浅：已离开该段
+        if (indentOf(line) <= baseIndent) return null
+        if (keyOf(line) == key) return scalarOf(line)
+    }
+    return null
+}
+
+/** 行首缩进宽度（空格与 tab 都算一格，与模板写法无关，只用于比较相对深度）。 */
+private fun indentOf(line: String): Int = line.takeWhile { it == ' ' || it == '\t' }.length
+
+/** 取一行里的键名（冒号前）；行内没有冒号时返回整行，后续比较不会匹配。 */
+private fun keyOf(line: String): String = line.trim().substringBefore(':').trim()
+
+/** 取一行里的值（冒号后），去行尾注释与引号；空值（段头）返回 null。 */
+private fun scalarOf(line: String): String? {
+    if (!line.contains(':')) return null
+    val raw = line.substringAfter(':').substringBefore('#').trim().trim('"').trim()
+    return raw.ifEmpty { null }
+}

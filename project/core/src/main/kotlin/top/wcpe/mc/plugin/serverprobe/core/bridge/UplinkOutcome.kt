@@ -15,7 +15,8 @@ internal sealed class UplinkOutcome {
      * 已交给发送队列（**不代表已经写进 socket**）。
      *
      * 发送器有自己的写线程与背压策略：这里只表示“帧被接纳”，是否真正落到连接上由发送器内部计数。
-     * 回执文案因此不应承诺“已发送成功”。
+     * 回执文案因此不应承诺“已发送成功”。被滤镜丢弃（`FILTERED_OUT`）同样归入本分支：
+     * 帧被接纳，但根本不会上送。
      */
     internal object Sent : UplinkOutcome()
 

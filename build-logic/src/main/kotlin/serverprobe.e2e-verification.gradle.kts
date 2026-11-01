@@ -37,7 +37,7 @@ val managedBungeeTemplateDir = "build/mc-testkit/templates/managed-bungee"
 val managedVelocityTemplateDir = "build/mc-testkit/templates/managed-velocity"
 
 /** 取一个当前空闲的回环端口（在任务动作里调用，端口占用窗口最小）。 */
-private fun freeLoopbackPort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+private fun freeLoopbackPort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { socket -> socket.localPort }
 
 /** 一次性回环凭据（测试夹具用，非生产密钥）。 */
 private fun e2eToken(): String = "e2e-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
@@ -543,9 +543,19 @@ private fun Project.installE2eConfig(
     }
 }
 
-/** 为 e2e 任务统一挂 prepare 依赖（支持任务路径字符串与 TaskProvider）。 */
+/**
+ * 为 e2e 任务统一挂 prepare 依赖（支持任务路径字符串与 TaskProvider）。
+ *
+ * 不能只靠 `tasks.matching {}"`：名字拼错时它什么也不匹配、于是依赖静默不挂（“看着接线了，实际没挂”）。
+ * 因此配置结束后补一次存在性断言，把“拼错/改名”从运行时静默变成配置期失败。
+ */
 private fun Project.wireE2eDependency(e2eTaskName: String, vararg prepare: Any) {
     tasks.matching { it.name == e2eTaskName }.configureEach { dependsOn(*prepare) }
+    afterEvaluate {
+        check(tasks.names.contains(e2eTaskName)) {
+            "e2e 接线引用的任务不存在：$e2eTaskName（任务名拼错会让 prepare 依赖静默不挂）"
+        }
+    }
 }
 
 // ── harness 产物接线：prepareE2e* 任务依赖收编后的子项目 jar 任务 ──
@@ -607,7 +617,7 @@ val prepareBridgeFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             runDirectory.get().asFile,
             "bridge-fixture",
@@ -630,7 +640,7 @@ val prepareChunkFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "chunk-fixture",
@@ -653,7 +663,7 @@ val prepareTopicFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "topic-fixture",
@@ -679,7 +689,7 @@ val prepareHealthFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             runDirectory.get().asFile,
             "health-fixture",
@@ -703,7 +713,7 @@ val prepareReloadFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "reload-fixture",
@@ -813,19 +823,15 @@ private fun Project.writeManagedProxyTemplate(templateDir: String, pluginDataDir
  * 把探针指向旧端口）。
  */
 private fun Project.installManagedScenario(runDir: File) {
-    val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
-    val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-    val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+    // 端口/凭据/身份 JSON 全部复用同一组 helper：此前这里内联了一份相同的 JSON 与另一种 token 风格，
+    // 改一处忘一处就会出现“模板与案例读到的凭据不同”的谜之失败。
+    val token = e2eToken()
+    val port = freeLoopbackPort()
     installE2eConfig(runDir, "managed-config", "plugins/ServerProbe/config.yml")
     // 身份文件名与探针侧 ControlPlaneModeService 的常量一致；实例标识与 fixture 的 INSTANCE_ID 一致。
     val identity = File(runDir, "plugins/ServerProbe/$identityFileName")
     identity.parentFile.mkdirs()
-    val createdAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
-    identity.writeText(
-        """{"schemaVersion":1,"provider":"e2e","endpoint":"ws://127.0.0.1:$port/ws/plugin-bridge",""" +
-            """"instanceId":"e2e-fixture","credential":"$token","capabilities":[],""" +
-            """"createdAt":"$createdAt"}""",
-    )
+    identity.writeText(managedIdentityJson(port, token))
 }
 
 // ── Incision 织入场景配置注入 ──

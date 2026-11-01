@@ -374,37 +374,12 @@ class ManagedConfigFixture private constructor(
             check(configFile.isFile) { "$scenario 缺少探针配置:$configFile（零监听断言无从取值）" }
             val content = configFile.readText()
             return ZERO_BIND_SECTIONS.map { section ->
-                readNestedPort(content, section)
-                    ?: error("$scenario 的配置里 $section.port 缺失或不是合法端口")
+                // 读取器与其它夹具共用同一份实现（`probeConfigValue` 的 section 形态）：
+                // 缺失即抛，不在夹具侧再实现一套 YAML 解析。
+                val raw = probeConfigValue(content, "port", section = section)
+                raw.trim('"').toIntOrNull()
+                    ?: error("$scenario 的配置里 $section.port 不是合法端口:$raw")
             }
-        }
-
-        /**
-         * 从嵌套 YAML 里读某个段的 `port`（模板写成 `metrics:` + 缩进的 `port:`，不是点号平铺）。
-         *
-         * 只支持这一种形状（顶格段名 + 缩进键），足够读我们自己维护的模板；解析不到返回 null，
-         * 由调用方当作“配置不可用”直接失败——绝不静默回退到硬编码端口。
-         *
-         * @param content 配置文件全文。
-         * @param section 段名（`metrics` / `web` / `mcp`）。
-         * @return 端口；段不存在或没有合法 `port` 时为 null。
-         */
-        private fun readNestedPort(content: String, section: String): Int? {
-            val lines = content.lines()
-            val start = lines.indexOfFirst { line -> line.trim() == "$section:" }
-            if (start < 0) return null
-            val baseIndent = lines[start].takeWhile { it == ' ' }.length
-            for (index in start + 1 until lines.size) {
-                val line = lines[index]
-                val trimmed = line.trim()
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
-                // 缩进回到段头同级或更浅，说明已离开该段
-                if (line.takeWhile { it == ' ' }.length <= baseIndent) return null
-                if (trimmed.startsWith("port:")) {
-                    return trimmed.removePrefix("port:").trim().trim('"').toIntOrNull()
-                }
-            }
-            return null
         }
 
         /** 断言通过标记（结果写入器按此判真）。 */

@@ -132,7 +132,9 @@ class MetricPushService {
                     // 推送失败或暂无快照：回执带原因，由 BridgeClient 用同一个 requestId 回给控制面
                     BridgeCommandResult.fail("指标推送失败:${pusher.lastFailureReason ?: "当前无可推送的指标快照"}")
                 } else {
-                    BridgeCommandResult.ok("已推送一帧 $EVENT(sequence=$sequence)")
+                    // "已入队"而非"已推送"：sendUplink 只保证帧被写线程接纳（可能因背压/滤镜被丢弃），
+                    // 回执不得承诺"已送达对端"。
+                    BridgeCommandResult.ok("已入队一帧 $EVENT(sequence=$sequence)")
                 }
             }
             running.set(true)

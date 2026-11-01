@@ -28,7 +28,7 @@ import java.util.TimeZone
  * 本仓库随包的默认 `config.yml` **恒含** `bridge` 段（`enabled: false` + 三个空值）。若只按"段存在"触发，
  * 每台独立部署每次启动都会走“字段缺失 → WARN”分支，既刷日志又是行为噪声。故触发条件收紧为
  * **`enabled` 显式为 true 且三要素齐备**：真正的存量托管部署（控制面写的就是 `enabled: true`）照常迁移，
- * 默认模板与显式关闭桥的部署不受影响。此收紧已在交付报告中列为待确认取舍。
+ * 默认模板与显式关闭桥的部署不受影响。这一收紧的取舍已记入 `docs/specs/managed-mode.md` §6 的待定表。
  */
 internal object IdentityMigration {
 
