@@ -23,7 +23,7 @@
 
 - 版本号进入 `0.8.0-SNAPSHOT`（**未发布**）。
 - 指标上行改为**只在托管模式**启用：独立模式的桥不推 `metric_snapshot`、hello 也不再声明 `metric_push` 能力位（能力位必须与真实能力一致），旧 Worker 会按协议回退到 HTTP 拉取 `/metrics`——独立模式下该端点语义不变。
-- CI 辅助判定全部改为 Gradle 任务（`verifyBytecodeGate` / `generateOsvScanInput` / `coverageSummary` / `verifyE2eResults`，在 `build-logic`）：字节码门禁、依赖清单转换、覆盖率汇总与 E2E 结果断言不再依赖额外运行时，仓库不再携带任何外置校验脚本；判定阈值与失败口径不变。
+- CI 辅助判定全部改为 Gradle 任务（`verifyBytecodeGate` / `generateOsvScanInput` / `coverageSummary` / `verifyE2eResults`，在 `build-logic`）：四者均为类型化任务并声明了输入输出——受检产物/覆盖率报告/E2E 结果目录作为输入、OSV 清单作为输出，Gradle 自行推导任务依赖与增量，因此每个任务都可单独运行且可命中 UP-TO-DATE；字节码门禁不再需要 workflow 先跑一次 build。字节码门禁、依赖清单转换、覆盖率汇总与 E2E 结果断言不再依赖额外运行时，仓库不再携带任何外置校验脚本；判定阈值与失败口径不变。
 - 治理：需求编号不再进入代码与配置；厂商标识只作为数据，不成为代码分支。
 
 ### 修复

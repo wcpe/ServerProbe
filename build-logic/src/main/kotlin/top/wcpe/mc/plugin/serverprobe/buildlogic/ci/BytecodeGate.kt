@@ -35,13 +35,8 @@ object BytecodeGate {
         "diagnostics/diagnostics-arthas",
     )
 
-    /** 发行 jar（shadow 合并后的二合一 jar）所在目录、文件名前后缀。 */
-    private const val DIST_DIR = "plugin/build/libs"
-    private const val DIST_JAR_PREFIX = "ServerProbe-"
-    private const val DIST_JAR_SUFFIX = ".jar"
-
-    /** 发行 jar 缺失时的展示写法（与报告文案一致）。 */
-    private const val DIST_JAR_GLOB = "$DIST_DIR/ServerProbe-*.jar"
+    /** 发行 jar（shadow 合并后的二合一 jar）文件名通配写法（报告用）。 */
+    private const val DIST_JAR_GLOB = "plugin/build/libs/ServerProbe-*.jar"
 
     /**
      * 发行 jar 内的豁免项。
@@ -75,50 +70,57 @@ object BytecodeGate {
     }
 
     /**
-     * 扫描整个仓库：各受检模块的 main 源集产物 + 发行 jar 内全部 class。
+     * 在给定产物上执行门禁判定。
      *
-     * @param root 仓库根目录。
+     * 输入由调用方（任务）按声明好的输入接线传入，本对象不自己搜目录：哪些模块、哪个 jar 属于
+     * 「受检产物」是**任务输入声明**的事，判定核心只负责读 class 头并给出结论。
+     *
+     * @param classRoots 各受检模块 main 源集的 class 输出目录（Kotlin 与 Java 可能各一个，可以不存在）。
+     * @param jars 发行 jar 列表（允许为空：此时计入「缺失」并判失败）。
+     * @param requiredModules 必须产出 class 的模块（相对仓库根，如 `project/core`）。
+     * @param root 仓库根目录（只用于把展示路径转成相对路径）。
      * @return 判定结果（违规与缺失都不抛异常，交由调用方决定如何失败）。
      */
-    fun scan(root: File): Outcome {
-        val entries = ArrayList<Entry>()
-        // 目标缺失必须报错：否则模块改名/构建失败会让门禁静默变绿、失去意义
-        val missing = ArrayList<String>()
+    fun evaluate(
+        classRoots: Collection<File>,
+        jars: Collection<File>,
+        requiredModules: Collection<String>,
+        root: File,
+    ): Outcome {
+        // 目标缺失必须报错：否则模块改名/构建失败会让门禁静默变绿、失去意义。
+        // 按**模块**而非按目录判定：同一模块的 Kotlin/Java 输出目录天然可能有一个不存在（无相应源码）。
+        val entries = classRoots.sortedBy { it.invariantSeparatorsPath }.flatMap { dir -> classEntries(dir, root) }
+        val missing = requiredModules
+            .filterNot { module -> entries.any { it.displayPath.startsWith("$module/build/classes/") } }
+            .map { module -> "$module/build/classes" }
+            .toMutableList()
 
-        MODULES.forEach { module ->
-            val found = moduleClasses(root, module)
-            if (found.isEmpty()) {
-                missing += "$module/build/classes/**/main/**"
-            }
-            entries += found
-        }
-
-        val jars = distJars(root)
-        if (jars.isEmpty()) {
+        val existingJars = jars.filter { it.isFile }.sortedBy { it.name }
+        if (existingJars.isEmpty()) {
             missing += DIST_JAR_GLOB
         }
-        jars.forEach { jar -> entries += jarClasses(root, jar) }
+        val jarEntries = existingJars.flatMap { jar -> jarClasses(jar, root) }
 
+        val all = entries + jarEntries
         return Outcome(
-            entries = entries,
-            jars = jars.map { it.relativePath(root) },
-            violations = entries.filter { it.major > MAX_MAJOR },
+            entries = all,
+            jars = existingJars.map { it.relativePath(root) },
+            violations = all.filter { it.major > MAX_MAJOR },
             missing = missing,
         )
     }
 
-    /** 收集模块 `build/classes` 下 **main 源集**的 class（test 源集允许用更高版本 JDK 编译）。 */
-    private fun moduleClasses(root: File, module: String): List<Entry> {
-        val base = File(root, "$module/build/classes")
-        if (!base.isDirectory) {
+    /** 收集单个 class 输出目录下的全部 class（目录不存在或为空则返回空表，由调用方计为缺失）。 */
+    private fun classEntries(dir: File, root: File): List<Entry> {
+        if (!dir.isDirectory) {
             return emptyList()
         }
-        return base.walkTopDown()
+        val label = dir.relativePath(root)
+        return dir.walkTopDown()
             .filter { it.isFile && it.name.endsWith(".class") }
-            .filter { it.relativeTo(base).invariantSeparatorsPath.split("/").contains("main") }
             .map { file ->
                 Entry(
-                    displayPath = "$module/build/classes/${file.relativeTo(base).invariantSeparatorsPath}",
+                    displayPath = "$label/${file.relativeTo(dir).invariantSeparatorsPath}",
                     major = file.inputStream().use(::majorOf),
                 )
             }
@@ -127,7 +129,7 @@ object BytecodeGate {
     }
 
     /** 收集发行 jar 内的 class（豁免项除外）。 */
-    private fun jarClasses(root: File, jar: File): List<Entry> = ZipFile(jar).use { zip ->
+    private fun jarClasses(jar: File, root: File): List<Entry> = ZipFile(jar).use { zip ->
         zip.entries().asSequence()
             .filter { it.name.endsWith(".class") }
             .filterNot { entry ->
@@ -142,15 +144,6 @@ object BytecodeGate {
             }
             .sortedBy { it.displayPath }
             .toList()
-    }
-
-    /** 匹配 `plugin/build/libs` 下的发行 jar（与 `ServerProbe-*.jar` 通配语义一致）。 */
-    private fun distJars(root: File): List<File> {
-        val dir = File(root, DIST_DIR)
-        val matched = dir.listFiles { file ->
-            file.isFile && file.name.startsWith(DIST_JAR_PREFIX) && file.name.endsWith(DIST_JAR_SUFFIX)
-        }
-        return (matched ?: emptyArray()).sortedBy { it.name }
     }
 
     /**

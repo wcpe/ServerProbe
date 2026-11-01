@@ -26,16 +26,16 @@ object E2eResultsVerifier {
     /**
      * 校验结果目录。
      *
-     * @param resultsDir 结果目录（`build/mc-testkit/results`）。
+     * @param resultsDir 结果目录（`build/mc-testkit/results`）；为 null 时视作目录不存在。
      * @param expected 期望出现的场景名。
      * @return 打印行与是否失败。
      */
-    fun verify(resultsDir: File, expected: List<String>): Outcome {
+    fun verify(resultsDir: File?, expected: List<String>): Outcome {
         val lines = ArrayList<String>()
         var failed = false
         val present = LinkedHashMap<String, Map<String, String>>()
 
-        val files = resultsDir.listFiles { file -> file.isFile && file.name.endsWith(SUFFIX) }
+        val files = resultsDir?.listFiles { file -> file.isFile && file.name.endsWith(SUFFIX) }
             ?.sortedBy { it.name }
             .orEmpty()
         files.forEach { file ->

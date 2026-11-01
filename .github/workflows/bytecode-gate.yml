@@ -53,10 +53,8 @@ jobs:
       - name: 配置 Gradle(含缓存)
         uses: gradle/actions/setup-gradle@v4
 
-      # 必须先完整构建，校验脚本才能读到 classes 与发行 jar
-      - name: 构建
-        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
-
-      # 判定逻辑在 build-logic 的 serverprobe.ci-verification（原独立脚本的等价实现）
+      # 判定逻辑在 build-logic 的 serverprobe.ci-verification（原独立脚本的等价实现）。
+      # 受检产物（各模块 main 源集 + 发行 jar）已声明为任务输入，Gradle 会自行先构建它们，
+      # 因此不需要单独跑一次 build。
       - name: 扫描字节码版本
         run: ./gradlew verifyBytecodeGate --console=plain -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64

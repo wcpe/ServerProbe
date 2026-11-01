@@ -13,8 +13,9 @@ import java.util.zip.ZipOutputStream
 /**
  * Java 8 字节码门禁的判定逻辑。
  *
- * 覆盖点与原脚本的每个分支一一对应：major version 解析、只扫 main 源集、
- * 发行 jar 的豁免项（multi-release 目录与模块描述符）、产物缺失也算失败、超版本即违规。
+ * 输入由任务声明接线后传入（受检 class 目录 + 发行 jar），本测试直接构造这两类输入，
+ * 覆盖：major version 解析、只扫传入的 main 目录、发行 jar 的豁免项（multi-release 目录与
+ * 模块描述符）、产物缺失也算失败、超版本即违规。
  */
 class BytecodeGateTest {
 
@@ -46,6 +47,10 @@ class BytecodeGateTest {
         }
     }
 
+    /** 每个受检模块的 main 源集输出目录（与实际接线一致）。 */
+    private fun mainClassRoots(root: File): List<File> =
+        BytecodeGate.MODULES.map { module -> File(root, "$module/build/classes/java/main") }
+
     @DisplayName("major version 取 class 头第 7~8 字节的 big-endian 值")
     @Test
     fun `解析 major version`() {
@@ -54,15 +59,16 @@ class BytecodeGateTest {
         assertEquals(65, BytecodeGate.majorOf(classHeader(65)))
     }
 
-    @DisplayName("只扫 main 源集；jar 内 multi-release 与 module-info 豁免")
+    @DisplayName("只扫传入的 main 目录；jar 内 multi-release 与 module-info 豁免")
     @Test
-    fun `扫描 main 源集并豁免 jar 内特殊条目`(@TempDir root: File) {
-        BytecodeGate.MODULES.forEach { module ->
-            writeClass(File(root, "$module/build/classes/java/main/Demo.class"), 52)
-        }
+    fun `扫描 main 目录并豁免 jar 内特殊条目`(@TempDir root: File) {
+        val classRoots = mainClassRoots(root)
+        classRoots.forEach { dir -> writeClass(File(dir, "Demo.class"), 52) }
+        // test 源集产物不允许进入受检列表（接线只给 main 目录，这里额外放一份证明不会被漏进来）
         writeClass(File(root, "project/core/build/classes/java/test/DemoTest.class"), 61)
+        val jar = File(root, "plugin/build/libs/ServerProbe-1.0.jar")
         writeJar(
-            File(root, "plugin/build/libs/ServerProbe-1.0.jar"),
+            jar,
             mapOf(
                 "top/demo/Main.class" to 52,
                 "META-INF/versions/9/top/demo/Main.class" to 65,
@@ -70,7 +76,7 @@ class BytecodeGateTest {
             ),
         )
 
-        val outcome = BytecodeGate.scan(root)
+        val outcome = BytecodeGate.evaluate(classRoots, listOf(jar), BytecodeGate.MODULES, root)
 
         assertTrue(outcome.passed(), "无违规且产物齐备时应通过，实际缺失=${outcome.missing}")
         assertEquals(
@@ -91,22 +97,30 @@ class BytecodeGateTest {
     @DisplayName("产物缺失计入 missing：静默变绿比失败更危险")
     @Test
     fun `产物缺失即不通过`(@TempDir root: File) {
-        writeClass(File(root, "project/core/build/classes/java/main/Demo.class"), 52)
+        val classRoots = mainClassRoots(root)
+        // 只产出一个模块的 class，其余目录不存在
+        writeClass(File(classRoots.first(), "Demo.class"), 52)
 
-        val outcome = BytecodeGate.scan(root)
+        val outcome = BytecodeGate.evaluate(classRoots, emptyList(), BytecodeGate.MODULES, root)
 
         assertFalse(outcome.passed(), "缺少其它受检模块与发行 jar 时不应通过")
-        assertTrue(outcome.missing.any { it.startsWith("api/build/classes/") }, "实际缺失=${outcome.missing}")
+        assertTrue(
+            outcome.missing.any { it.startsWith("api/build/classes") },
+            "实际缺失=${outcome.missing}",
+        )
         assertTrue(outcome.missing.contains("plugin/build/libs/ServerProbe-*.jar"), "实际缺失=${outcome.missing}")
     }
 
     @DisplayName("major version 超过 52 计为违规")
     @Test
     fun `超版本计为违规`(@TempDir root: File) {
-        writeClass(File(root, "project/core/build/classes/java/main/Demo.class"), 61)
-        writeJar(File(root, "plugin/build/libs/ServerProbe-1.0.jar"), mapOf("top/demo/Main.class" to 52))
+        val classRoots = mainClassRoots(root)
+        classRoots.forEach { dir -> writeClass(File(dir, "Demo.class"), 52) }
+        writeClass(File(classRoots.first(), "TooNew.class"), 61)
+        val jar = File(root, "plugin/build/libs/ServerProbe-1.0.jar")
+        writeJar(jar, mapOf("top/demo/Main.class" to 52))
 
-        val outcome = BytecodeGate.scan(root)
+        val outcome = BytecodeGate.evaluate(classRoots, listOf(jar), BytecodeGate.MODULES, root)
 
         assertFalse(outcome.passed())
         assertEquals(listOf(61), outcome.violations.map { it.major })

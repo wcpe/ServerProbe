@@ -117,13 +117,10 @@ jobs:
       - name: 配置 Gradle(含缓存)
         uses: gradle/actions/setup-gradle@v4
 
-      # 必须先跑测试产出 exec 数据，否则各模块的 jacocoTestReport 会因无数据被 SKIPPED
-      - name: 生成各模块覆盖率报告
-        run: ./gradlew test jacocoTestReport --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
-
+      # coverageSummary 已把各模块 JaCoCo 报告声明为任务输入并挂上 jacocoTestReport 依赖，
+      # 故一条命令即可：先跑测试与报告，再打印行/分支覆盖率概览（不用于判定通过与否）。
       - name: 汇总覆盖率概览
-        # 从各模块 XML 报告提取行/分支覆盖率，作为 PR 可读的基线数字（不用于判定通过与否）
-        run: ./gradlew coverageSummary --console=plain
+        run: ./gradlew coverageSummary --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
