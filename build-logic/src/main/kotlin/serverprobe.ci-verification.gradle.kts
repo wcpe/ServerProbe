@@ -45,6 +45,9 @@ tasks.register<VerifyBytecodeGateTask>("verifyBytecodeGate") {
     group = "verification"
     description = "校验核心模块产物与发行 jar 的 class major version <= 52（Java 8）"
     rootDirectory.set(layout.projectDirectory)
+    // 发行 jar 的产物任务（TabooLib 打包）不是标准 ArchiveTask，取不到 archiveFile provider；
+    // 故用该子项目的 buildDirectory 拼产物路径，并以任务提供者（而非字符串路径）声明依赖。
+    val pluginProject = project(":plugin")
     requiredModules.set(BytecodeGate.MODULES)
     classDirectories.from(
         BytecodeGate.MODULES.map { module ->
@@ -55,8 +58,8 @@ tasks.register<VerifyBytecodeGateTask>("verifyBytecodeGate") {
                 .classesDirs
         },
     )
-    releaseJar.set(layout.projectDirectory.file("plugin/build/libs/${project.name}-${project.version}.jar"))
-    dependsOn(":plugin:taboolibMainTask")
+    releaseJar.set(pluginProject.layout.buildDirectory.file("libs/${project.name}-${project.version}.jar"))
+    dependsOn(pluginProject.tasks.named("taboolibMainTask"))
 }
 
 // ── 依赖树 → OSV-Scanner 清单 ──
