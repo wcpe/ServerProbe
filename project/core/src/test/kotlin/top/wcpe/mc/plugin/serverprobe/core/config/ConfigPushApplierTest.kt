@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * [ConfigPushApplier] 单测：配置下发状态机的**每一条分支**逐条锁定。
@@ -340,6 +343,58 @@ class ConfigPushApplierTest {
         removals: List<String>,
     ): ConfigPushOutcome = applier.apply(payload(configVersion, baseVersion, values, removals))
 
+    /**
+     * 并发下发必须串行：命令池是多线程的，而 `apply` 是一段 check-then-act。
+     *
+     * 断言方式不是“看有没有加锁”，而是让自检记录“同时有几个在跑”——一旦出现两个，
+     * 就说明两条推送正在交叉执行（历史上这条路径会把版本号和缓存写乱）。
+     */
+    @Test
+    fun `并发下发串行执行不重叠`() {
+        val inFlight = AtomicInteger(0)
+        val maxInFlight = AtomicInteger(0)
+        val serial = ConfigPushApplier(
+            selfCheck = {
+                val current = inFlight.incrementAndGet()
+                maxInFlight.updateAndGet { previous -> maxOf(previous, current) }
+                try {
+                    Thread.sleep(SELF_CHECK_DELAY_MS)
+                    pass()
+                } finally {
+                    inFlight.decrementAndGet()
+                }
+            },
+            writeCache = { snapshot -> writtenCaches += snapshot },
+            clockMillis = { FIXED_EPOCH_MILLIS },
+        )
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(2)
+        listOf(1L to 0L, 2L to 0L).forEach { (version, base) ->
+            Thread({
+                start.await()
+                runCatching { serial.apply(payload(version, base, mapOf("history-capacity" to 200))) }
+                done.countDown()
+            }, "config-push-$version").apply {
+                isDaemon = true
+                start()
+            }
+        }
+
+        start.countDown()
+        assertTrue(done.await(JOIN_TIMEOUT_SECONDS, TimeUnit.SECONDS), "两条下发应在超时内完成")
+        assertEquals(1, maxInFlight.get(), "apply 必须互斥：自检不得出现并发执行")
+    }
+
+    /** 版本状态单调：乱序到达时，已生效的版本绝不能被更小的版本写回去。 */
+    @Test
+    fun `版本号单调不倒退`() {
+        ManagedConfigState.markApplied(7, FIXED_EPOCH_MILLIS / MILLIS_PER_SECOND)
+
+        ManagedConfigState.markApplied(6, FIXED_EPOCH_MILLIS / MILLIS_PER_SECOND)
+
+        assertEquals(7L, ManagedConfigState.configVersion(), "已生效的版本不能被更小的版本覆盖")
+    }
+
     /** 构造载荷。 */
     private fun payload(
         configVersion: Long,
@@ -359,6 +414,15 @@ class ConfigPushApplierTest {
 
         /** 固定时钟:2026-10-19T03:12:44Z(与协议规格 §3.4.2 的示例时刻一致)。 */
         private const val FIXED_EPOCH_MILLIS = 1_792_379_564_000L
+
+        /** 毫秒→秒换算（断言版本时间戳时用到）。 */
+        private const val MILLIS_PER_SECOND = 1_000L
+
+        /** 并发用例里自检的停顿时长（毫秒）：足以让第二条推送如果未被串行化就一定重叠。 */
+        private const val SELF_CHECK_DELAY_MS = 150L
+
+        /** 并发用例的等待上限（秒）。 */
+        private const val JOIN_TIMEOUT_SECONDS = 10L
 
         /** 同一时刻的 epoch 秒。 */
         private const val FIXED_EPOCH_SECONDS = 1_792_379_564L

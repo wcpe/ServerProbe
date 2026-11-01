@@ -36,7 +36,8 @@ import java.util.concurrent.atomic.AtomicReference
  * ## 线程模型
  * - 启动装配跑在本类自起的 daemon 线程（`ServerProbe-ManagedConfig`）：等模式判定 → 注册动作 → 起上报线程。
  *   主线程只做"取数据目录 + 起线程"。
- * - `config_push` 的处理发生在**桥的读线程**上（下行帧本就由它接收），全程不触碰 MC 主线程。
+ * - `config_push` 的处理发生在**桥的命令池**（多线程，非读线程），全程不触碰 MC 主线程；
+ *   因此 [ConfigPushApplier.apply] 自带互斥锁，两条并发推送不会互相覆盖。
  * - `config_state` 上报跑在自己的 daemon 线程，每轮重读间隔配置，故下发新间隔后下一轮即生效。
  *
  * ## 缓存路径

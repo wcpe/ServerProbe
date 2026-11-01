@@ -46,7 +46,8 @@ object ManagedConfigState {
      */
     @Synchronized
     fun markApplied(configVersion: Long, appliedAtEpochSeconds: Long?) {
-        version = configVersion
+        // 单调不减：并发/乱序到达时，已生效的版本绝不能被写回去
+        version = maxOf(version, configVersion)
         appliedAtSeconds = appliedAtEpochSeconds
         lastError = null
     }

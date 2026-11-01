@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.control
 
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -39,6 +40,55 @@ internal object LocalListenerGate {
     }
 
     /**
+     * 已 bind 的监听面 → 回撤动作。
+     *
+     * 只在“独立模式已经起服、随后模式才落定为托管”这种窗口里用得上（正常路径下托管模式根本不会 bind），
+     * 但零监听承诺不能只靠启动时那一次判断：一旦必须回撤，得有地方把它关掉。
+     */
+    private val boundStops = ConcurrentHashMap<Surface, () -> Unit>()
+
+    /**
+     * 登记一个已真正 bind 的监听面，供托管模式落定时回撤。
+     *
+     * @param surface 监听面。
+     * @param stop 幂等的关闭动作（失败只能降级，不得抛）。
+     */
+    fun registerBound(surface: Surface, stop: () -> Unit) {
+        boundStops[surface] = stop
+    }
+
+    /** 注销登记（监听面自行停止时调用，避免回撤阶段重复动作）。 */
+    fun unregisterBound(surface: Surface) {
+        boundStops.remove(surface)
+    }
+
+    /**
+     * 托管模式落定：回撤所有已开监听面（零监听承诺的兵败傅）。
+     *
+     * 幂等、可在任意线程调用（实际由判定线程在 [ControlPlaneRuntime.publish] 时触发）。
+     * 单个面的关闭失败只 WARN，不影响其它面。
+     */
+    internal fun reconcileManaged() {
+        if (boundStops.isEmpty()) {
+            return
+        }
+        boundStops.keys.toList().forEach { surface ->
+            val stop = boundStops.remove(surface) ?: return@forEach
+            ProbeLogger.warn(
+                "托管模式判定完成，回撤已开启的本地 ${surface.label} 监听端口（零监听端口承诺）",
+            )
+            runCatching(stop).onFailure { error ->
+                ProbeLogger.warn("回撤 ${surface.label} 监听面失败（已降级继续）:${error.message}")
+            }
+        }
+    }
+
+    /** 仅测试用：清空已登记的回撤动作。 */
+    internal fun clearBoundForTest() {
+        boundStops.clear()
+    }
+
+    /**
      * 按当前运行态判定某监听面是否可以 bind。
      *
      * @param surface 监听面。
@@ -73,9 +123,11 @@ internal object LocalListenerGate {
  * 否则托管探针会在"身份文件存在但判定尚未完成"的窗口里抢先把端口开起来。放到后台线程等即可
  * 同时满足两条约束。
  *
- * ## 失败一律降级
- * 等待超时（磁盘极慢等极端情况）与 bind 异常都只 WARN，绝不影响插件其余功能——探针不成事故源。
- * 超时后按**当前**运行态继续：判定线程无论如何都会在 finally 放行并发布结论，故此时读到的已是保守值。
+ * ## 失败一律降级，但降级方向看“有没有托管意图”
+ * 等待超时（磁盘极慢等极端情况）与 bind 异常都不得影响插件其余功能；但降级方向不同：
+ * - **确认没有身份文件** → 按独立模式继续 bind（与引入托管能力前完全一致）；
+ * - **身份文件存在（托管意图）但判定未完成** → **不 bind**（fail-close）：宁可不提供服务，
+ *   也不能在一台托管机上把端口开起来——那正是本 FR 的核心承诺。
  *
  * @property surface 监听面（用于线程名与日志）。
  * @property awaitDecision 等待判定完成的回调（生产为 [ControlPlaneModeService.awaitReady]）。
@@ -100,9 +152,16 @@ internal class LocalListenerLauncher(
                 ProbeLogger.warn("等待托管模式判定失败(${surface.label}),按当前运行态继续:${error.message}")
                 false
             }
+            if (!decided && ControlPlaneRuntime.identityPresent()) {
+                // fail-close：有身份文件但判定没完成，宁可这次不开端口
+                ProbeLogger.warn(
+                    "等待托管模式判定未完成(${surface.label})且存在身份文件：为守住零监听承诺，本次不启动监听",
+                )
+                return@Thread
+            }
             if (!decided) {
-                // 超时只可能发生在判定线程被极慢磁盘拖住的极端情况：明确记一笔，便于线上回溯
-                ProbeLogger.warn("等待托管模式判定超时(${surface.label},上限 ${waitMs}ms),按当前运行态继续")
+                // 确认无托管意图：按独立模式继续，行为与引入托管能力前一致
+                ProbeLogger.warn("等待托管模式判定超时(${surface.label},上限 ${waitMs}ms),按独立模式继续")
             }
             // bind 本身已各自 try/catch；此处再兜一层，确保线程不会因意外异常静默死掉
             runCatching(bind)

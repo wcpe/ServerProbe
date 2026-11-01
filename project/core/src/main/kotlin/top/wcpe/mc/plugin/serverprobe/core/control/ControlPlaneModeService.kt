@@ -5,6 +5,7 @@ import top.wcpe.mc.plugin.serverprobe.core.config.ManagedCacheStore
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.PostEnable
 import top.wcpe.taboolib.ioc.annotation.Service
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Date
 import java.util.concurrent.CountDownLatch
@@ -96,14 +97,20 @@ class ControlPlaneModeService {
     // 判定链路上的每个分支都要落日志并保证 finally 放行,异常一律降级:整体广捕是有意为之
     @Suppress("TooGenericExceptionCaught")
     private fun runBootstrap(dataFolder: Path?) {
+        // “是否有身份文件”在判定链路最早期就能确认，先告诉监听面：
+        // 它们超时等不到结论时靠这个信号决定 fail-open（确定独立部署）还是 fail-close（有托管意图）。
+        var identityPresent = false
         try {
             if (dataFolder == null) {
                 ProbeLogger.warn("无法解析插件数据目录,托管模式判定跳过,按独立模式运行")
                 return
             }
+            val identityPath = dataFolder.resolve(IDENTITY_FILE_NAME)
+            identityPresent = runCatching { Files.isRegularFile(identityPath) }.getOrDefault(false)
+            ControlPlaneRuntime.markIdentityPresent(identityPresent)
             apply(
                 ControlPlaneModeDecider.decide(
-                    dataFolder.resolve(IDENTITY_FILE_NAME),
+                    identityPath,
                     dataFolder.resolve(CONFIG_FILE_NAME),
                     Date(),
                 ),
@@ -113,6 +120,8 @@ class ControlPlaneModeService {
             // 探针绝不能因托管判定失败而启动失败
             ProbeLogger.warn("托管模式判定异常,已按独立模式继续:${e.message}")
             resetToStandalone()
+            // 判定异常时仍要保留“托管意图”，否则监听面会在超时路径上 fail-open
+            ControlPlaneRuntime.markIdentityPresent(identityPresent)
         } finally {
             // 无论结论如何都必须放行:等待方(桥线程)据此继续,超时则按独立模式走
             ready.countDown()

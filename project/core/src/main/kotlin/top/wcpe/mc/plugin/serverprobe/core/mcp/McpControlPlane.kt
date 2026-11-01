@@ -137,6 +137,8 @@ class McpControlPlane {
      */
     @Synchronized
     fun disable(): Boolean {
+        // 先注销回撤登记：本方法就是回撤动作本身，避免完场后还留着悬空引用
+        LocalListenerGate.unregisterBound(LocalListenerGate.Surface.MCP)
         if (httpServer == null && artifacts == null) return false
         stopServer()
         return true
@@ -155,6 +157,8 @@ class McpControlPlane {
         ).also { server ->
             server.start()
             httpServer = server
+            // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉
+            LocalListenerGate.registerBound(LocalListenerGate.Surface.MCP) { disable() }
             artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
             }.also { executor ->

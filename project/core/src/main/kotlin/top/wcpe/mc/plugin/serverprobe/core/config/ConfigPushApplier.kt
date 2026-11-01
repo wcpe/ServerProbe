@@ -25,8 +25,10 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
  * 不让别处也能"随手回退"(那会把版本号与内存值搞得不一致)。
  *
  * ## 线程
- * 生产侧由桥的**读线程**调用(下行帧本就由它接收),全程不触碰 MC 主线程;所有可能抛的环节
- * (自检回调、缓存落盘)都就地降级,绝不向桥的读循环抛。
+ * 生产侧由桥的**命令池**（多线程）调用，不是读线程。因此 [apply] 必须**串行**：
+ * “版本校验 → 替换内存 → 自检 → 落盘”是一段 check-then-act，并发执行会让两条推送
+ * 双双通过 baseVersion 校验、互相覆盖生效值与缓存，甚至把版本号写回去。
+ * 全程仍在后台线程，不触碰 MC 主线程；所有可能抛的环节（自检回调、缓存落盘）都就地降级。
  *
  * @property selfCheck 执行自检三项;生产侧读采集器/快照/桥状态,单测注入可控结果。
  * @property writeCache 原子落盘托管缓存;单测注入记录器以断言"失败时不写盘"。
@@ -41,9 +43,14 @@ internal class ConfigPushApplier(
     /**
      * 处理一次下发。
      *
+     * **必须串行**：命令池是多线程的，而本方法是一段 check-then-act（校验 baseVersion →
+     * 替换内存 → 自检 → 落盘）。并发下两条推送会各自通过校验、互相覆盖，并让版本号倒退。
+     * `config_push` 是低频管理操作，串行执行的代价可接受。
+     *
      * @param payload 已解析的载荷。
      * @return 处理结果(用于回 `config_applied`)。
      */
+    @Synchronized
     fun apply(payload: ConfigPushPayload): ConfigPushOutcome {
         val currentVersion = ManagedConfigState.configVersion()
         if (payload.configVersion <= currentVersion) {
