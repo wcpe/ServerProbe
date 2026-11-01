@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.bridge
 
 import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ConfigPushOutcome
+import top.wcpe.mc.plugin.serverprobe.core.config.ManagedConfigRedaction
 
 /**
  * 探针桥**上行帧构造**（协议规格 §3.4；形态与 Worker 侧 `bridgeMessage` 约定一致）。
@@ -181,7 +182,12 @@ internal object BridgeFrames {
      * 拓扑与既有事件帧略有不同：规格把结构化字段直接放在 `payload` 下（而非 `data`），
      * 本方法照规格输出；`instance` / `timestamp` 沿用既有信封字段，便于 Worker 统一路由与排序。
      *
-     * `dedupKey` 形如 `cfg:<configVersion>:applied`：同一版本重复投递时控制面据此幂等落库。
+     * `dedupKey` 形如 `cfg:<configVersion>:<result>`：同一版本的**不同处理结果**（先 `rejected`/
+     * `failed`、修好后重试 `applied`）必须是不同的去重键，否则控制面按 `(domain, dedupKey)` 幂等落库时
+     * 会把后到的成功回执当成重复丢掉，永久停在“被拒”。
+     *
+     * `effective` 与 `config_state` 走**同一份**脱敏（[ManagedConfigRedaction]）：危险档的地址类键
+     * （如 `alert.channels.webhook.url` 的 `?token=`）允许下发，不遮就等于把密钥抄进控制面库。
      *
      * @param instance 实例标识。
      * @param timestampMs 回执时刻（epoch 毫秒）。
@@ -193,11 +199,11 @@ internal object BridgeFrames {
         "event" to EVENT_CONFIG_APPLIED,
         "instance" to instance,
         "timestamp" to timestampMs,
-        "dedupKey" to "cfg:${outcome.configVersion}:applied",
+        "dedupKey" to "cfg:${outcome.configVersion}:${outcome.result}",
         "payload" to linkedMapOf(
             "configVersion" to outcome.configVersion,
             "result" to outcome.result,
-            "effective" to outcome.effective,
+            "effective" to ManagedConfigRedaction.redact(outcome.effective),
             "selfCheck" to outcome.selfCheck?.toMap(),
             "error" to outcome.error,
             "appliedAt" to outcome.appliedAt,

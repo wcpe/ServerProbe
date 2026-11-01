@@ -106,6 +106,8 @@ config_push 到达
 - 收到 `metrics_now` 立即推一帧 + 回 `command_result`。
 - 推送内容直接从**现有指标采集管线**取，不新建采集逻辑，保证与 `/metrics` 逐字段一致。
 - 托管模式下不启动 HTTP 监听；独立模式保留 `/metrics` 端点（拉取路径不变）。
+- **去重键约定**：`config_applied` 为 `cfg:<configVersion>:<result>`——同一版本的不同处理结果（先 `rejected`/`failed`、修好后重试 `applied`）必须是不同键，否则对端按 `(domain, dedupKey)` 幂等落库时会把后到的成功回执当成重复丢掉。
+- `config_applied` 的 `effective` 与 `config_state` 走**同一份**脱敏（`ManagedConfigRedaction`）：危险档的地址类键（如 webhook 地址里的 `?token=`）允许下发，不遮就等于把密钥抄进控制面库。
 - **只在托管模式启用**：独立模式的桥只承载业务转发，不推指标也不声明 `metric_push` 能力位；旧 Worker 因此回退到 HTTP 拉取 `/metrics`（独立模式下该端点语义不变）。装配先等模式判定，判定完成前不起推送线程。
 
 ### 3.6 自动迁移
@@ -197,3 +199,4 @@ config_push 到达
 | 托管模式无兜底 | 桥断即无指标（已与对端确认接受）；独立模式保留 HTTP |
 | 待定 | `credential` 轮换是热切换还是重启生效（当前按重启生效设计） |
 | 待定 | 是否需要在托管模式下也保留 HTTP 监听作为可选兜底（当前：不保留） |
+| 待确认（需与 JM 侧对齐） | `metric_snapshot` 的 `dedupKey` 目前为 `metric:<instance>:<ts>`（秒级）。同一秒内“`metrics_now` + 周期推送”会撞键，对端按 `(domain, dedupKey)` 幂等时可能丢掉其中一帧；本仓未在 `docs/` 内锚定该格式（帧内已有单调 `sequence`），建议改为带 `sequence`，但需先确认对端去重实现与协议原文 |

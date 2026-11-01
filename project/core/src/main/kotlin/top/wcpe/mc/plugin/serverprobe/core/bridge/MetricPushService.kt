@@ -132,7 +132,7 @@ class MetricPushService {
                 return
             }
             running.set(true)
-            val worker = Thread({ pushLoop(pusher) }, THREAD_NAME)
+            val worker = Thread({ pushLoop(pushOnce = { pusher.pushOnce() }) }, THREAD_NAME)
             worker.isDaemon = true
             thread = worker
             worker.start()
@@ -159,22 +159,36 @@ class MetricPushService {
      *
      * 每轮：读一次间隔 → 休眠 → 推一帧。间隔每轮重读以支持热生效；休眠被打断（stop）即退出。
      *
-     * @param pusher 推送执行体。
+     * 三个参数带默认值是**仅为可测**：单测传入空 sleep 与有限次数的 `shouldContinue`，
+     * 就能确定性地验证"单次推送抛异常不会弄死循环"，而这正是过去缺的保证。
+     *
+     * @param pushOnce 推一帧的执行体（生产为 `pusher.pushOnce()`）。
+     * @param intervalProvider 本轮间隔（毫秒），默认读配置。
+     * @param shouldContinue 是否继续下一轮，默认看 [running]。
+     * @param sleeper 休眠实现，默认 `Thread.sleep`（单测传空实现）。
      */
-    private fun pushLoop(pusher: MetricPusher) {
-        while (running.get()) {
-            val interval = runCatching { ProbeConfig.metricsPushIntervalMs() }.getOrDefault(DEFAULT_INTERVAL_MS)
+    internal fun pushLoop(
+        pushOnce: () -> Long?,
+        intervalProvider: () -> Long = { ProbeConfig.metricsPushIntervalMs() },
+        shouldContinue: () -> Boolean = { running.get() },
+        sleeper: (Long) -> Unit = { millis -> Thread.sleep(millis) },
+    ) {
+        while (shouldContinue()) {
+            val interval = runCatching(intervalProvider).getOrDefault(DEFAULT_INTERVAL_MS)
             try {
-                Thread.sleep(interval)
+                sleeper(interval)
             } catch (e: InterruptedException) {
                 // stop 主动打断：恢复中断标志后立即退出
                 Thread.currentThread().interrupt()
+                ProbeLogger.info("指标 WS 推送循环收到中断，已退出")
                 return
             }
-            if (!running.get()) {
+            if (!shouldContinue()) {
                 return
             }
-            pusher.pushOnce()
+            // 单次失败只跳过这一轮：异常逃出循环会让推送线程静默死亡（控制面只看到指标停止更新）
+            runCatching { pushOnce() }
+                .onFailure { error -> ProbeLogger.warn("指标推送失败(本轮跳过,下一轮继续):${error.message}") }
         }
     }
 

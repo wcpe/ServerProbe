@@ -1,5 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
+import java.util.concurrent.CopyOnWriteArraySet
+
 /**
  * hello 帧的能力声明（**version / capabilities 的唯一真源**）。
  *
@@ -44,8 +46,15 @@ object BridgeCapabilities {
      */
     const val CAP_MCP_BRIDGE = "mcp_bridge"
 
-    /** 已注册能力（保序，便于断言与日志）。 */
-    private val capabilities = LinkedHashSet<String>()
+    /**
+     * 已注册能力（保序、**并发安全**）。
+     *
+     * 写入发生在装配线程（各功能挂载时 [addCapability]），读取发生在桥线程（每次 `hello` 的
+     * [snapshot]）。过去用 `LinkedHashSet`：写入与遍历并发时会抛 `ConcurrentModificationException`，
+     * 而它发生在 hello 序列化路径上，会被放大成“连不上”。能力表极小（个位数），
+     * `CopyOnWriteArraySet` 既保插入序又免锁读。
+     */
+    private val capabilities: MutableSet<String> = CopyOnWriteArraySet()
 
     /**
      * 当前订阅表达式来源；未接线时为 null。
@@ -67,6 +76,15 @@ object BridgeCapabilities {
      */
     fun addCapability(capability: String) {
         if (capability.isNotEmpty()) capabilities.add(capability)
+    }
+
+    /**
+     * 撤回一项能力（幂等）。
+     *
+     * 用于组件卸载：能力位必须与真实能力一致，否则控制面会一直调一个已经不存在的面。
+     */
+    fun removeCapability(capability: String) {
+        if (capability.isNotEmpty()) capabilities.remove(capability)
     }
 
     /** 当前能力列表（不可变快照）。 */

@@ -40,8 +40,11 @@ internal object ManagedConfigRedaction {
         "(?i)([?&;](?:token|secret|password|passwd|credential|api[_-]?key)=)[^&#\\s]*",
     )
 
-    /** 需要做查询串脱敏的字符串长度上限:配置里的地址都很短,超长串跳过以免正则开销失控。 */
+    /** 需要做查询串脱敏的字符串长度上限:配置里的地址都很短,超长串只扫首尾两段。 */
     private const val MAX_SCAN_LENGTH = 2_048
+
+    /** 超长串中间部分的截断标记（两端已各自脱敏）。 */
+    private const val TRUNCATION_MARK = "…(已截断)…"
 
     /**
      * 脱敏一份取值表(递归处理嵌套对象)。
@@ -55,25 +58,64 @@ internal object ManagedConfigRedaction {
         return redacted
     }
 
-    /** 单个值:敏感键直接遮;嵌套对象递归;字符串做查询串脱敏;其余原样。 */
+    /**
+     * 递归处理一个取值：敏感键直接遮；嵌套对象递归；**列表逐元素**递归（值本身没有键上下文）；
+     * 字符串做查询串脱敏；其余原样。
+     *
+     * 列表分支是必要的：`alert.channels` 这类键的值天然是列表，里面的地址同样可能夹带 `?token=`；
+     * 过去只处理 Map 与 String，列表里的密钥会整块漏遮。
+     */
     private fun redactValue(key: String, value: Any?): Any? = when {
         isSensitive(key) -> MASK
-        value is Map<*, *> -> {
-            val nested = LinkedHashMap<String, Any?>(value.size)
-            value.forEach { (childKey, childValue) -> nested[childKey.toString()] = redactValue(childKey.toString(), childValue) }
-            nested
-        }
+        value is Map<*, *> -> redactMap(value)
+        value is List<*> -> value.map(::redactElement)
         value is String -> redactQuerySecrets(value)
         else -> value
     }
 
-    /** 把字符串里形如 `token=xxx` 的查询参数值遮掉。 */
+    /** 递归处理一个对象（按它自己的键判定敏感度）。 */
+    private fun redactMap(value: Map<*, *>): Map<String, Any?> {
+        val nested = LinkedHashMap<String, Any?>(value.size)
+        value.forEach { (childKey, childValue) ->
+            val name = childKey.toString()
+            nested[name] = redactValue(name, childValue)
+        }
+        return nested
+    }
+
+    /**
+     * 递归处理一个**没有键上下文**的值（列表元素）：只能做值层面的脱敏。
+     *
+     * 嵌套对象仍按其自身的键判定敏感度——否则 `[{ "token": "x" }]` 这种形态会漏遮。
+     */
+    private fun redactElement(value: Any?): Any? = when {
+        value is Map<*, *> -> redactMap(value)
+        value is List<*> -> value.map(::redactElement)
+        value is String -> redactQuerySecrets(value)
+        else -> value
+    }
+
+    /**
+     * 把字符串里形如 `token=xxx` 的查询参数值遮掉。
+     *
+     * 超长串不再"整体跳过"（那等于选了最不安全的一支）：改为首尾各扫一段、中间截断标记——
+     * 查询串通常在尾部，而密钥也可能出现在开首，两头都扫比不扫安全。
+     */
     private fun redactQuerySecrets(value: String): String {
-        if (value.length > MAX_SCAN_LENGTH || !value.contains('=')) {
+        if (!value.contains('=')) {
             return value
         }
-        return SENSITIVE_QUERY_PARAM.replace(value) { match -> match.groupValues[1] + MASK }
+        if (value.length <= MAX_SCAN_LENGTH) {
+            return maskQueryParams(value)
+        }
+        val head = maskQueryParams(value.substring(0, MAX_SCAN_LENGTH))
+        val tail = maskQueryParams(value.substring(value.length - MAX_SCAN_LENGTH))
+        return head + TRUNCATION_MARK + tail
     }
+
+    /** 对一段文本遮查询串里的敏感参数（保留参数名与其余部分）。 */
+    private fun maskQueryParams(text: String): String =
+        SENSITIVE_QUERY_PARAM.replace(text) { match -> match.groupValues[1] + MASK }
 
     /** 键路径的最后一段是否命中敏感词(大小写不敏感,`-` / `_` 视为等价)。 */
     private fun isSensitive(key: String): Boolean {
