@@ -142,6 +142,15 @@ jobs:
           --no-daemon --console=plain
           -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
 
+      # 控制面拒绝凭据（401/403）：夹具在握手头两次分别回 401、403，验「被拒不降级」与「恢复后能连上」。
+      # 不依赖代理，跑在后端 Paper 上——被测逻辑在桥客户端，与平台无关。
+      - name: 第 3 批场景（托管模式 · 拒绝凭据 401/403）
+        if: inputs.scope != 'batch1'
+        run: >-
+          ./gradlew e2eManagedAuthReject
+          --no-daemon --console=plain
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
       # 结果文件是唯一的验收证据，失败时也要留档
       - name: 上传 E2E 结果文件
         if: always()
@@ -170,7 +179,7 @@ jobs:
           # 结果文件名为 <scenario>.properties，scenario 是 kebab-case 场景名（与 harness 内
           # 桩判定 MC_TESTKIT_E2E_SCENARIO 的字面量一致，不由 gradle 任务名推导）。
           # 清单按手动触发的范围收窄；标签推送没有 inputs，按全量校验。
-          EXPECTED_SCENARIOS: ${{ inputs.scope == 'batch1' && 'read-api storage-spi bridge-fixture' || 'read-api storage-spi bridge-fixture mcp-diagnostics-paper mcp-diagnostics-paper-java21 mcp-diagnostics-spigot mcp-diagnostics-bungee mcp-diagnostics-velocity managed-config-bungee managed-config-velocity' }}
+          EXPECTED_SCENARIOS: ${{ inputs.scope == 'batch1' && 'read-api storage-spi bridge-fixture' || 'read-api storage-spi bridge-fixture mcp-diagnostics-paper mcp-diagnostics-paper-java21 mcp-diagnostics-spigot mcp-diagnostics-bungee mcp-diagnostics-velocity managed-config-bungee managed-config-velocity managed-auth-reject' }}
         # 判定逻辑在 build-logic 的 serverprobe.ci-verification（原内联脚本的等价实现）：
         # 结果文件非 PASS、或期望场景根本没有结果文件，均以非零退出码失败。
         run: ./gradlew verifyE2eResults --console=plain

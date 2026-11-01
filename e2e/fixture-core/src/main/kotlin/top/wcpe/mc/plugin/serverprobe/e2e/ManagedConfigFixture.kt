@@ -23,11 +23,19 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - `metricsNow`：下发 `metrics_now` 后收到同一 requestId 的成功回执；
  * - `zeroBind`：托管模式下 metrics / web 端口均不可连接（模板配置里故意写了 `enabled=true`）。
  *
+ * ## 拒绝凭据模式（`rejectStatuses` 非空时）
+ * 另加两项判定，用于验收「控制面明确拒绝凭据（401/403）」：
+ * - `authRejected`：确实从探针那里收到了 401 与 403 两种拒绝（证明拒绝真的发生过）；
+ * - `noStandaloneFallback`：拒绝窗口内模板里故意开启的三个监听端口仍然连不上——
+ *   若探针把「被拒」误当成「托管不可用」退回独立模式，这三个面就会起监听。
+ *
  * ## 失败必须大声
  * 任何契约漂移都直接记成断言失败（带实际值），绝不静默放过；缺项则由 `awaitEvidence` 超时兜底。
  */
 class ManagedConfigFixture private constructor(
     endpoint: FixtureEndpoint,
+    /** 拒绝计划：第 n 次握手回什么状态码；空表示不拒绝（既有托管场景）。 */
+    private val rejectStatuses: List<Int> = emptyList(),
 ) : WebSocketFixtureServer(endpoint.serverSocket, endpoint.token, "serverprobe-e2e-managed") {
 
     /** 已登记的断言：键为「前缀 + 断言名」，值为通过标记或失败详情。 */
@@ -50,6 +58,62 @@ class ManagedConfigFixture private constructor(
     /** 最近一次配置回执的实际值（重试耗尽后作为失败详情）。 */
     @Volatile
     private var lastConfigDetail = ""
+
+    /** 拒绝计划里已经回过的状态码（断言“两种拒绝都真的发生过”的依据）。 */
+    private val rejectedCodes = ConcurrentHashMap.newKeySet<Int>()
+
+    /** 拒绝窗口内的零监听检查是否已安排（只安排一次）。 */
+    private val rejectWindowCheckScheduled = AtomicBoolean(false)
+
+    /**
+     * 拒绝凭据模式：夹具一启动就安排拒绝窗口内的零监听检查。
+     *
+     * 不依赖“两种拒绝码都已收到”才安排——否则一旦拒绝计划没按预期执行，
+     * 该判定永远不会被登记，场景只能以“证据超时”失败（原因不明确）；固定时机才能给出准确结论。
+     */
+    init {
+        if (rejectStatuses.isNotEmpty()) {
+            scheduleRejectWindowZeroBindCheck()
+        }
+    }
+
+    /**
+     * 拒绝计划：前 N 次握手按 [rejectStatuses] 回状态码，之后正常升级（模拟控制面先拒后好）。
+     *
+     * 两种拒绝码都要真实出现过：401 与 403 在探针侧归为同一类（`AUTH_FAILED`），
+     * 但协议规格把两者都列为“控制面明确拒绝”，所以这里两个都验。
+     */
+    override fun rejectStatus(attempt: Int): Int? {
+        val planned = rejectStatuses.getOrNull(attempt - 1) ?: return null
+        rejectedCodes.add(planned)
+        recordAuthRejected()
+        return planned
+    }
+
+    /** 两种拒绝码都到齐才算过；未到齐时把已见的码写进失败详情，便于直看。 */
+    private fun recordAuthRejected() {
+        val missing = AUTH_REJECT_CODES.filterNot { rejectedCodes.contains(it) }
+        record(ASSERT_AUTH_REJECTED, missing.isEmpty(), "未观察到拒绝码:$missing（已见 ${rejectedCodes.sorted()}）")
+    }
+
+    /**
+     * 拒绝窗口内的零监听检查：证明探针**没有因为被拒而降级到文件配置**。
+     *
+     * 时机取在最后一条拒绝之后的一小段：此刻探针刚被拒、正在认证失败退避里；
+     * 若它把“被拒”理解成“托管不可用”而退回独立模式，模板里故意开启的三个监听面就会在这一刻附近 bind。
+     */
+    private fun scheduleRejectWindowZeroBindCheck() {
+        if (!rejectWindowCheckScheduled.compareAndSet(false, true)) return
+        Thread({
+            runCatching { Thread.sleep(REJECT_WINDOW_ZERO_BIND_DELAY_MS) }
+            val reachable = ZERO_BIND_PORTS.filter { canConnect(it) }
+            record(ASSERT_NO_STANDALONE_FALLBACK, reachable.isEmpty(), "拒绝窗口内仍有端口可连:$reachable")
+            maybeComplete()
+        }, "serverprobe-e2e-managed-auth-zerobind").apply {
+            isDaemon = true
+            start()
+        }
+    }
 
     override fun handleText(text: String) {
         when (jsonString(text, "type")) {
@@ -235,9 +299,13 @@ class ManagedConfigFixture private constructor(
         assertions[ASSERT_PREFIX + name] = if (ok) ASSERT_PASSED else detail.ifEmpty { ASSERT_FAILED }
     }
 
+    /** 本实例需要到齐的判定项：拒绝凭据模式额外要求两项。 */
+    private fun requiredAssertions(): List<String> =
+        if (rejectStatuses.isEmpty()) REQUIRED_ASSERTIONS else REQUIRED_ASSERTIONS + AUTH_REJECT_ASSERTIONS
+
     /** 六项判定齐了才交卷；少一项就等 `awaitEvidence` 超时暴露问题。 */
     private fun maybeComplete() {
-        if (!REQUIRED_ASSERTIONS.all { assertions.containsKey(ASSERT_PREFIX + it) }) return
+        if (!requiredAssertions().all { assertions.containsKey(ASSERT_PREFIX + it) }) return
         if (!completed.compareAndSet(false, true)) return
         completeEvidence(
             HashMap(assertions) + mapOf(
@@ -260,6 +328,22 @@ class ManagedConfigFixture private constructor(
         ): ManagedConfigFixture =
             ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario))
 
+        /**
+         * 同上，但带**拒绝计划**：前几次握手按 [rejectStatuses] 回 401/403，之后正常升级。
+         *
+         * @param pluginsDirectory 代理/后端的 `plugins` 目录。
+         * @param pluginDataDir 探针插件数据目录名。
+         * @param scenario 场景名（仅用于失败提示）。
+         * @param rejectStatuses 逐次握手的状态码计划；默认先 401 再 403。
+         */
+        fun startWithAuthReject(
+            pluginsDirectory: File,
+            pluginDataDir: String = WsFixtureProtocol.SERVER_PROBE_PLUGIN,
+            scenario: String = "managed-auth-reject",
+            rejectStatuses: List<Int> = AUTH_REJECT_CODES,
+        ): ManagedConfigFixture =
+            ManagedConfigFixture(openFixtureEndpointFromIdentity(pluginsDirectory, pluginDataDir, scenario), rejectStatuses)
+
         /** 断言通过标记（结果写入器按此判真）。 */
         private const val ASSERT_PASSED = "true"
 
@@ -273,8 +357,10 @@ class ManagedConfigFixture private constructor(
         private const val ASSERT_METRICS_NOW = "metricsNow"
         private const val ASSERT_MCP_BRIDGE = "mcpBridge"
         private const val ASSERT_ZERO_BIND = "zeroBind"
+        private const val ASSERT_AUTH_REJECTED = "authRejected"
+        private const val ASSERT_NO_STANDALONE_FALLBACK = "noStandaloneFallback"
 
-        /** 交卷前必须到齐的判定项。 */
+        /** 交卷前必须到齐的判定项：基础七项 + （拒绝凭据模式下）额外两项。 */
         private val REQUIRED_ASSERTIONS = listOf(
             ASSERT_HELLO_MANAGED,
             ASSERT_CONFIG_APPLIED,
@@ -284,6 +370,12 @@ class ManagedConfigFixture private constructor(
             ASSERT_ZERO_BIND,
             ASSERT_MCP_BRIDGE,
         )
+
+        /** 拒绝凭据模式额外要求的判定项。 */
+        private val AUTH_REJECT_ASSERTIONS = listOf(ASSERT_AUTH_REJECTED, ASSERT_NO_STANDALONE_FALLBACK)
+
+        /** 拒绝计划要覆盖的两种状态码（协议规格：401/403 均属“控制面明确拒绝”）。 */
+        private val AUTH_REJECT_CODES = listOf(401, 403)
 
         /** 托管模式必须声明的能力位。 */
         private val REQUIRED_CAPABILITIES = listOf("metric_push", "config_push", "config_state")
@@ -323,6 +415,14 @@ class ManagedConfigFixture private constructor(
 
         /** 模板配置里故意开启的三个监听面端口：托管模式下必须都连不上。 */
         private val ZERO_BIND_PORTS = listOf(19941, 19942, 19943)
+
+        /**
+         * 拒绝窗口内的零监听检查延时（毫秒）。
+         *
+         * 取最后一条拒绝之后的一小段：此刻探针刚从“被拒”进入认证失败退避，
+         * 若它降级成独立模式，模板里开启的三个面正好在这个时刻附近 bind。
+         */
+        private const val REJECT_WINDOW_ZERO_BIND_DELAY_MS = 1_500L
 
         /** 零监听判定的等待时长（毫秒）：覆盖探针后台判定 + 一次采集周期；旧版服务端启动更慢，故取宽。 */
         private const val ZERO_BIND_DELAY_MS = 15_000L

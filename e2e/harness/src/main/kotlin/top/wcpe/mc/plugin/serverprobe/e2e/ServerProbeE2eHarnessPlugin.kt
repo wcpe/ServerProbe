@@ -108,6 +108,10 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             -> {
                 managedFixture = ManagedConfigFixture.startFromIdentityFile(dataFolder.parentFile)
             }
+            // 拒绝凭据场景：夹具先回 401 再 403，之后才升级——验“被拒也不降级”与“控制面恢复后能连上”。
+            E2eScenario.MANAGED_AUTH_REJECT -> {
+                managedFixture = ManagedConfigFixture.startWithAuthReject(dataFolder.parentFile)
+            }
             E2eScenario.READ_API,
             E2eScenario.STORAGE_SPI,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -157,6 +161,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.MANAGED_CONFIG -> startManagedScenario()
             E2eScenario.MANAGED_CONFIG_PAPER188 -> startManagedScenario()
             E2eScenario.MANAGED_CONFIG_PAPER1211 -> startManagedScenario()
+            E2eScenario.MANAGED_AUTH_REJECT -> startManagedScenario()
             E2eScenario.READ_API,
             E2eScenario.INCISION_STARTUP,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -218,7 +223,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             // 托管模式同样在启动完成后才开验收：探针需先完成模式判定与首份指标快照。
             scenario == E2eScenario.MANAGED_CONFIG ||
             scenario == E2eScenario.MANAGED_CONFIG_PAPER188 ||
-            scenario == E2eScenario.MANAGED_CONFIG_PAPER1211
+            scenario == E2eScenario.MANAGED_CONFIG_PAPER1211 ||
+            scenario == E2eScenario.MANAGED_AUTH_REJECT
         if (!needsStartupEvent) return
         if (runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isFailure) {
             // 旧版服务端（1.8~1.12）没有 ServerLoadEvent：按固定延时进场景，否则永远等不到“启动完成”信号。
@@ -1365,6 +1371,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         // 版本矩阵：同一套托管断言换后端（1.8 锁 Java 8，1.21 用默认 JDK）。
         MANAGED_CONFIG_PAPER188("managed-config-paper188"),
         MANAGED_CONFIG_PAPER1211("managed-config-paper1211"),
+        // 控制面拒绝凭据：握手头两次回 401/403，之后再正常升级（验证不降级 + 能恢复）。
+        MANAGED_AUTH_REJECT("managed-auth-reject"),
         NETWORK_FORENSICS_BUNGEE("network-forensics-bungee"),
         FOLIA_OBSERVED_REGIONS("folia-observed-regions"),
         MCP_DIAGNOSTICS_PAPER("mcp-diagnostics-paper"),

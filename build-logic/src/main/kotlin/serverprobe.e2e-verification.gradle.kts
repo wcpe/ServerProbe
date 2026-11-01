@@ -357,6 +357,8 @@ mcTestkit.apply {
     // 版本矩阵：同一套托管断言在旧版与新版运行时上各跑一遍（1.8 锁 Java 8）。
     scenario("managed-config-paper188") { backend = "matrix-paper-1-8-8" }
     scenario("managed-config-paper1211") { backend = "matrix-paper-1-21-1" }
+    // 控制面拒绝凭据（401/403）：夹具在握手头两次分别回 401、403，验「被拒不降级」与「恢复后能连上」。
+    scenario("managed-auth-reject") { backend = "paper" }
     // 代理端托管：身份文件随代理模板生成（钩子早于模板铺设，写不进去）；
     // 夹具插件在代理进程内起模拟控制面并把断言写成结果文件。
     scenario("managed-config-bungee") {
@@ -725,6 +727,19 @@ val prepareManagedConfigPaper1211 by tasks.registering {
 }
 
 wireE2eDependency("e2eManagedConfigPaper1211", prepareManagedConfigPaper1211)
+
+// 拒绝凭据场景：配置与身份文件同托管场景（同一个模板，三个监听面故意开着），
+// 这样「是否降级到文件配置」可以直接用端口探活判定。
+val prepareManagedAuthReject by tasks.registering {
+    group = "verification"
+    description = "为托管拒绝凭据场景写入身份文件与配置"
+    dependsOn("prepareE2eManagedAuthReject")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
+    doLast { installManagedScenario(runDirectory.get().asFile) }
+}
+
+wireE2eDependency("e2eManagedAuthReject", prepareManagedAuthReject)
 
 // ── 托管代理场景模板生成（Bungee / Velocity）──
 // 代理运行目录是 mc-testkit 在**场景任务内部**用代理模板铺开的，场景钩子跑在那之前，

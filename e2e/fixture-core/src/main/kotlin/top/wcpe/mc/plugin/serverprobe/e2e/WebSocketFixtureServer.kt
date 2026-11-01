@@ -68,45 +68,85 @@ abstract class WebSocketFixtureServer(
     /** 收到合法 pong 后的钩子（载荷校验已在 [handleFrame] 内完成）。 */
     protected open fun onPong() {}
 
+    /**
+     * 握手裁决：返回非 null 时**拒绝这次升级**（值为 HTTP 状态码，如 401/403），连接直接关闭。
+     *
+     * 用于验收「控制面拒绝凭据」的情形：探针会以认证失败退避重连，夹具则记录每次尝试。
+     * 默认不拒绝（所有既有场景行为不变）。
+     *
+     * @param attempt 第几次连接尝试（从 1 开始，每 accept 一次计一次）。
+     * @return 要回的 HTTP 状态码；null 表示正常升级。
+     */
+    protected open fun rejectStatus(attempt: Int): Int? = null
+
     /** 全部断言通过时登记证据。 */
     protected fun completeEvidence(details: Map<String, String>) {
         evidence.complete(details)
     }
 
-    /** 单连接服务循环：握手后读取客户端帧，直到测试服关闭或协议已失败。 */
+    /**
+     * 接入循环：先问 [rejectStatus]，被拒则回状态码并继续等下一次重试；不拒则升到 WebSocket 并跑帧循环。
+     *
+     * 不拒绝的夹具（绝大多数场景）第一次就会升级，行为与“只 accept 一次”完全一致。
+     */
     private fun serve() {
         runCatching {
-            val accepted = serverSocket.accept()
-            socket.set(accepted)
-            accepted.use { serveConnection(it) }
+            var attempt = 1
+            while (true) {
+                val accepted = serverSocket.accept()
+                socket.set(accepted)
+                val input = BufferedInputStream(accepted.getInputStream())
+                val stream = DataOutputStream(accepted.getOutputStream())
+                val request = readHttpLine(input)
+                val reject = rejectStatus(attempt++)
+                if (reject != null) {
+                    rejectUpgrade(input, stream, reject)
+                    runCatching { accepted.close() }
+                    continue
+                }
+                verifyUpgradeRequest(request)
+                completeHandshake(input, stream)
+                output.set(stream)
+                runCatching {
+                    while (!accepted.isClosed && !evidence.isCompletedExceptionally) {
+                        handleFrame(readFrame(input))
+                    }
+                }.also { runCatching { accepted.close() } }
+                return
+            }
         }.onFailure { failEvidence(it) }
     }
 
-    /** 让证据 future 以异常结束（已完成则忽略）。 */
-    private fun failEvidence(error: Throwable) {
-        if (!evidence.isDone) {
-            evidence.completeExceptionally(error)
-        }
+    /** 被拒的连接：把请求头读干净再回状态行，避免客户端读到 RST 而不是明确的 HTTP 响应。 */
+    private fun rejectUpgrade(input: InputStream, stream: DataOutputStream, status: Int) {
+        runCatching { readHeaders(input) }
+        val body = "$status reject"
+        val response = "HTTP/1.1 $status ${reasonPhrase(status)}\r\n" +
+            "Content-Type: text/plain\r\n" +
+            "Content-Length: ${body.toByteArray(Charsets.US_ASCII).size}\r\n" +
+            "Connection: close\r\n\r\n" +
+            body
+        stream.write(response.toByteArray(Charsets.US_ASCII))
+        stream.flush()
     }
 
-    /** 完成 HTTP Upgrade，再逐帧处理探针上行消息。 */
-    private fun serveConnection(connection: Socket) {
-        val input = BufferedInputStream(connection.getInputStream())
-        val stream = DataOutputStream(connection.getOutputStream())
-        handshake(input, stream)
-        output.set(stream)
-        while (!connection.isClosed && !evidence.isCompletedExceptionally) {
-            handleFrame(readFrame(input))
-        }
+    /** HTTP 状态行的原因短语（只为可读性，探针只看状态码）。 */
+    private fun reasonPhrase(status: Int): String = when (status) {
+        401 -> "Unauthorized"
+        403 -> "Forbidden"
+        else -> "Rejected"
     }
 
-    /** 验证探针确实以本次随机 token 与实例标识建立 WebSocket 连接。 */
-    private fun handshake(input: InputStream, stream: DataOutputStream) {
-        val request = readHttpLine(input)
+    /** 校验升级请求确实指向本次桥路径、带着本次随机 token 与实例标识。 */
+    private fun verifyUpgradeRequest(request: String) {
         check(request.startsWith("GET ${WsFixtureProtocol.BRIDGE_PATH}?")) { "WebSocket 路径不匹配:$request" }
         check(request.contains("token=$token") && request.contains("instance=${WsFixtureProtocol.INSTANCE_ID}")) {
             "WebSocket 凭据不匹配"
         }
+    }
+
+    /** 完成 HTTP Upgrade：回 101 与 `Sec-WebSocket-Accept`。 */
+    private fun completeHandshake(input: InputStream, stream: DataOutputStream) {
         val headers = readHeaders(input)
         val key = checkNotNull(headers["sec-websocket-key"]) { "缺少 Sec-WebSocket-Key" }
         val response = "HTTP/1.1 101 Switching Protocols\r\n" +
@@ -115,6 +155,13 @@ abstract class WebSocketFixtureServer(
             "Sec-WebSocket-Accept: ${webSocketAccept(key)}\r\n\r\n"
         stream.write(response.toByteArray(Charsets.US_ASCII))
         stream.flush()
+    }
+
+    /** 让证据 future 以异常结束（已完成则忽略）。 */
+    private fun failEvidence(error: Throwable) {
+        if (!evidence.isDone) {
+            evidence.completeExceptionally(error)
+        }
     }
 
     /** 读取 HTTP 头并按小写键保存，握手结束空行不写入。 */
