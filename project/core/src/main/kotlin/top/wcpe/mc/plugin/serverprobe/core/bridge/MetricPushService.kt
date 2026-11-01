@@ -79,6 +79,9 @@ class MetricPushService {
     /** 装配与停止的串行化锁。 */
     private val startLock = Any()
 
+    /** 等模式判定；单测可替换，以便确定性地验证"stop 先到"的时序（生产永远用真实现）。 */
+    internal var modeReadiness: (Long) -> Unit = { timeoutMs -> modeService.awaitReady(timeoutMs) }
+
     /** 推送后台线程；未启动时为 null。 */
     @Volatile
     private var thread: Thread? = null
@@ -105,7 +108,7 @@ class MetricPushService {
      * 独立模式下直接返回：指标上行是控制面专属能力，独立模式的桥只做业务转发。
      */
     private fun bootstrap() {
-        modeService.awaitReady(BOOTSTRAP_WAIT_MS)
+        modeReadiness(BOOTSTRAP_WAIT_MS)
         if (modeService.mode() != ProbeMode.MANAGED) {
             ProbeLogger.info("独立模式：指标不向插件桥上行（上行端点在托管模式下才启用）")
             return
@@ -116,20 +119,21 @@ class MetricPushService {
             // 编码收口到统一 JSON 适配器（ADR-14），推送器只负责帧树
             send = { frame -> bridge.sendUplink(Json.encode(frame)) },
         )
-        // 与平台治理动作共用同一个分发中心；未注册时该类指令自然回落到平台执行器
-        commandRegistry.registerCoreAction(ACTION_METRICS_NOW) {
-            val sequence = pusher.pushOnce()
-            if (sequence == null) {
-                // 推送失败或暂无快照：回执带原因，由 BridgeClient 用同一个 requestId 回给控制面
-                BridgeCommandResult.fail("指标推送失败:${pusher.lastFailureReason ?: "当前无可推送的指标快照"}")
-            } else {
-                BridgeCommandResult.ok("已推送一帧 $EVENT(sequence=$sequence)")
-            }
-        }
         synchronized(startLock) {
-            // stop 已先到：不再起推送线程，避免留下无人打断的循环
+            // stop 已先到：不再注册动作、不再起推送线程。两件事必须在同一临界区里判，
+            // 否则 stop 可能恰好落在 register 与 set(true) 之间，留下无人注销的动作。
             if (stopping) {
                 return
+            }
+            // 与平台治理动作共用同一个分发中心；未注册时该类指令自然回落到平台执行器
+            commandRegistry.registerCoreAction(ACTION_METRICS_NOW) {
+                val sequence = pusher.pushOnce()
+                if (sequence == null) {
+                    // 推送失败或暂无快照：回执带原因，由 BridgeClient 用同一个 requestId 回给控制面
+                    BridgeCommandResult.fail("指标推送失败:${pusher.lastFailureReason ?: "当前无可推送的指标快照"}")
+                } else {
+                    BridgeCommandResult.ok("已推送一帧 $EVENT(sequence=$sequence)")
+                }
             }
             running.set(true)
             val worker = Thread({ pushLoop(pushOnce = { pusher.pushOnce() }) }, THREAD_NAME)
@@ -142,15 +146,30 @@ class MetricPushService {
 
     /**
      * 停止推送。置停标志并打断休眠中的线程，让循环尽快退出；未真的起过推送时直接返回。
+     *
+     * 与 [bootstrap] 共用 [startLock]：这是“stop 先到、装配后到”能被真正堵住的前提——
+     * 旧写法里 stop 不拿锁，于是 stop 置位后 bootstrap 仍会起一个无人打断的推送线程。
      */
     @PreDestroy
     fun stop() {
-        stopping = true
-        if (!running.getAndSet(false)) {
-            return
+        val stopped: Thread?
+        synchronized(startLock) {
+            stopping = true
+            if (!running.getAndSet(false)) {
+                return
+            }
+            stopped = thread
+            thread = null
         }
-        thread?.let { worker -> runCatching { worker.interrupt() } }
-        thread = null
+        // 注销动作 + 打断线程都放在锁外：前者是并发容器操作，后者要等锁可能引入无谓的阻塞
+        commandRegistry.unregisterCoreAction(ACTION_METRICS_NOW)
+        stopped?.let { worker ->
+            runCatching { worker.interrupt() }
+            runCatching { worker.join(STOP_JOIN_MS) }
+            if (worker.isAlive) {
+                ProbeLogger.warn("指标推送线程未在 ${STOP_JOIN_MS}ms 内退出(${worker.name},daemon 会自行结束)")
+            }
+        }
         ProbeLogger.info("指标 WS 推送已停止")
     }
 
@@ -202,6 +221,9 @@ class MetricPushService {
 
         /** 等托管模式判定的上限（毫秒）：与其它托管组件保持同一口径。 */
         private const val BOOTSTRAP_WAIT_MS = 5_000L
+
+        /** stop 时等推送线程退出的上限（毫秒）：daemon 线程即使未退出也不会阻碍 JVM 退出。 */
+        private const val STOP_JOIN_MS = 1_000L
 
         /** `metrics_now` 动作名（协议规格 §3.4.5）。 */
         private const val ACTION_METRICS_NOW = "metrics_now"

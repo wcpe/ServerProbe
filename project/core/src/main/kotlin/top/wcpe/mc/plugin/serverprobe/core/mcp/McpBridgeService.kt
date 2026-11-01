@@ -1,5 +1,6 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
+import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeActionHandler
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCapabilities
 import top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeCommandRegistry
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
@@ -56,6 +57,16 @@ class McpBridgeService {
     @Volatile
     private var mounting = false
 
+    /** 是否已进入停止流程：堆住“stop 先到、装配后到”时仍注册动作与能力位的窗口。 */
+    @Volatile
+    private var stopping = false
+
+    /** 装配与停止的串行化锁。 */
+    private val lifecycleLock = Any()
+
+    /** 等模式判定；单测可替换，以便确定性地验证"stop 先到"的时序（生产永远用真实现）。 */
+    internal var modeReadiness: (Long) -> Unit = { timeoutMs -> modeService.awaitReady(timeoutMs) }
+
     /** 启动装配（`@PostEnable`）：只起后台线程，判定与装配均在后台完成。 */
     @PostEnable
     fun start() {
@@ -68,11 +79,23 @@ class McpBridgeService {
         }
     }
 
-    /** 停止（`@PreDestroy`）：释放本服务装配的工具面运行期（工作区与审计），桥本身的生命周期不在这里管。 */
+    /**
+     * 停止（`@PreDestroy`）：摘除动作与能力位，再释放工具面运行期（工作区与审计）。
+     *
+     * 只置 [mounting] 不撑销会让残留动作继续指向已关闭的审计/工作区（之后每次 `core.mcp` 都是“执行异常”）；
+     * 能力位不摘则会让控制面继续按“支持 MCP”去调一个已不存在的工具面。
+     */
     @PreDestroy
     fun stop() {
-        if (!mounting) return
-        mounting = false
+        synchronized(lifecycleLock) {
+            stopping = true
+            if (!mounting) {
+                return
+            }
+            mounting = false
+        }
+        commandRegistry.unregisterCoreAction(ACTION_MCP)
+        BridgeCapabilities.removeCapability(BridgeCapabilities.CAP_MCP_BRIDGE)
         runCatching { controlPlane.disable() }
     }
 
@@ -83,7 +106,7 @@ class McpBridgeService {
         if (!ProbeConfig.awaitLoaded()) {
             ProbeLogger.warn("MCP 装配等待配置就绪超时，将按当前可见值判断 mcp.enabled")
         }
-        modeService.awaitReady(BOOTSTRAP_WAIT_MS)
+        modeReadiness(BOOTSTRAP_WAIT_MS)
         if (modeService.mode() != ProbeMode.MANAGED) {
             ProbeLogger.info("独立模式：MCP 仅保留由 mcp.enabled 控制的本地端点，不经插件桥暴露")
             return
@@ -96,11 +119,32 @@ class McpBridgeService {
         }
         val dispatcher = controlPlane.bridgeDispatcher()
         val endpoint = McpBridgeEndpoint(dispatcher)
-        commandRegistry.registerCoreAction(ACTION_MCP) { command -> endpoint.handle(command) }
+        // 注册动作、声明能力位、置挂载标志必须在同一临界区：stop 先到时一样都不做，
+        // 否则停服后还会留下指向已释放执行体的动作与一条谎报的能力位。
+        if (!mount { command -> endpoint.handle(command) }) {
+            return
+        }
+        ProbeLogger.info("托管模式下 MCP 工具面已挂到插件桥（动作 $ACTION_MCP），本地不监听任何端口")
+    }
+
+    /**
+     * 挂载工具面（注册动作 + 声明能力位 + 置标志）。
+     *
+     * 三件事同在一个临界区里完成，与 [stop] 共用 [lifecycleLock]：这是“stop 先到、装配后到”
+     * 能被真正堵住的前提——旧写法里 stop 只置标志，于是装配晚到时仍会留下动作与能力位。
+     *
+     * @param handler `core.mcp` 的执行体。
+     * @return true 表示挂载成功；false 表示 stop 已先到，本次什么都没注册。
+     */
+    internal fun mount(handler: BridgeActionHandler): Boolean = synchronized(lifecycleLock) {
+        if (stopping) {
+            return false
+        }
+        commandRegistry.registerCoreAction(ACTION_MCP, handler)
         // 能力位只在真的挂上之后声明：提前声明会让控制面调工具时拿到“未实现”回执。
         BridgeCapabilities.addCapability(BridgeCapabilities.CAP_MCP_BRIDGE)
         mounting = true
-        ProbeLogger.info("托管模式下 MCP 工具面已挂到插件桥（动作 $ACTION_MCP），本地不监听任何端口")
+        true
     }
 
     private companion object {

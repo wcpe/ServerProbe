@@ -128,9 +128,25 @@ class BridgeClient {
     @Inject
     lateinit var modeService: ControlPlaneModeService
 
-    /** 托管目标：仅在判定为托管且身份文件合法时非空；独立模式恒为 null。 */
+    /** 托管目标缓存：判定落地后取一次即缓存；未判定/独立模式为 null。 */
     @Volatile
     private var managedTarget: BridgeTarget? = null
+
+    /**
+     * 托管目标提供者：默认取模式判定结论；单测可替换以验证“判定晚于启动仍能自愈”。
+     *
+     * 抽成可替换字段是为了能把“目标晚到”这个时序变成可验证的行为，而不依赖真实身份文件与判定线程。
+     */
+    internal var managedTargetProvider: () -> BridgeTarget? = {
+        if (::modeService.isInitialized) modeService.bridgeTarget() else null
+    }
+
+    /** 引导在飞标志：同一时刻只允许一条引导线程；启动结束（无论成败）后复位，以便后来的人工/重连重试仍生效。 */
+    @Volatile
+    private var booting = false
+
+    /** 引导标志的串行化锁。 */
+    private val bootGuard = Any()
 
     /**
      * 上行是否可用：hello 已发出且连接仍在。
@@ -263,22 +279,40 @@ class BridgeClient {
     var configSource: BridgeConfigSource = ProbeConfigBridgeConfigSource
 
     /**
-     * 启动插件桥客户端。
+     * 启动插件桥客户端（`@PostEnable`）。
      *
-     * 开关关闭或 url/token 未配置则跳过；否则建组件、起线程。
+     * **启用线程只做“起一条引导线程”**：判断与装配包含等模式判定（上限 5s）与失败回滚（多线程 join），
+     * 放在启用线程上会直接阻塞服务器启动——项目红线是“主线程禁止阻塞 IO/长等待”。
      *
      * **整体绝不抛**：本方法由 IoC 的 `@PostEnable` 反射调用，那里只会记一行
      * `bridgeClient.start - null` 就继续往下走——异常消息会丢失、桥静默不起、
      * 而服务器照常启动，排障成本极高（E2E 曾因此整场失败而日志无有效线索）。
-     * 因此这里自己兜住并打印类名与堆栈前几帧，把"静默失败"变成"可诊断的降级"。
+     * 因此引导线程里自己兜住并打印类名与堆栈前几帧，把“静默失败”变成“可诊断的降级”。
      */
     @PostEnable
     fun start() {
-        runCatching { doStart() }.onFailure { e ->
-            // doStart 失败时已就地回滚（running 复位 + 池/线程清理），因此这里只需把原因打出来；
-            // 也正因为复位了，之后的 start()（重连/配置重载/人工重试）还能真的再试一次。
-            ProbeLogger.warn("桥客户端启动失败(${e.javaClass.name}:${e.message}),已回滚本次启动,本次不建立连接")
-            e.stackTrace.take(START_FAILURE_TRACE_FRAMES).forEach { ProbeLogger.warn("  at $it") }
+        synchronized(bootGuard) {
+            // 已在引导中：重复回调不再起第二条线程
+            if (booting) {
+                return
+            }
+            booting = true
+        }
+        Thread({
+            try {
+                runCatching { doStart() }.onFailure { e ->
+                    // doStart 失败时已就地回滚（running 复位 + 池/线程清理），因此这里只需把原因打出来；
+                    // 也正因为复位了，之后的 start()（重连/配置重载/人工重试）还能真的再试一次。
+                    ProbeLogger.warn("桥客户端启动失败(${e.javaClass.name}:${e.message}),已回滚本次启动,本次不建立连接")
+                    e.stackTrace.take(START_FAILURE_TRACE_FRAMES).forEach { ProbeLogger.warn("  at $it") }
+                }
+            } finally {
+                // 失败也要复位：否则一次启动失败会把后续重试全部挡在门外
+                synchronized(bootGuard) { booting = false }
+            }
+        }, BOOT_THREAD_NAME).apply {
+            isDaemon = true
+            start()
         }
     }
 
@@ -688,8 +722,9 @@ class BridgeClient {
      */
     private fun resolveEndpoint(backoff: Long): ConnectionEndpoint? {
         ProbeConfigBridgeConfigSource.refreshFromDisk()
-        // 托管模式的目标来自身份文件，运行期不随 config.yml 变化；独立模式每轮重读（支持 token 轮换）。
-        val managed = managedTarget
+        // 托管目标**每轮现取**（缓存命中即稳定）：判定可能晚于首次启动完成，
+        // 一次超时不能定论为“本场会话无桥”——托管部署的 bridge.* 已被自动迁移清空。
+        val managed = currentManagedTarget()
         val url = managed?.endpoint ?: configSource.url()
         val token = managed?.credential ?: configSource.token()
         if (url.isEmpty() || token.isEmpty()) {
@@ -929,16 +964,17 @@ class BridgeClient {
     /** 解析实例标识：托管模式取身份文件，其余取配置，最后兜底进程实例 ID。 */
     private fun resolveInstance(): String {
         // 托管模式下身份文件里的实例标识权威（它就是控制面认的号）；独立模式沿用 bridge.instance。
-        managedTarget?.instanceId?.takeIf { it.isNotEmpty() }?.let { return it }
+        currentManagedTarget()?.instanceId?.takeIf { it.isNotEmpty() }?.let { return it }
         val configured = configSource.instance()
         return if (configured.isNotEmpty()) configured else InstanceId.resolve(null)
     }
 
     /**
-     * 等托管模式判定并取连接目标。
+     * 等模式判定并取连接目标（仅供 [doStart] 在**引导线程**上调用）。
      *
      * 判定（读身份文件 / 存量自动迁移）在 [ControlPlaneModeService] 自己的后台线程完成，
-     * 本方法在自己的线程里等它有界时间，故不会阻塞 MC 主线程。
+     * 本方法只是有界等它出结论，所以**不会阻塞启用线程**——[start] 已把整段装配下移到引导线程。
+     * 即使这里超时返回 null，[currentManagedTarget] 也会在后续每轮连接尝试里现取，一旦判定落定即自愈。
      *
      * @return 托管目标；独立模式、判定超时或单测未注入判定服务时返回 null（按 `bridge.*` 配置连接）。
      */
@@ -949,13 +985,27 @@ class BridgeClient {
     }
 
     /**
+     * 当前托管目标：缓存优先，未缓存则现取一次并缓存。
+     *
+     * 为什么不能只算一次：[awaitManagedTarget] 超时返回 null 时，若把 null “定论”下去，
+     * 托管部署（`bridge.*` 已被迁移清空）会整场会话不连控制面——既不上行指标也不收 `config_push`，
+     * 且没有任何重试入口。现取 + 缓存后，判定落地即自愈，且不影响独立模式（provider 永远返回 null）。
+     */
+    internal fun currentManagedTarget(): BridgeTarget? {
+        managedTarget?.let { return it }
+        val resolved = runCatching { managedTargetProvider() }.getOrNull() ?: return null
+        managedTarget = resolved
+        return resolved
+    }
+
+    /**
      * 构造 hello 帧。
      *
      * `subscriptions` 取自 [BridgeCapabilities]（与 `bridge_status.topics.expressions` 同源）：
      * 让 JM 在连上瞬间就能发现"探针仍在用旧订阅"并重下发，不必先发一条 `bridge_status`。
      */
     private fun helloJson(instance: String): String {
-        val managed = managedTarget != null
+        val managed = currentManagedTarget() != null
         // 能力位两处同源：线路治理的能力（分片/主题/重载/健康）+ 托管模式的能力（指标推送/配置下发/状态上报），
         // 后者只在托管模式声明——独立模式既不注册 config_push 也不上报状态，宣告了就是谎报能力。
         val capabilities = (BridgeCapabilities.snapshot().toList() + BridgeFrames.capabilities(managed)).distinct()
@@ -1076,6 +1126,9 @@ class BridgeClient {
     private companion object {
         const val CONNECT_TIMEOUT_MS = 5_000
         const val JOIN_TIMEOUT_MS = 3_000L
+
+        /** 引导线程名：模式判定/装配/失败回滚全在这条 daemon 线程上，启用线程不参与。 */
+        const val BOOT_THREAD_NAME = "ServerProbe-BridgeBoot"
 
         /**
          * 等待托管模式判定完成的上限（毫秒）。

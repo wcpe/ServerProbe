@@ -36,34 +36,63 @@ object ProbeConfig {
     @Config("config.yml")
     lateinit var conf: Configuration
 
+    /** 配置重载的实现；单测可替换以观测"同一个实例只重载一次"。 */
+    internal var reloader: (Configuration) -> Unit = { configuration -> configuration.reload() }
+
+    /** 重载串行化锁：四个装配组件会并发进来，重载必须收敛到一处。 */
+    private val reloadLock = Any()
+
+    /** 已成功装载过的配置实例：同一个实例不再重复重载。失败**不**缓存，留给下一个调用者重试。 */
+    @Volatile
+    private var reloadedConf: Configuration? = null
+
     /**
-     * 等配置就绪（有界），并就绪后**强制从磁盘重载一次**。
+     * 等配置就绪（有界），并就绪后**从磁盘重载一次**（每个配置实例只做一次）。
      *
      * ## 为什么需要它
-     * [conf] 由 TabooLib 在插件加载期注入，而 IOC 组件的 `@PostEnable` 装配线程可能跑在注入之前：
+     * [conf] 由 TabooLib 在插件加载期反射注入，而 IOC 组件的 `@PostEnable` 装配线程可能跑在注入之前：
      * 实测（代理端托管 E2E）出现过「`config.yml` 里 `mcp.enabled: true`，组件刚启动时却读到默认 `false`」，
-     * 结果是 MCP 工具面没挂到桥上——且是否命中取决于两个后台线程谁先跑，表现为偶发。
+     * 结果是 MCP 工具面没挂到桥上——是否命中取决于两个后台线程谁先跑，表现为偶发。
      *
-     * 因此凡是在装配期**用配置决定是否启用某个东西**的地方，先过这道门：
-     * 1. 有界等待注入完成（避免 `lateinit` 未初始化时读到异常后的默认值）；
-     * 2. 注入完成后调用一次 [Configuration.reload]，把“注入对象是否存在”与“文件内容是否已装载”两件事
-     *    都做实——后者正是竞态的另一半。
-     *
-     * 重载发生在插件启用早期，此时不可能有运行期对内存配置的修改需要保留（运行期修改见
-     * [ProbeConfigBridgeConfigSource] 的显式 reload 路径）。
+     * ## 三条硬约束（都对应一个已发生过的故障形态）
+     * 1. **有界**：等不到就返回 false，由调用方按"未就绪"降级，绝不无限等待；
+     * 2. **只重载一次**：四个装配组件会并发调用本方法，重载收敛到 [reloadLock] 内并以 [reloadedConf]
+     *    记录已处理的实例——既避免对同一个 `Configuration` 并发 `reload()`（其线程安全未声明），
+     *    也省掉三次多余的磁盘 IO；
+     * 3. **失败不装成成功**：重载抛异常时 WARN 并返回 false。返回 true 却拿着未装载的默认值，
+     *    正是本方法要消灭的那类误判。
      *
      * @param timeoutMs 等待注入的上限（毫秒）。
-     * @return true 表示配置已可用（已注入并已重载）；false 表示超时。
+     * @return true 表示配置已注入且已重载成功。
      */
     fun awaitLoaded(timeoutMs: Long = CONFIG_READY_WAIT_MS): Boolean {
         val deadline = System.nanoTime() + timeoutMs * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             val view = runCatching { conf }.getOrNull()
-            if (view != null) {
-                runCatching { view.reload() }
-                return true
+            if (view == null) {
+                try {
+                    Thread.sleep(CONFIG_READY_POLL_MS)
+                } catch (_: InterruptedException) {
+                    // 停服时打断装配线程：恢复中断位并如实返回"未就绪"
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+                continue
             }
-            runCatching { Thread.sleep(CONFIG_READY_POLL_MS) }
+            synchronized(reloadLock) {
+                // 同一个配置实例重载成功过就不再重载：并发的其它调用者拿到锁后直接复用这个结论
+                if (reloadedConf === view) {
+                    return true
+                }
+                val ok = runCatching { reloader(view) }
+                    .onFailure { error -> ProbeLogger.warn("配置重载失败,按未就绪降级:${error.message}") }
+                    .isSuccess
+                // 只缓存成功：失败不记“已处理”，好让后续调用者（或下一次启动）还能重试
+                if (ok) {
+                    reloadedConf = view
+                }
+                return ok
+            }
         }
         return false
     }

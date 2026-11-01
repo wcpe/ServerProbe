@@ -71,6 +71,16 @@ class ManagedConfigService {
     /** 启动幂等标志（`@PostEnable` 重复回调保护）。 */
     private val started = AtomicBoolean(false)
 
+    /** 是否已进入停止流程：堵住“stop 先到、装配后到”时仍起上报线程的窗口。 */
+    @Volatile
+    private var stopping = false
+
+    /** 装配与停止的串行化锁（两端共用，否则停不下来装配）。 */
+    private val lifecycleLock = Any()
+
+    /** 等模式判定；单测可替换，以便确定性地验证"stop 先到"的时序（生产永远用真实现）。 */
+    internal var modeReadiness: (Long) -> Unit = { timeoutMs -> modeService.awaitReady(timeoutMs) }
+
     /** 上报线程运行标志。 */
     private val reporting = AtomicBoolean(false)
 
@@ -107,24 +117,41 @@ class ManagedConfigService {
     /** 停止上报线程（`@PreDestroy`）。 */
     @PreDestroy
     fun stop() {
-        started.set(false)
-        // 只有真的起过上报线程才打这条日志：独立模式下什么都没启用，不该出现"已停止"的噪音
-        if (reporting.getAndSet(false)) {
-            reporterThread?.let { worker -> runCatching { worker.interrupt() } }
-            ProbeLogger.info("托管配置状态上报已停止")
+        val stopped: Thread?
+        synchronized(lifecycleLock) {
+            stopping = true
+            started.set(false)
+            // 不在这里 early-return：动作用 install 注册，与上报线程是两个独立面，
+            // 没起上报线程不代表没注册 config_push（否则停服后动作会指向已停的服务）。
+            stopped = if (reporting.getAndSet(false)) reporterThread else null
+            reporterThread = null
         }
-        reporterThread = null
+        commandRegistry.unregisterCoreAction(ACTION_CONFIG_PUSH)
+        stopped?.let { worker ->
+            runCatching { worker.interrupt() }
+            runCatching { worker.join(STOP_JOIN_MS) }
+            if (worker.isAlive) {
+                ProbeLogger.warn("托管状态上报线程未在 ${STOP_JOIN_MS}ms 内退出(${worker.name},daemon 会自行结束)")
+            }
+        }
+        ProbeLogger.info("托管配置状态上报已停止")
     }
 
     /** 等模式判定 → 按模式装配 → 起上报线程（后台线程）。 */
     private fun bootstrap() {
-        modeService.awaitReady(BOOTSTRAP_WAIT_MS)
+        modeReadiness(BOOTSTRAP_WAIT_MS)
         val mode = modeService.mode()
-        if (!install(mode)) {
-            ProbeLogger.info("当前为独立模式，未启用 config_push 与 config_state（与改造前行为一致）")
-            return
+        // 装配与停止同一把锁：stop 先到时不再注册动作、不再起上报线程（否则停服后还在周期上报）
+        synchronized(lifecycleLock) {
+            if (stopping) {
+                return
+            }
+            if (!install(mode)) {
+                ProbeLogger.info("当前为独立模式，未启用 config_push 与 config_state（与改造前行为一致）")
+                return
+            }
+            startReporting()
         }
-        startReporting()
     }
 
     /**
@@ -332,6 +359,9 @@ class ManagedConfigService {
          * 不把装配线程永久卡住——超时即按"非托管"处理（等于不启用配置链路，保守且无副作用）。
          */
         private const val BOOTSTRAP_WAIT_MS = 5_000L
+
+        /** stop 时等上报线程退出的上限（毫秒）：daemon 线程即使未退出也不会阻碍 JVM 退出。 */
+        private const val STOP_JOIN_MS = 1_000L
 
         /** 一 tick 的毫秒数（采集周期按 ticks 配置，换算用）。 */
         private const val TICK_MILLIS = 50L

@@ -74,6 +74,23 @@ class BridgeCommandRegistry {
     }
 
     /**
+     * 注销一个 core 内置动作。
+     *
+     * 供服务停止时调用：注销后同名指令自然回落到平台执行器（或回“未实现”失败回执），
+     * 不会再把指令交给一个已经停掉/已释放执行体的处理器。
+     *
+     * @param action 动作名。
+     * @return true 表示确实注销了一个已注册的动作。
+     */
+    fun unregisterCoreAction(action: String): Boolean {
+        val removed = coreActions.remove(action) != null
+        if (removed) {
+            ProbeLogger.debug("内置动作已注销:$action")
+        }
+        return removed
+    }
+
+    /**
      * 分发一条 core 内置动作。
      *
      * @param command 下行指令。
