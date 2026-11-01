@@ -119,8 +119,10 @@ class ControlPlaneModeService {
         } catch (e: Exception) {
             // 探针绝不能因托管判定失败而启动失败
             ProbeLogger.warn("托管模式判定异常,已按独立模式继续:${e.message}")
+            // 先写意图再重置：reset() 会清掉意图，顺序反了会留一个“瞬间 identityPresent=false”的窗口，
+            // 恰好此时超时的监听面会 fail-open（托管机把本地端口开起来）。
+            ControlPlaneRuntime.markIdentityPresent(identityPresent)
             resetToStandalone()
-            // 判定异常时仍要保留“托管意图”，否则监听面会在超时路径上 fail-open
             ControlPlaneRuntime.markIdentityPresent(identityPresent)
         } finally {
             // 无论结论如何都必须放行:等待方(桥线程)据此继续,超时则按独立模式走

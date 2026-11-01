@@ -48,13 +48,38 @@ internal object LocalListenerGate {
     private val boundStops = ConcurrentHashMap<Surface, () -> Unit>()
 
     /**
+     * 托管模式是否已经回撤过一轮（粘性）。
+     *
+     * 用于堵住「回撤已发生、监听面才刚登记」这个 check-then-act 窗口：判定超时路径里
+     * launcher 可能正拿着 `allows()` 的放行结果在 bind，而判定线程此时刚好 `publish(MANAGED)`。
+     * 若只在回撤时看一次登记表，那一轮会看到空表直接返回，随后登记的这个面就**永远没人关**。
+     */
+    @Volatile
+    private var managedReconciled = false
+
+    /**
      * 登记一个已真正 bind 的监听面，供托管模式落定时回撤。
+     *
+     * 登记后会复查 [managedReconciled]：若回撤已经发生过（本线程入表晚于回撤），**立即执行关闭**
+     * 并返回 false，调用方不得再对外宣告“已启动”。
      *
      * @param surface 监听面。
      * @param stop 幂等的关闭动作（失败只能降级，不得抛）。
+     * @return true 表示该面可以继续对外提供服务；false 表示已被回撤（调用方应停止后续动作）。
      */
-    fun registerBound(surface: Surface, stop: () -> Unit) {
+    fun registerBound(surface: Surface, stop: () -> Unit): Boolean {
         boundStops[surface] = stop
+        if (!managedReconciled) {
+            return true
+        }
+        val pending = boundStops.remove(surface) ?: return false
+        ProbeLogger.warn(
+            "托管模式判定已完成，回撤刚登记的本地 ${surface.label} 监听端口（零监听端口承诺）",
+        )
+        runCatching(pending).onFailure { error ->
+            ProbeLogger.warn("回撤 ${surface.label} 监听面失败（已降级继续）:${error.message}")
+        }
+        return false
     }
 
     /** 注销登记（监听面自行停止时调用，避免回撤阶段重复动作）。 */
@@ -69,6 +94,8 @@ internal object LocalListenerGate {
      * 单个面的关闭失败只 WARN，不影响其它面。
      */
     internal fun reconcileManaged() {
+        // 先置位再回撤：之后任何 registerBound 都会自检并当场关掉，不会漏掉“晚登记”的那一个
+        managedReconciled = true
         if (boundStops.isEmpty()) {
             return
         }
@@ -86,6 +113,7 @@ internal object LocalListenerGate {
     /** 仅测试用：清空已登记的回撤动作。 */
     internal fun clearBoundForTest() {
         boundStops.clear()
+        managedReconciled = false
     }
 
     /**

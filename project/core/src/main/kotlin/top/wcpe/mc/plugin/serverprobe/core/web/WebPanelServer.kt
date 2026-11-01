@@ -132,9 +132,14 @@ class WebPanelServer {
             @Suppress("TooGenericExceptionCaught")
             try {
                 server = listenerFactory.bind(InetSocketAddress(host, port), 0) { httpServer -> configure(httpServer) }
-                // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉
-                LocalListenerGate.registerBound(LocalListenerGate.Surface.WEB) {
+                // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉。
+                // 返回 false 表示回撤已经发生（本次登记晚于回撤）——必须当场关掉，不得谎报“已启动”。
+                val kept = LocalListenerGate.registerBound(LocalListenerGate.Surface.WEB) {
                     synchronized(bindLock) { stopQuietly() }
+                }
+                if (!kept) {
+                    stopQuietly()
+                    return
                 }
                 ProbeLogger.info("Web 面板已启动,监听 $host:$port(/、/startup、/history、/network-forensics)")
             } catch (e: Exception) {

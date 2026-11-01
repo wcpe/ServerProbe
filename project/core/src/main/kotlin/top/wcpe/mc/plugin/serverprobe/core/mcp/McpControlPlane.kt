@@ -157,17 +157,22 @@ class McpControlPlane {
         ).also { server ->
             server.start()
             httpServer = server
-            // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉
-            LocalListenerGate.registerBound(LocalListenerGate.Surface.MCP) { disable() }
-            artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
-                Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
-            }.also { executor ->
-                executor.scheduleWithFixedDelay({
-                    runCatching { artifacts?.cleanup() }.onFailure { error ->
-                        ProbeLogger.warn("MCP 工件定期清理失败：${error.javaClass.simpleName}")
-                    }
-                }, CLEANUP_INTERVAL_HOURS, CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS)
-            }
+        }
+        // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉。
+        // 返回 false 表示回撤已经发生（本次登记晚于回撤）——必须当场关掉，不得起清理线程/谎报“已启动”。
+        val kept = LocalListenerGate.registerBound(LocalListenerGate.Surface.MCP) { disable() }
+        if (!kept) {
+            disable()
+            return
+        }
+        artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
+        }.also { executor ->
+            executor.scheduleWithFixedDelay({
+                runCatching { artifacts?.cleanup() }.onFailure { error ->
+                    ProbeLogger.warn("MCP 工件定期清理失败：${error.javaClass.simpleName}")
+                }
+            }, CLEANUP_INTERVAL_HOURS, CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS)
         }
         ProbeLogger.info("MCP 控制面已启动，监听 ${settings.host}:${settings.port}/mcp")
     }

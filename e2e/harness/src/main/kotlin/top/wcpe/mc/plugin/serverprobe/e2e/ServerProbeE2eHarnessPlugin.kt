@@ -271,7 +271,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private fun checkIncisionInjected(remaining: Int) {
         val evidence = runCatching { ReadApiConsumer.readIncisionEvidence() }.getOrNull()
         if (evidence != null) {
-            pass("Incision 已织入 SimplePluginManager#enablePlugin 并产出逐插件实测耗时", evidence)
+            pass("Incision 已织入 SimplePluginManager#enablePlugin 并产出逐插件实测耗时", evidence, requireAssertions = false)
             return
         }
         if (remaining == 0) {
@@ -291,7 +291,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             return
         }
         if (scenario != E2eScenario.READ_API) {
-            pass("第三方插件已经公开门面读到运行快照与启动画像", evidence)
+            pass("第三方插件已经公开门面读到运行快照与启动画像", evidence, requireAssertions = false)
             return
         }
         // FR-26:historySnapshots 明示"可能读盘、宜异步",主线程调用是该 API 的红线,故另起线程调用。
@@ -301,7 +301,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
                 retryReadApi(remaining)
                 return@Thread
             }
-            pass("第三方插件已经公开门面读到运行快照、启动画像与落盘历史指标", evidence + history)
+            pass("第三方插件已经公开门面读到运行快照、启动画像与落盘历史指标", evidence + history, requireAssertions = false)
         }, HISTORY_THREAD_NAME).apply { isDaemon = true; start() }
     }
 
@@ -608,7 +608,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
     private fun checkObservedRegionsExpired(evidence: Map<String, String>, remaining: Int) {
         if (ReadApiConsumer.observedRegionsExpired()) {
-            pass("Folia 真实 region tick 已形成明细、汇总并在离开后过期", evidence + ("expired" to "true"))
+            pass("Folia 真实 region tick 已形成明细、汇总并在离开后过期", evidence + ("expired" to "true"), requireAssertions = false)
             return
         }
         if (remaining == 0) {
@@ -665,6 +665,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
                 "startupWrites" to ReadApiConsumer.startupWrites(session).toString(),
                 "historyWrites" to historyWritesAtClose.toString(),
             ),
+            requireAssertions = false,
         )
     }
 
@@ -1357,7 +1358,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
      * @param details 附加详情。
      * @param requireAssertions 是否要求至少一条断言（证据驱动场景传 true，否则前缀写错也能“零断言通过”）。
      */
-    private fun pass(message: String, details: Map<String, String>, requireAssertions: Boolean = false) {
+    private fun pass(message: String, details: Map<String, String>, requireAssertions: Boolean = true) {
         if (completed.compareAndSet(false, true)) {
             stopFoliaRegionTasks()
             resultWriter?.finish(message, details, allowZeroAssertions = !requireAssertions)

@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.control
 
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.concurrent.atomic.AtomicInteger
@@ -96,6 +97,19 @@ class LocalListenerFailCloseTest {
 
         ControlPlaneRuntime.publish(ProbeMode.STANDALONE, null)
         assertEquals(0, stopped.get(), "独立模式发布不得回撤监听面")
+    }
+
+    /** 回撤已发生、监听面才刚登记（check-then-act 窗口）：必须当场停掉，不能永久漏关。 */
+    @Test
+    fun `回撤后才登记的监听面立即被停掉`() {
+        // 先让回撤发生（此时登记表为空，正是“看到空表就返回”的那条路径）
+        ControlPlaneRuntime.publish(ProbeMode.MANAGED, identity())
+        val stopped = AtomicInteger(0)
+
+        val kept = LocalListenerGate.registerBound(LocalListenerGate.Surface.METRICS) { stopped.incrementAndGet() }
+
+        assertFalse(kept, "回撤已发生后登记的监听面不得被当作可用")
+        assertEquals(1, stopped.get(), "必须当场回撤，否则该端口会永久开着且无人再关")
     }
 
     /** 构造一个最小可用身份（仅用于触发 publish(MANAGED) 的回撤路径）。 */

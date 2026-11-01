@@ -59,12 +59,24 @@ class ReconnectBackoffTest {
             consecutiveFailures = 3,
         )
         assertEquals(60_000, ReconnectBackoff.next(10_000, snapshot, settings))
+        assertEquals(
+            60_000,
+            ReconnectBackoff.waitMs(60_000),
+            "降频值不得被 maxBackoffMs 夹回 30s（否则降频形同虚设）",
+        )
     }
 
-    /** 实际休眠时长同样受下限与封顶约束（防止上游传入 0）。 */
+    /** 实际休眠值只做下界夹取（上界由本次断开原因决定，不在 waitMs 里再夹）。 */
     @Test
-    fun `实际休眠时长被夹取`() {
-        assertEquals(ReconnectBackoff.MIN_BACKOFF_MS, ReconnectBackoff.waitMs(0, settings))
-        assertEquals(30_000, ReconnectBackoff.waitMs(999_999, settings))
+    fun `实际休眠值只取下限`() {
+        assertEquals(ReconnectBackoff.MIN_BACKOFF_MS, ReconnectBackoff.waitMs(0))
+        assertEquals(999_999, ReconnectBackoff.waitMs(999_999), "上界不在 waitMs 里夹")
+    }
+
+    /** 复位门槛：至少 10s，且不小于 2 倍初始值（避免“接受 WS 后立刻关闭”变成 1s 热重连）。 */
+    @Test
+    fun `复位门槛取初始值两倍与十秒的较大者`() {
+        assertEquals(10_000, ReconnectBackoff.stableThresholdMs(settings))
+        assertEquals(20_000, ReconnectBackoff.stableThresholdMs(settings.copy(initialBackoffMs = 10_000)))
     }
 }

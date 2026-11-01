@@ -63,6 +63,21 @@ class BridgeClient {
     /** 运行标志：start 置 true，stop 置 false。 */
     private val running = AtomicBoolean(false)
 
+    /**
+     * 停机标志：`stop()` 入口置位，引导线程在建资源前后各复查一次。
+     *
+     * 为什么要它：`stop()` 早退条件曾是“running 还是 false 就直接 return”，而装配已经挪到引导线程——
+     * 于是“启用后 5s 内停机”（正好在 `awaitManagedTarget` 里阻塞）会让 stop 立即返回，
+     * 引导线程醒来后照常建池起线程，停机之后仍有四条线程与一条连接在跑，
+     * `seqAllocator.shutdown()` / `spill.flush()` / 序号落盘全被跳过（下次启动序号可能重号）。
+     */
+    @Volatile
+    private var stopping = false
+
+    /** 引导线程引用：`stop()` 需要等它收手（有界），避免“停机后仍在装配”。 */
+    @Volatile
+    private var bootThread: Thread? = null
+
     /** 读线程。 */
     @Volatile
     private var readThread: Thread? = null
@@ -297,8 +312,10 @@ class BridgeClient {
                 return
             }
             booting = true
+            // 重试/重载场景：清掉上一次停机留下的标志，否则本次装配会立即自我放弃
+            stopping = false
         }
-        Thread({
+        val worker = Thread({
             try {
                 runCatching { doStart() }.onFailure { e ->
                     // doStart 失败时已就地回滚（running 复位 + 池/线程清理），因此这里只需把原因打出来；
@@ -312,6 +329,7 @@ class BridgeClient {
             }
         }, BOOT_THREAD_NAME).apply {
             isDaemon = true
+            bootThread = this
             start()
         }
     }
@@ -349,6 +367,11 @@ class BridgeClient {
         // 幂等 + 不重复启动：已有的桥不受理第二次 start（否则会两套线程抢同一条连接）。
         if (running.getAndSet(true)) return
 
+        // 停机先到：等判定等了很久，期间插件已经被 disable——不能在这里继续建资源起线程。
+        if (abortIfStopping(null, null, null, null)) {
+            return
+        }
+
         // 下面每个资源都先存到局部变量：回滚时需要拿到**已创建**的那几个，
         // 而字段赋值故意放在最后（一次性对外可见），中途失败时字段里不能出现半成品。
         var store: EventSpillStore? = null
@@ -375,19 +398,7 @@ class BridgeClient {
             reloadPool = ReloadRuntime.of(settings.reload())
             reloadRuntime = reloadPool
             registerRoutes(bridgeKernel, frameSender)
-            // 按**实际接线情况**声明能力：只声明真的能处理的，避免面板下发后才发现不支持。
-            // 分片能力（分片规格 §3.6）：对端据此决定是否下发需要分片的大数据请求。
-            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CHUNK)
-            // 主题订阅能力：对端据此判断可否下发 `core.subscribe`。
-            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_TOPIC)
-            // 配置重载能力、健康状态查询能力：只在对应路由真的挂上时声明
-            // （二者都依赖可选的注入项，见 registerRoutes 的 let 分支）。
-            if (reloadRuntime != null) {
-                BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CONFIG_RELOAD)
-            }
-            if (healthRegistryOrNull() != null) {
-                BridgeCapabilities.addCapability(BridgeCapabilities.CAP_BUSINESS_STATUS)
-            }
+            declareCapabilities(reloadRuntime != null, healthRegistryOrNull() != null)
 
             spill = store
             sender = frameSender
@@ -395,6 +406,10 @@ class BridgeClient {
             kernel = bridgeKernel
             BridgeStatusRoute.CURRENT_POOLS = bridgePools
 
+            // 起线程之前再复查一次：停机可能刚好发生在装配中途，此时必须整份回滚（否则停机后仍有四条线程在跑）
+            if (abortIfStopping(store, frameSender, bridgePools, reloadPool)) {
+                return
+            }
             startThreads(line, store, frameSender, bridgeKernel)
             // Provider 健康刷新线程与桥同生命周期：桥不开时没有任何消费者，多起两条线程只是白烧 CPU
             // （且会进第三方 health()）。start/stop 均幂等。
@@ -408,6 +423,55 @@ class BridgeClient {
         val authority = if (target != null) BridgeEndpoint.redact(target.endpoint) else safeAuthority(settings.url())
         val driver = if (target != null) "托管模式(身份文件驱动)" else "独立模式(bridge.* 配置驱动)"
         ProbeLogger.info("插件桥反向 WS 客户端已启动,$driver,目标 $authority")
+    }
+
+    /**
+     * 按**实际接线情况**声明能力：只声明真的能处理的，避免面板下发后才发现不支持。
+     *
+     * @param hasReload 配置重载路由是否真的挂上了（依赖可选注入项）。
+     * @param hasHealth 健康状态路由是否真的挂上了（依赖可选注入项）。
+     */
+    private fun declareCapabilities(hasReload: Boolean, hasHealth: Boolean) {
+        // 分片能力（分片规格 §3.6）：对端据此决定是否下发需要分片的大数据请求。
+        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CHUNK)
+        // 主题订阅能力：对端据此判断可否下发 `core.subscribe`。
+        BridgeCapabilities.addCapability(BridgeCapabilities.CAP_TOPIC)
+        if (hasReload) {
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_CONFIG_RELOAD)
+        }
+        if (hasHealth) {
+            BridgeCapabilities.addCapability(BridgeCapabilities.CAP_BUSINESS_STATUS)
+        }
+    }
+
+    /**
+     * 停机先到时放弃本次装配（在建资源前后各查一次）。
+     *
+     * 两个时机的区别：建资源前什么也没建，只需复位运行标志；建完资源后必须整份回滚，
+     * 否则停机后仍会留着池与半建好的句柄。
+     *
+     * @param store 已建的落盘队列（未建传 null）。
+     * @param frameSender 已建的发送器（未建传 null）。
+     * @param bridgePools 已建的业务池（未建传 null）。
+     * @param reloadPool 已建的重载池（未建传 null）。
+     * @return true 表示已收到停机指令，调用方应立即返回。
+     */
+    private fun abortIfStopping(
+        store: EventSpillStore?,
+        frameSender: FrameSender?,
+        bridgePools: BridgePools?,
+        reloadPool: ReloadRuntime?,
+    ): Boolean {
+        if (!stopping) {
+            return false
+        }
+        if (listOfNotNull(store, frameSender, bridgePools, reloadPool).isNotEmpty()) {
+            rollbackStartFailure(store, frameSender, bridgePools, reloadPool)
+        } else {
+            running.set(false)
+        }
+        ProbeLogger.info("桥装配期间已收到停机指令，放弃本次启动（不建资源、不起线程）")
+        return true
     }
 
     /**
@@ -492,8 +556,12 @@ class BridgeClient {
      */
     @PreDestroy
     fun stop() {
+        // 先置停机标志：引导线程可能正阻塞在判定里，它醒来后靠这个标志自我放弃
+        stopping = true
         // 解绑全局接线：停机后不应再对外声明"当前订阅"（也避免全局状态残留到下一次装配）。
         BridgeCapabilities.setSubscriptionSource(null)
+        // 等引导线程收手（有界）：避免“停机后仍在装配”
+        runCatching { bootThread?.join(BOOT_STOP_JOIN_MS) }
         if (!running.getAndSet(false)) return
         uplinkReady = false
         // ① 停读：不再有新命令进来。
@@ -709,8 +777,15 @@ class BridgeClient {
                 }
             }
             if (!running.get()) break
-            // 连上过就把退避拉回初始值：否则稳定运行数小时后再掉线，会直接吃满最大退避
-            if (link.snapshot().lastConnectedAtMs > connectedAtAttemptStart) {
+            // 连上过就复位？不够：对端可能“接受 WS 后立刻关闭”，那样每轮都会把退避拉回初始值，
+            // 变成恒定 1s 的热重连。只在“本次连接存活过门槛时长”后才复位。
+            val afterAttempt = link.snapshot()
+            val stableMs = if (afterAttempt.lastConnectedAtMs > connectedAtAttemptStart) {
+                System.currentTimeMillis() - afterAttempt.lastConnectedAtMs
+            } else {
+                -1L
+            }
+            if (stableMs >= ReconnectBackoff.stableThresholdMs(configSource.reconnect())) {
                 backoff = ReconnectBackoff.initial(configSource.reconnect())
             }
             backoff = sleepBackoff(backoff)
@@ -864,8 +939,11 @@ class BridgeClient {
      */
     private fun sleepBackoff(current: Long): Long {
         val reconnect = configSource.reconnect()
-        runCatching { Thread.sleep(ReconnectBackoff.waitMs(current, reconnect)) }
-        return ReconnectBackoff.next(current, link.snapshot(), reconnect)
+        // 先算“本次实际休眠值”（只做下界夹取），睡它，再用它推算下一轮——
+        // 这样降频值（如认证失败 60s）不会被上界夹回 30s，快照里的 currentBackoffMs 也与实际休眠一致。
+        val wait = ReconnectBackoff.waitMs(current)
+        runCatching { Thread.sleep(wait) }
+        return ReconnectBackoff.next(wait, link.snapshot(), reconnect)
     }
 
     /**
@@ -915,49 +993,8 @@ class BridgeClient {
      *
      * @throws java.net.URISyntaxException 地址非法（上层会兜住并归为不可达）。
      */
-    internal fun buildTargetUri(url: String, token: String, instance: String): URI {
-        val trimmed = url.trim()
-        val scheme = when {
-            trimmed.contains("://") -> trimmed.substringBefore("://")
-            else -> ""  // 无 scheme 时交给 URI 解析报错，保持原有失败语义
-        }
-        if (scheme.isEmpty()) return URI(url)  // 保持原有行为（非法地址抛 URISyntaxException）
-
-        val afterScheme = trimmed.substringAfter("://")
-        val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
-        val pathRaw = afterScheme.substring(authority.length).substringBefore('?').substringBefore('#')
-        val path = if (pathRaw.isEmpty()) "" else pathRaw
-
-        // authority 拆 host / port（兼容 IPv6 字面量）
-        val (host, port) = splitAuthority(authority)
-        val query = "token=${encode(token)}&instance=${encode(instance)}"
-        return URI(scheme, null, host, port, path, query, null)
-    }
-
-    /** 把 authority 拆成 host + port；无端口返回 -1。IPv6 字面量形如 `[::1]:9102`。 */
-    private fun splitAuthority(authority: String): Pair<String, Int> {
-        if (authority.isEmpty()) return "" to -1
-        if (authority.startsWith("[")) {
-            val close = authority.indexOf(']')
-            if (close < 0) return authority to -1
-            val host = authority.substring(0, close + 1)
-            val portPart = authority.substring(close + 1).removePrefix(":")
-            return host to (portPart.toIntOrNull() ?: -1)
-        }
-        val colons = authority.count { it == ':' }
-        return when {
-            colons == 1 -> {
-                val host = authority.substringBefore(':')
-                val port = authority.substringAfter(':').toIntOrNull() ?: -1
-                host to port
-            }
-            colons == 0 -> authority to -1
-            else -> authority to -1  // 多冒号但不是 IPv6 字面量：原样当 host，不猜端口
-        }
-    }
-
-    /** URL 编码（RFC 3986 的 query 安全子集）。 */
-    private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+    internal fun buildTargetUri(url: String, token: String, instance: String): URI =
+        BridgeEndpointUris.buildTargetUri(url, token, instance)
 
     private fun frameSenderOrNull(): FrameSender? = sender
 
@@ -1090,38 +1127,7 @@ class BridgeClient {
      *
      * 安全约束：只输出 host:port，**query 与 path 一律丢弃**（query 里带 token）。
      */
-    internal fun safeAuthority(url: String): String {
-        val trimmed = url.trim()
-        if (trimmed.isEmpty()) return "(未配置)"
-        // 切掉 scheme:// 或 // 前缀
-        val afterScheme = when {
-            trimmed.contains("://") -> trimmed.substringAfter("://")
-            trimmed.startsWith("//") -> trimmed.removePrefix("//")
-            else -> trimmed
-        }
-        // authority 到第一个 / ? # 为止；query 与 path 由此丢弃
-        val authority = afterScheme.substringBefore('/').substringBefore('?').substringBefore('#')
-        if (authority.isEmpty()) return "(地址解析失败)"
-        // 兼容 IPv6 字面量 [::1]:port（冒号多于一个且以 ] 结尾的 host 段）
-        return when {
-            authority.startsWith("[") -> {
-                val close = authority.indexOf(']')
-                if (close < 0) "(地址解析失败)"
-                else {
-                    val hostPart = authority.substring(0, close + 1)
-                    val portPart = authority.substring(close + 1).removePrefix(":")
-                    if (portPart.isEmpty()) "$hostPart:80" else "$hostPart:$portPart"
-                }
-            }
-            authority.count { it == ':' } == 1 -> {
-                val host = authority.substringBefore(':')
-                val port = authority.substringAfter(':')
-                if (port.isEmpty()) "$host:80" else "$host:$port"
-            }
-            authority.contains(':') -> authority  // 多冒号但非 IPv6 字面量：原样输出，不猜
-            else -> "$authority:80"
-        }
-    }
+    internal fun safeAuthority(url: String): String = BridgeEndpointUris.safeAuthority(url)
 
     private companion object {
         const val CONNECT_TIMEOUT_MS = 5_000
@@ -1155,6 +1161,9 @@ class BridgeClient {
 
         /** 启动回滚时逐个线程 join 的上限（毫秒）：回滚跑在主线程，不能在这里耗秒级预算。 */
         private const val START_ROLLBACK_JOIN_MS = 1_000L
+
+        /** `stop()` 等引导线程收手的上限（毫秒）：引导线程最多在判定里阻 5s，故不等满。 */
+        private const val BOOT_STOP_JOIN_MS = 1_000L
 
         /** 视为认证失败的握手状态码。 */
         val AUTH_FAILED_CODES = setOf(401, 403)

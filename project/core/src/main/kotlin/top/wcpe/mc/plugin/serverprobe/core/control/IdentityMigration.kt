@@ -2,7 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.control
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -201,7 +201,12 @@ internal object IdentityMigration {
             return null
         }
         // 备份即"原样留档":直接复制当前字节,不经原子替换(备份文件不参与运行期读取)
-        Files.copy(configFile, backupPath, StandardCopyOption.REPLACE_EXISTING)
+        // 备份含明文 token：**建文件时就带 0600**（POSIX），而不是先落默认权限再收紧——
+        // 中间窗口里同机其他用户可读；写完后仍再收紧一次作为兜底。
+        AtomicFileWrite.createOwnerOnly(backupPath)
+        Files.newOutputStream(backupPath, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING).use { output ->
+            Files.copy(configFile, output)
+        }
         // 备份内容含明文 token,与身份文件同口径收紧权限(默认 0644 在多用户机器上等同泄露)
         AtomicFileWrite.restrictPermissions(backupPath)
         return backupName

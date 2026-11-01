@@ -89,6 +89,17 @@ internal object AtomicFileWrite {
         }
     }
 
+    /**
+     * 以「仅属主可读写（0600）」创建空文件。
+     *
+     * 用于**写入前**就已确定要保留敏感内容的文件（如迁移备份）：直接 `Files.copy` 会先以默认权限建文件，
+     * 多用户机器上那一段窗口内同机其他用户可读。POSIX 不支持时退化为普通创建，再由调用方收紧。
+     */
+    internal fun createOwnerOnly(path: Path) {
+        runCatching { Files.createFile(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY_PERMISSIONS)) }
+            .recoverCatching { Files.createFile(path) }
+    }
+
     /** 对父目录做一次 fsync，确保重命名本身持久化（部分平台不支持目录 fsync，尽力而为）。 */
     private fun syncDirectory(directory: Path) {
         runCatching {

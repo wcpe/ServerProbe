@@ -186,6 +186,9 @@ class MetricPushService {
      * @param shouldContinue 是否继续下一轮，默认看 [running]。
      * @param sleeper 休眠实现，默认 `Thread.sleep`（单测传空实现）。
      */
+    // 必须广捕：单帧推送的失败点可能在任何一行（编码、入队、背压），而这一层的目的就是“不让任何
+    // 异常杀死推送线程”；中断单独处理（恢复中断位并退出），所以 Exception 分支只兜真正的异常。
+    @Suppress("TooGenericExceptionCaught")
     internal fun pushLoop(
         pushOnce: () -> Long?,
         intervalProvider: () -> Long = { ProbeConfig.metricsPushIntervalMs() },
@@ -205,9 +208,17 @@ class MetricPushService {
             if (!shouldContinue()) {
                 return
             }
-            // 单次失败只跳过这一轮：异常逃出循环会让推送线程静默死亡（控制面只看到指标停止更新）
-            runCatching { pushOnce() }
-                .onFailure { error -> ProbeLogger.warn("指标推送失败(本轮跳过,下一轮继续):${error.message}") }
+            // 单次失败只跳过这一轮：异常逃出循环会让推送线程静默死亡（控制面只看到指标停止更新）。
+            // 中断例外：它只在停机时出现，必须恢复中断位并退出，而不是被当成普通失败继续睡。
+            try {
+                pushOnce()
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                ProbeLogger.info("指标 WS 推送循环收到中断，已退出")
+                return
+            } catch (e: Exception) {
+                ProbeLogger.warn("指标推送失败(本轮跳过,下一轮继续):${e.message}")
+            }
         }
     }
 
