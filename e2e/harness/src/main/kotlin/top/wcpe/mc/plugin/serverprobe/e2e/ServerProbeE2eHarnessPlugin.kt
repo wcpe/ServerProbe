@@ -855,7 +855,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             val name = key.removePrefix(prefix)
             resultWriter?.assertTrue(name, value == ASSERT_PASSED_VALUE, value)
         }
-        pass(message, details.associate { it.key to it.value })
+        // 证据驱动场景必须至少登记一条断言：前缀写错时证据会全落进 details，
+        // 若此时仍写 PASS，“跑完即通过”的假阳性就又回来了（要求真断言）。
+        pass(message, details.associate { it.key to it.value }, requireAssertions = true)
     }
 
     /**
@@ -1348,10 +1350,17 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** E2E 仅在指定 region 线程读取 Folia 真实内部 id，用来与公开快照严格对应。 */
     private val foliaRegionIdReader: FoliaRegionIdReader by lazy { FoliaRegionIdReader.create() }
 
-    private fun pass(message: String, details: Map<String, String>) {
+    /**
+     * 收尾并写 PASS。
+     *
+     * @param message 结果文案。
+     * @param details 附加详情。
+     * @param requireAssertions 是否要求至少一条断言（证据驱动场景传 true，否则前缀写错也能“零断言通过”）。
+     */
+    private fun pass(message: String, details: Map<String, String>, requireAssertions: Boolean = false) {
         if (completed.compareAndSet(false, true)) {
             stopFoliaRegionTasks()
-            resultWriter?.pass(message, details)
+            resultWriter?.finish(message, details, allowZeroAssertions = !requireAssertions)
             runLater { server.shutdown() }
         }
     }

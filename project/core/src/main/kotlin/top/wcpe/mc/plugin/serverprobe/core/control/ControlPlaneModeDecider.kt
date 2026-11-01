@@ -26,8 +26,16 @@ internal object ControlPlaneModeDecider {
          * @property identity 生效身份。
          * @property migration 本次实际完成的迁移（含残留清理）；null 表示无需迁移。
          */
-        data class Managed(val identity: ControlPlaneIdentity, val migration: IdentityMigration.Outcome.Migrated?) :
-            Decision()
+        data class Managed(
+            val identity: ControlPlaneIdentity,
+            val migration: IdentityMigration.Outcome.Migrated?,
+            /**
+             * 身份已存在、但 `config.yml` 的 `bridge` 段指向别处时的保留说明（null 表示无此情况）。
+             *
+             * 本类不写日志（设计如此），需要告警的内容以数据形式交回调用方。
+             */
+            val residualMismatch: IdentityMigration.Outcome.ResidualMismatch? = null,
+        ) : Decision()
 
         /**
          * 进入独立模式。
@@ -82,9 +90,12 @@ internal object ControlPlaneModeDecider {
         identityFile: Path,
         timestamp: Date,
     ): Decision {
-        val outcome = runCatching { IdentityMigration.migrate(configFile, identityFile, identity, timestamp) }
-            .getOrNull() as? IdentityMigration.Outcome.Migrated
-        return Decision.Managed(identity, outcome)
+        val outcome = runCatching { IdentityMigration.migrate(configFile, identityFile, identity, timestamp) }.getOrNull()
+        return Decision.Managed(
+            identity = identity,
+            migration = outcome as? IdentityMigration.Outcome.Migrated,
+            residualMismatch = outcome as? IdentityMigration.Outcome.ResidualMismatch,
+        )
     }
 
     /** 无身份文件：尝试自动迁移。 */
@@ -99,6 +110,8 @@ internal object ControlPlaneModeDecider {
             is IdentityMigration.Outcome.NotEnabled,
             is IdentityMigration.Outcome.NoBridgeSection,
             -> Decision.Standalone(StandaloneReason.NO_IDENTITY)
+            // 只有“身份已存在”的残留清理路径会碰到它；这里给个保守结局，不影响正常三态判定
+            is IdentityMigration.Outcome.ResidualMismatch -> Decision.Standalone(StandaloneReason.NO_IDENTITY, outcome.detail)
             is IdentityMigration.Outcome.Failed -> afterFailedMigration(outcome, identityFile)
         }
 

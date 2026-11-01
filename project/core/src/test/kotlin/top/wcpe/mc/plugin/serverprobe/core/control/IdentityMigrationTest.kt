@@ -200,6 +200,70 @@ class IdentityMigrationTest {
         )
     }
 
+    /**
+     * 身份已存在、但文件里的 `bridge` 段指向**别处**（典型：运维换发凭据后把新值追加到配置末尾）。
+     *
+     * 此时必须保留两者不动：既不能拿旧身份覆盖新值，也不能把运维刚写的那段静默删掉。
+     */
+    @Test
+    fun `身份已存在且 bridge 段不一致时保留现状`() {
+        val dir = Files.createTempDirectory("probe-migrate-mismatch")
+        val config = dir.resolve("config.yml")
+        Files.write(config, BRIDGE_CONFIG.toByteArray(Charsets.UTF_8))
+        val identityFile = dir.resolve("agent-identity.json")
+        val existing = ControlPlaneIdentity(
+            schemaVersion = ControlPlaneIdentity.SUPPORTED_SCHEMA_VERSION,
+            provider = "unknown",
+            endpoint = "ws://127.0.0.1:9102/ws/plugin-bridge",
+            instanceId = "instance-abc",
+            // 与 BRIDGE_CONFIG 里的 token 不同：模拟“控制面已换发新凭据、运维写进了配置文件”
+            credential = "token-OLD",
+            capabilities = emptyList(),
+            createdAt = "2026-10-19T03:12:44Z",
+        )
+        IdentityFileStore.write(identityFile, existing)
+        val before = String(Files.readAllBytes(config), Charsets.UTF_8)
+
+        val outcome = IdentityMigration.migrate(config, identityFile, existing, FIXED_TIME)
+
+        assertTrue(outcome is IdentityMigration.Outcome.ResidualMismatch, "应判定为“保留现状”，实际:$outcome")
+        assertEquals(before, String(Files.readAllBytes(config), Charsets.UTF_8), "配置必须一字未改（不得删段）")
+        val backups = dir.toFile().listFiles()?.map { it.name }.orEmpty().filter { it.contains(".bak.") }
+        assertTrue(backups.isEmpty(), "此情形不该产生备份（备份含明文凭据，多一份就多一份泄露面）:$backups")
+        assertEquals(
+            existing,
+            (IdentityFileStore.read(identityFile) as IdentityLoadResult.Loaded).identity,
+            "已有身份不得被改动",
+        )
+    }
+
+    /** 备份含明文 token，应与身份文件同口径收紧到仅所有者可读写（POSIX 平台断言）。 */
+    @Test
+    fun `备份文件收紧到仅所有者可读写`() {
+        val dir = Files.createTempDirectory("probe-migrate-backup-perm")
+        val config = dir.resolve("config.yml")
+        Files.write(config, BRIDGE_CONFIG.toByteArray(Charsets.UTF_8))
+        val identityFile = dir.resolve("agent-identity.json")
+
+        val outcome = IdentityMigration.migrate(config, identityFile, null, FIXED_TIME)
+        assertTrue(outcome is IdentityMigration.Outcome.Migrated, "应迁移成功，实际:$outcome")
+        val backupName = (outcome as IdentityMigration.Outcome.Migrated).backupFile
+        assertNotNull(backupName, "首次迁移应生成备份")
+        val backup = dir.resolve(requireNotNull(backupName))
+
+        val posix = Files.getFileStore(backup).supportsFileAttributeView(java.nio.file.attribute.PosixFileAttributeView::class.java)
+        if (!posix) {
+            // Windows 等不支持的平台：权限收紧是尽力而为，不在此断言
+            return
+        }
+        val permissions = Files.getPosixFilePermissions(backup)
+        assertEquals(
+            setOf(java.nio.file.attribute.PosixFilePermission.OWNER_READ, java.nio.file.attribute.PosixFilePermission.OWNER_WRITE),
+            permissions,
+            "备份含明文凭据，必须 0600",
+        )
+    }
+
     private companion object {
 
         /** 固定迁移时刻，用于断言备份名与 `createdAt`。 */

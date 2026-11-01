@@ -54,23 +54,39 @@ class ScenarioResultWriter(private val resultFile: File) {
     /**
      * 收尾：把所有断言汇总成 PASS/FAIL 并落盘。
      *
-     * - 全部通过 → `status=PASS`，`message` 用给定文案
      * - 有失败 → `status=FAIL`，`message` 为给定文案 + 失败断言名（含 detail）
+     * - 零断言且 [allowZeroAssertions] 为 false → `status=FAIL`
+     * - 其余 → `status=PASS`，`message` 用给定文案
+     *
+     * ## 为什么零断言要判失败
+     * “断言前缀写错”时证据键全会落进 details，一条断言也不会被登记——若零断言当 PASS，
+     * 这种情形就会以“通过”收场，与“PASS 只由逐项断言全部成立得出”的承诺相反。
+     * 因此默认要求至少一条断言；确实不登记断言的场景（事件驱动类）由调用方显式 [pass]。
      *
      * 多次调用幂等覆盖写，结果文件始终是最后一次调用的内容。
+     *
+     * @param message 通过时的文案（失败时会被拼接失败断言名）。
+     * @param details 附加详情（不参与判定）。
+     * @param allowZeroAssertions 是否允许“一条断言也没有”也算通过。
      */
-    fun finish(message: String, details: Map<String, String> = emptyMap()) {
+    fun finish(message: String, details: Map<String, String> = emptyMap(), allowZeroAssertions: Boolean = false) {
         val snapshot = snapshot()
         val failed = failedNames(snapshot)
-        if (failed.isEmpty()) {
-            write(STATUS_PASS, message, withSummary(details, snapshot, failed))
-        } else {
-            write(STATUS_FAIL, failureMessage(message, snapshot, failed), withSummary(details, snapshot, failed))
+        when {
+            failed.isNotEmpty() ->
+                write(STATUS_FAIL, failureMessage(message, snapshot, failed), withSummary(details, snapshot, failed))
+            snapshot.isEmpty() && !allowZeroAssertions ->
+                write(STATUS_FAIL, zeroAssertionMessage(message), withSummary(details, snapshot, failed))
+            else -> write(STATUS_PASS, message, withSummary(details, snapshot, failed))
         }
     }
 
-    /** 兼容既有调用点签名：断言全部通过才写 PASS，已登记的失败断言会把 PASS 降级为 FAIL。 */
-    fun pass(message: String, details: Map<String, String>) = finish(message, details)
+    /**
+     * 事件驱动场景的收尾：这类场景不登记逐项断言（判定在 fixture 的事件序列里）。
+     *
+     * 走该入口即显式声明“允许零断言”；有登记断言时行为与 [finish] 完全一致。
+     */
+    fun pass(message: String, details: Map<String, String>) = finish(message, details, allowZeroAssertions = true)
 
     /** 兼容既有调用点签名：无条件写 FAIL，断言汇总与附加详情（如取证判据）一并落盘。 */
     fun fail(message: String, details: Map<String, String> = emptyMap()) {
@@ -83,6 +99,10 @@ class ScenarioResultWriter(private val resultFile: File) {
 
     private fun failedNames(snapshot: Map<String, Assertion>): List<String> =
         snapshot.entries.filter { !it.value.passed }.map { it.key }
+
+    /** 零断言时的失败文案：明确指向“断言前缀/判定未登记”，而不是让结果看起来像跑完了。 */
+    private fun zeroAssertionMessage(message: String): String =
+        "$message（失败断言: 未登记任何断言——判定逻辑或断言前缀可能写错，不允许零断言通过）"
 
     /** 失败文案列出失败断言名；detail 非空时附在括号里，便于直接看出实际值。 */
     private fun failureMessage(message: String, snapshot: Map<String, Assertion>, failed: List<String>): String {

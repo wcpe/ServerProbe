@@ -1006,18 +1006,18 @@ class BridgeClient {
      */
     private fun helloJson(instance: String): String {
         val managed = currentManagedTarget() != null
-        // 能力位两处同源：线路治理的能力（分片/主题/重载/健康）+ 托管模式的能力（指标推送/配置下发/状态上报），
-        // 后者只在托管模式声明——独立模式既不注册 config_push 也不上报状态，宣告了就是谎报能力。
-        val capabilities = (BridgeCapabilities.snapshot().toList() + BridgeFrames.capabilities(managed)).distinct()
+        // 帧结构的唯一真源是 [BridgeFrames.hello]：能力位（线路治理登记项 + 按模式追加的托管能力）、
+        // `subscriptions` 与 `managed` 字段都在那里拼装——单测断言的因此就是生产实际走的那条路径。
         return Json.encode(
-            linkedMapOf(
-                "type" to OutboundFrame.TYPE_HELLO,
-                "instance" to instance,
-                "platform" to platformName(),
-                "version" to BridgeCapabilities.VERSION,
-                "capabilities" to capabilities,
-                "subscriptions" to BridgeCapabilities.subscriptions(),
-                "managed" to managed,
+            BridgeFrames.hello(
+                instance = instance,
+                platform = platformName(),
+                managed = managed,
+                extras = BridgeFrames.HelloExtras(
+                    version = BridgeCapabilities.VERSION,
+                    extraCapabilities = BridgeCapabilities.snapshot().toList(),
+                    subscriptions = BridgeCapabilities.subscriptions(),
+                ),
             ),
         )
     }

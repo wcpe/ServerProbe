@@ -47,6 +47,14 @@ internal object IdentityMigration {
         /** `config.yml` 读不到或结构异常：不迁移。 */
         data class ConfigUnreadable(val detail: String) : Outcome()
 
+        /**
+         * 身份已存在，但 `config.yml` 的 `bridge` 段指向**不同目标**：保留现状，不做备份、不删段。
+         *
+         * 现实场景：运维换发了凭据并把新值追加到 `config.yml` 末尾。此时既不能用旧身份覆盖新值，
+         * 也不能把运维刚写的那段静默删掉（那是他们唯一留存的凭据）。
+         */
+        data class ResidualMismatch(val detail: String) : Outcome()
+
         /** 迁移写入失败；[identityWritten] 表明身份文件是否已先落盘（落盘则本次仍可按托管运行）。 */
         data class Failed(val stage: String, val detail: String, val identityWritten: Boolean) : Outcome()
 
@@ -122,6 +130,9 @@ internal object IdentityMigration {
         timestamp: Date,
     ): Outcome {
         val identity = existing ?: buildIdentity(values, timestamp)
+        if (existing != null && !sameTarget(existing, values)) {
+            return Outcome.ResidualMismatch("endpoint/instance/credential 至少一项与已有身份不同（具体值不入日志）")
+        }
         var identityWritten = false
         if (existing == null) {
             identityWritten = runCatching { IdentityFileStore.write(identityFile, identity) }
@@ -152,6 +163,17 @@ internal object IdentityMigration {
         class Failed(val detail: String) : ConfigRead()
     }
 
+    /**
+     * 已有身份与 `bridge` 段是否指向同一目标。
+     *
+     * 只比三个定位字段（endpoint/instance/credential），不比 `capabilities`/`createdAt`：
+     * 后者由控制面签发，与运维手写的段天然不同，拿来比会造成永远“不一致”。
+     */
+    private fun sameTarget(identity: ControlPlaneIdentity, values: BridgeSectionValues): Boolean =
+        identity.endpoint == values.url.trim() &&
+            identity.instanceId == values.instance.trim() &&
+            identity.credential == values.token.trim()
+
     /** 由 `bridge` 段构造身份对象。 */
     private fun buildIdentity(values: BridgeSectionValues, timestamp: Date): ControlPlaneIdentity =
         ControlPlaneIdentity(
@@ -180,6 +202,8 @@ internal object IdentityMigration {
         }
         // 备份即"原样留档":直接复制当前字节,不经原子替换(备份文件不参与运行期读取)
         Files.copy(configFile, backupPath, StandardCopyOption.REPLACE_EXISTING)
+        // 备份内容含明文 token,与身份文件同口径收紧权限(默认 0644 在多用户机器上等同泄露)
+        AtomicFileWrite.restrictPermissions(backupPath)
         return backupName
     }
 

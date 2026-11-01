@@ -92,15 +92,21 @@ class BridgeClientCommandTest {
         assertFalse(result.success, "平台未注册执行器时应降级为失败回执")
     }
 
-    /** 独立模式 hello 不声明任何能力位：指标上行属托管能力（不推就不能声明）。 */
+    /**
+     * 独立模式 hello 不声明托管能力位：指标上行属托管能力（不推就不能声明）。
+     *
+     * 这里的断言直接跑在 [BridgeFrames.hello] 上——它在生产里就是 `BridgeClient.helloJson` 的唯一真源，
+     * 所以改坏能力位或漏写 `managed` 字段，本用例会红（不再是“只验证死代码”）。
+     */
     @Test
     fun `独立模式 hello 不声明能力位`() {
         val hello = BridgeFrames.hello("instance-7", "bukkit")
 
         assertEquals("hello", hello["type"])
         assertEquals("instance-7", hello["instance"])
-        assertTrue(hello.containsKey("platform"), "既有字段不得缺失")
-        assertTrue(hello.containsKey("version"), "既有字段不得缺失")
+        assertEquals("bukkit", hello["platform"])
+        assertEquals(BridgeCapabilities.VERSION, hello["version"], "版本号取线路治理的真源，不得各处各写一份")
+        assertEquals(false, hello["managed"], "managed 字段必须如实反映运行模式")
         @Suppress("UNCHECKED_CAST")
         val capabilities = hello["capabilities"] as List<String>
         assertTrue(capabilities.isEmpty(), "独立模式不推指标、不下发配置、不上报状态，实际:$capabilities")
@@ -117,9 +123,31 @@ class BridgeClientCommandTest {
     fun `托管模式 hello 追加配置类能力位`() {
         val hello = BridgeFrames.hello("instance-7", "bukkit", managed = true)
 
+        assertEquals(true, hello["managed"])
         @Suppress("UNCHECKED_CAST")
         val capabilities = hello["capabilities"] as List<String>
         assertEquals(listOf("metric_push", "config_push", "config_state"), capabilities)
+    }
+
+    /** 线路治理登记的能力位（分片/主题/健康等）与托管能力位合并去重，且订阅表原样透传。 */
+    @Test
+    fun `hello 合并治理能力位并透传订阅`() {
+        val hello = BridgeFrames.hello(
+            instance = "instance-7",
+            platform = "bungee",
+            managed = true,
+            extras = BridgeFrames.HelloExtras(
+                extraCapabilities = listOf("chunk", "metric_push"),
+                subscriptions = listOf("topic:player_chat"),
+            ),
+        )
+
+        @Suppress("UNCHECKED_CAST")
+        val capabilities = hello["capabilities"] as List<String>
+        assertEquals(listOf("chunk", "metric_push", "config_push", "config_state"), capabilities, "应合并并去重，不得丢登记项")
+        @Suppress("UNCHECKED_CAST")
+        val subscriptions = hello["subscriptions"] as List<String>
+        assertEquals(listOf("topic:player_chat"), subscriptions)
     }
 
     /**

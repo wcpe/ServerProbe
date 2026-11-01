@@ -562,6 +562,35 @@ tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
     dependsOn(":e2e:harness:jar", ":e2e:harness-network-bukkit:jar")
 }
 
+// ── 身份文件残留清理（与场景无关）──
+// 身份文件即托管开关：托管场景会把它写进后端运行目录，而非托管场景（read-api / storage-spi / matrix-*）
+// 走的是 harness 自写配置的路径、不经 installE2eConfig，于是前一个场景留下的身份文件会让它们以
+// **托管模式**启动并连向已关闭的夹具端口（表现为难查的模式漂移）。故在所有 prepareE2e* 之前统一清一次；
+// 托管场景自己的 prepare（prepareManagedConfig*）在那之后重新写入，顺序由 dependsOn 链保证。
+val cleanE2eIdentityResidue by tasks.registering {
+    group = "verification"
+    description = "清理各后端运行目录里残留的托管身份文件（避免非托管场景以托管模式启动）"
+    outputs.upToDateWhen { false }
+    doLast {
+        val workRoot = rootProject.layout.buildDirectory.dir("mc-testkit").get().asFile
+        val residues = workRoot.listFiles { file -> file.isDirectory && file.name.startsWith("run-") }
+            ?.flatMap { runDir -> (runDir.resolve("plugins").listFiles() ?: emptyArray()).toList() }
+            ?.mapNotNull { dataDir -> dataDir.resolve(identityFileName).takeIf { it.isFile } }
+            .orEmpty()
+        residues.forEach { file ->
+            if (!file.delete()) {
+                logger.warn("无法清理残留身份文件：${file.absolutePath}")
+            }
+        }
+        if (residues.isNotEmpty()) {
+            logger.lifecycle("已清理残留托管身份文件 ${residues.size} 个（防止非托管场景以托管模式启动）")
+        }
+    }
+}
+tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
+    dependsOn(cleanE2eIdentityResidue)
+}
+
 tasks.matching { it.name.startsWith("prepareE2eNetworkForensics") }.configureEach {
     dependsOn(":e2e:harness-network-bukkit:jar", ":e2e:harness-network-bungee:jar", ":e2e:harness-network-velocity:jar")
 }

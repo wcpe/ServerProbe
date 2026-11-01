@@ -60,14 +60,25 @@ class ControlPlaneModeDeciderTest {
         val config = dir.resolve("config.yml")
         Files.write(config, BRIDGE_CONFIG.toByteArray(Charsets.UTF_8))
         val identityFile = dir.resolve("agent-identity.json")
-        IdentityFileStore.write(identityFile, sample())
+        // 该场景是“上次迁移在写身份与移除段之间中断”，故身份应与 bridge 段指向同一目标；
+        // 若两者不一致（运维换发凭据后手改了 config.yml），则应当保留现状、不删段（见 IdentityMigrationTest）。
+        val existing = ControlPlaneIdentity(
+            schemaVersion = ControlPlaneIdentity.SUPPORTED_SCHEMA_VERSION,
+            provider = "sample-vendor",
+            endpoint = "ws://127.0.0.1:9102/ws/plugin-bridge",
+            instanceId = "instance-abc",
+            credential = "token-abc",
+            capabilities = listOf("config_push"),
+            createdAt = "2026-10-19T03:12:44Z",
+        )
+        IdentityFileStore.write(identityFile, existing)
 
         val decision = ControlPlaneModeDecider.decide(identityFile, config, FIXED_TIME)
 
         val managed = decision as ControlPlaneModeDecider.Decision.Managed
         assertTrue(managed.migration != null, "应补做残留清理")
         assertFalse(BridgeSection.exists(String(Files.readAllBytes(config), Charsets.UTF_8)), "残留段应被移除")
-        assertEquals(sample(), managed.identity, "已有身份不得被改写")
+        assertEquals(existing, managed.identity, "已有身份不得被改写")
     }
 
     /** 既无身份也无桥段 → 独立模式（与改造前完全一致）。 */

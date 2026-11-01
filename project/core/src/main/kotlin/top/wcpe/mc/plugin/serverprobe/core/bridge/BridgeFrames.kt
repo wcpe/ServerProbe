@@ -1,6 +1,5 @@
 package top.wcpe.mc.plugin.serverprobe.core.bridge
 
-import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.core.config.ConfigPushOutcome
 import top.wcpe.mc.plugin.serverprobe.core.config.ManagedConfigRedaction
 
@@ -17,9 +16,6 @@ import top.wcpe.mc.plugin.serverprobe.core.config.ManagedConfigRedaction
  * `instance` 的来源（托管模式取身份文件、独立模式取配置/自动生成）属于连接装配，故不在本对象内解析。
  */
 internal object BridgeFrames {
-
-    /** 桥协议版本（随 hello 上报，供 Worker/CP 展示）。 */
-    const val PROBE_BRIDGE_VERSION = "1"
 
     /**
      * 能力位：指标经 WS 推送（协议规格 §3.6）。
@@ -68,113 +64,42 @@ internal object BridgeFrames {
      * @param instance 实例标识。
      * @param platform 平台名（bukkit/bungee/unknown）。
      * @param managed 当前是否托管模式（决定是否声明配置类能力位）。
+     * @param extras 线路治理侧附加项（版本、已登记能力位、订阅表）。
      * @return 帧树。
      */
-    fun hello(instance: String, platform: String, managed: Boolean = false): Map<String, Any?> = linkedMapOf(
+    fun hello(
+        instance: String,
+        platform: String,
+        managed: Boolean = false,
+        extras: HelloExtras = HelloExtras(),
+    ): Map<String, Any?> = linkedMapOf(
         "type" to "hello",
         "instance" to instance,
         "platform" to platform,
-        "version" to PROBE_BRIDGE_VERSION,
-        "capabilities" to capabilities(managed),
+        "version" to extras.version,
+        "capabilities" to (extras.extraCapabilities + capabilities(managed)).distinct(),
+        "subscriptions" to extras.subscriptions,
+        "managed" to managed,
+    )
+
+    /**
+     * hello 帧里由线路治理提供的附加项。
+     *
+     * 单独成型而不是拆成一堆参数：参数一多就直接撞上 `LongParameterList`（六个就报），
+     * 而且也表达不出“这三项同属治理侧”的语义。
+     *
+     * @property version 桥协议版本（默认取 [BridgeCapabilities.VERSION]）。
+     * @property extraCapabilities 由治理侧登记的能力位（分片/主题/健康等）。
+     * @property subscriptions 当前订阅表达式（连上即让对端发现漂移）。
+     */
+    data class HelloExtras(
+        val version: String = BridgeCapabilities.VERSION,
+        val extraCapabilities: List<String> = emptyList(),
+        val subscriptions: List<String> = emptyList(),
     )
 
     /** 当前模式下本机声明的能力位（供 hello 与 `config_state` 复用同一份，避免两处漂移）。 */
     fun capabilities(managed: Boolean): List<String> = if (managed) MANAGED_CAPABILITIES else STANDALONE_CAPABILITIES
-
-    /**
-     * 连接事件帧（`connected` 等仅带时间戳的事件）。
-     *
-     * @param event 事件子类型。
-     * @param instance 实例标识。
-     * @param timestampMs 事件时刻（epoch 毫秒）。
-     * @return 帧树。
-     */
-    fun event(event: String, instance: String, timestampMs: Long): Map<String, Any?> = linkedMapOf(
-        "type" to "event",
-        "event" to event,
-        "instance" to instance,
-        "timestamp" to timestampMs,
-    )
-
-    /**
-     * 带结构化载荷的玩家事件帧（FR-066）。
-     *
-     * 结构化字段统一放在嵌套 `data` 对象内（Worker 仅解析 `data` 填充 workerpb.PluginEvent）；
-     * 空值字段不写入，减小帧体并避免下游误判。
-     *
-     * @param event 事件子类型。
-     * @param instance 实例标识。
-     * @param timestampMs 事件时刻（epoch 毫秒）。
-     * @param fields 结构化字段（playerName/playerUuid/message/server/fromServer/toServer 等）。
-     * @return 帧树。
-     */
-    fun playerEvent(event: String, instance: String, timestampMs: Long, fields: Map<String, String>): Map<String, Any?> =
-        linkedMapOf(
-            "type" to "event",
-            "event" to event,
-            "instance" to instance,
-            "timestamp" to timestampMs,
-            "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
-        )
-
-    /**
-     * JBIS 业务域事件帧（FR-122）：在玩家事件形态上加顶层 `domain` + `dedupKey`。
-     *
-     * Worker 透传 domain/dedupKey、并把整帧原文带给 CP（raw），CP 据此按 (domain, dedupKey) 去重落库。
-     *
-     * @param domain 业务域（economy…）。
-     * @param dedupKey 去重键（经济域为 ledgerId 字符串）。
-     * @param instance 实例标识。
-     * @param timestampMs 事件时刻（epoch 毫秒）。
-     * @param fields 业务信封结构化字段。
-     * @return 帧树。
-     */
-    fun businessEvent(
-        domain: String,
-        dedupKey: String,
-        instance: String,
-        timestampMs: Long,
-        fields: Map<String, String>,
-    ): Map<String, Any?> = linkedMapOf(
-        "type" to "event",
-        "event" to "${domain}_change",
-        "instance" to instance,
-        "timestamp" to timestampMs,
-        "domain" to domain,
-        "dedupKey" to dedupKey,
-        "data" to fields.filterValues { it.isNotEmpty() }, // 空值不发
-    )
-
-    /**
-     * 治理/查询指令回执帧（FR-067）。
-     *
-     * 顶层 `type=event` + `event=command_result`，结构化字段放在嵌套 `data` 内
-     * （requestId/success/output/error）。requestId 须与下发指令一致，Worker 据此把回执路由给
-     * 同步等待的调用方——FR-46 的 `metrics_now` 回执同样依赖本约定。
-     *
-     * @param instance 实例标识。
-     * @param timestampMs 回执时刻（epoch 毫秒）。
-     * @param requestId 关联回执标识（来自下发的 command 帧）。
-     * @param result 执行结果（平台治理、业务域或 core 内置动作）。
-     * @return 帧树。
-     */
-    fun commandResult(
-        instance: String,
-        timestampMs: Long,
-        requestId: String,
-        result: BridgeCommandResult,
-    ): Map<String, Any?> = linkedMapOf(
-        "type" to "event",
-        "event" to "command_result",
-        "instance" to instance,
-        "timestamp" to timestampMs,
-        "data" to linkedMapOf(
-            "requestId" to requestId,
-            "success" to result.success,
-            "output" to result.output,
-            "error" to result.error,
-        ),
-    )
 
     /**
      * 配置应用回执帧（协议规格 §3.4.2）。

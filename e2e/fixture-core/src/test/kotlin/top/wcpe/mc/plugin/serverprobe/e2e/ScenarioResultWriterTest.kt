@@ -130,6 +130,30 @@ class ScenarioResultWriterTest {
         assertEquals("FAIL", properties.getProperty("status"))
     }
 
+    /** 一条断言都没登记时不得写 PASS：断言前缀写错也能“零断言通过”是假阳性。 */
+    @Test
+    fun `零断言时写 FAIL`() {
+        val writer = ScenarioResultWriter(resultFile)
+        writer.finish("没有跑任何断言")
+
+        val properties = load()
+        assertEquals("FAIL", properties.getProperty("status"))
+        assertEquals("0", properties.getProperty("assertions.total"))
+        assertTrue(
+            properties.getProperty("message").contains("未登记任何断言"),
+            "失败文案应明确指出零断言，便于定位断言前缀写错。实际:${properties.getProperty("message")}",
+        )
+    }
+
+    /** 事件驱动场景可用 `pass(...)` 显式声明“允许零断言”，且该声明不会被滥用为默认路径。 */
+    @Test
+    fun `显式允许零断言时才可写 PASS`() {
+        val writer = ScenarioResultWriter(resultFile)
+        writer.pass("事件驱动场景完成", emptyMap())
+
+        assertEquals("PASS", load().getProperty("status"))
+    }
+
     private fun load(): Properties = Properties().apply {
         resultFile.inputStream().use { load(it) }
     }

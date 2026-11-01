@@ -143,6 +143,10 @@ class ControlPlaneModeService {
         // "秒起、不等控制面"(协议规格 §3.5)就退化成了"先按 config.yml 跑一会儿再说"
         loadManagedCacheBeforePublish(dataFolder)
         ControlPlaneRuntime.publish(ProbeMode.MANAGED, identity)
+        decision.residualMismatch?.let { mismatch ->
+            // 保留现状而不是替运维做决定：那多半是他们刚换发凭据、把新值写进了 config.yml
+            ProbeLogger.warn("config.yml 的 bridge 段与已有身份不一致，已保留现状未改:${mismatch.detail}")
+        }
         val migration = decision.migration
         if (migration == null) {
             ProbeLogger.info("已进入托管模式:provider=${identity.provider}, instance=${identity.instanceId}")

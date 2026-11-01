@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.config
 
 import top.wcpe.mc.plugin.serverprobe.core.control.AtomicFileWrite
+import top.wcpe.mc.plugin.serverprobe.core.control.ConfigTier
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonText
 import top.wcpe.mc.plugin.serverprobe.core.util.IsoInstant
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
@@ -88,13 +89,50 @@ internal object ManagedCacheStore {
      */
     fun loadInto(path: Path): Boolean {
         val snapshot = read(path) ?: return false
-        ManagedConfigStore.replace(snapshot.values)
+        val accepted = sanitize(snapshot.values)
+        ManagedConfigStore.replace(accepted)
         ManagedConfigState.markApplied(snapshot.configVersion, snapshot.appliedAtEpochSeconds)
+        val dropped = snapshot.values.size - accepted.size
         ProbeLogger.info(
-            "已加载托管配置缓存:configVersion=${snapshot.configVersion}, 键数=${snapshot.values.size}, " +
-                "生效于 ${snapshot.appliedAt}",
+            "已加载托管配置缓存:configVersion=${snapshot.configVersion}, 键数=${accepted.size}" +
+                (if (dropped > 0) "(丢弃非法键 $dropped 个)" else "") +
+                ", 生效于 ${snapshot.appliedAt}",
         )
         return true
+    }
+
+    /**
+     * 逐键过一遍档位与边界（缓存是“损坏即降级”的路径，但**坏键**不该整份丢弃）。
+     *
+     * 写入侧有 [ConfigTier] 把关，读取侧同样要有：手工编辑或旧版本写进去的越界值
+     * （如 `collect-period-ticks: 1`）否则会照样生效，而读取侧对多数键没有 clamp。
+     * 丢弃的键只打键名与原因，**不打印值**（可能含凭据）。
+     *
+     * @param values 缓存里的键值。
+     * @return 过滤后的键值（保持原顺序）。
+     */
+    private fun sanitize(values: Map<String, Any?>): Map<String, Any?> {
+        if (values.isEmpty()) {
+            return values
+        }
+        val accepted = LinkedHashMap<String, Any?>(values.size)
+        values.forEach { (key, value) ->
+            if (value == null) {
+                // 缓存里出现 null 没有意义（删除语义不适用于落盘值）
+                return@forEach
+            }
+            if (ConfigTier.isForbiddenPath(key)) {
+                ProbeLogger.warn("托管配置缓存含禁止远程档键，已丢弃:$key")
+                return@forEach
+            }
+            val reason = ConfigTier.validate(key, value)
+            if (reason != null) {
+                ProbeLogger.warn("托管配置缓存键非法已丢弃:$key($reason)")
+                return@forEach
+            }
+            accepted[key] = value
+        }
+        return accepted
     }
 
     /** 读文件文本;不存在返回 null(不打日志),读取异常 WARN 后返回 null。 */

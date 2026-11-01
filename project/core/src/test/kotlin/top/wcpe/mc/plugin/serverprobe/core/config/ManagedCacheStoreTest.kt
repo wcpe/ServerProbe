@@ -148,6 +148,34 @@ class ManagedCacheStoreTest {
         assertEquals(mapOf("history-capacity" to 300L), loaded.values, "旧键不得残留")
     }
 
+    /**
+     * 装载时逐键校验：禁止远程档键与越界值必须丢弃，其余保留。
+     *
+     * 写入侧有 tier 把关，但缓存是**人可以编辑**的文件：手工或旧版本写进去的越界值（如
+     * `collect-period-ticks: 1`）若照单全收，读取侧对多数键没有 clamp，就会真的按 1 tick 采集。
+     */
+    @Test
+    fun `装载时丢弃禁止档与越界键`() {
+        ManagedCacheStore.write(
+            cacheFile,
+            snapshot(
+                version = 9,
+                values = linkedMapOf(
+                    "history-capacity" to 360L,
+                    "mcp.secret" to "should-not-survive",
+                    "collect-period-ticks" to 1L,
+                ),
+            ),
+        )
+
+        assertTrue(ManagedCacheStore.loadInto(cacheFile), "结构有效的缓存应装载成功")
+
+        val loaded = ManagedConfigStore.currentValues()
+        assertEquals(360L, loaded["history-capacity"], "合法键必须保留：$loaded")
+        assertFalse(loaded.containsKey("mcp.secret"), "禁止远程档键不得进入内存：$loaded")
+        assertFalse(loaded.containsKey("collect-period-ticks"), "越界值不得进入内存：$loaded")
+    }
+
     /** 构造一份缓存快照。 */
     private fun snapshot(version: Long, values: Map<String, Any?>): ManagedCacheStore.Snapshot = ManagedCacheStore.Snapshot(
         configVersion = version,

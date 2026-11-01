@@ -75,7 +75,7 @@ internal object AtomicFileWrite {
      *
      * 权限收紧失败**不影响**写入结果（Windows 上本就是尽力而为），故整体吞掉异常。
      */
-    private fun restrictPermissions(path: Path) {
+    internal fun restrictPermissions(path: Path) {
         val posix = runCatching { Files.setPosixFilePermissions(path, OWNER_ONLY_PERMISSIONS) }
         if (posix.isSuccess) {
             return
