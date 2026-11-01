@@ -65,16 +65,25 @@ class McpControlPlane {
     private var artifacts: McpArtifactWorkspace? = null
 
     @PostEnable
-    @Synchronized
     fun start() {
-        val settings = settings()
-        if (!settings.enabled) {
+        // 配置读取与“是否监听”的判定一律放到后台线程：
+        // 1) 主线程零阻塞（项目红线）；
+        // 2) `mcp.enabled` 属禁止远程档，值只能来自本地 config.yml，而 IOC 装配线程可能跑在
+        //    TabooLib 注入配置之前——在主线程直接读会偶发拿到默认 false，把端点误判为“未开启”。
+        LocalListenerLauncher(LocalListenerGate.Surface.MCP, awaitDecision = { modeService.awaitReady(it) })
+            .launch { startIfEnabled() }
+    }
+
+    /** 后台判定：等配置就绪 → `mcp.enabled` 为真才真正尝试起服。 */
+    private fun startIfEnabled() {
+        if (!ProbeConfig.awaitLoaded()) {
+            ProbeLogger.warn("MCP 控制面等待配置就绪超时，将按当前可见值判断 mcp.enabled")
+        }
+        if (!runCatching { settings().enabled }.getOrDefault(false)) {
             ProbeLogger.info("MCP 控制面未开启(mcp.enabled=false)，已跳过")
             return
         }
-        // 托管模式下必须零监听：先等模式判定，再在后台线程里决定是否 bind（主线程零阻塞）
-        LocalListenerLauncher(LocalListenerGate.Surface.MCP, awaitDecision = { modeService.awaitReady(it) })
-            .launch { enable() }
+        enable()
     }
 
     @PreDestroy

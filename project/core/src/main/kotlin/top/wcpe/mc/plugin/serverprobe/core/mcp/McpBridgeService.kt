@@ -76,8 +76,13 @@ class McpBridgeService {
         runCatching { controlPlane.disable() }
     }
 
-    /** 等模式判定 → 托管模式且 MCP 已启用才挂载。 */
+    /** 等配置就绪 → 等模式判定 → 托管模式且 MCP 已启用才挂载。 */
     private fun bootstrap() {
+        // 先等配置就绪：`mcp.enabled` 属禁止远程档，值只能来自本地 config.yml；
+        // 而 IOC 装配线程可能跑在 TabooLib 注入配置之前，早读会拿到默认 false（实测会导致 MCP 不挂载，偶发）。
+        if (!ProbeConfig.awaitLoaded()) {
+            ProbeLogger.warn("MCP 装配等待配置就绪超时，将按当前可见值判断 mcp.enabled")
+        }
         modeService.awaitReady(BOOTSTRAP_WAIT_MS)
         if (modeService.mode() != ProbeMode.MANAGED) {
             ProbeLogger.info("独立模式：MCP 仅保留由 mcp.enabled 控制的本地端点，不经插件桥暴露")

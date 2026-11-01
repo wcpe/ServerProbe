@@ -30,11 +30,12 @@
 
 - 配置下发自检的「指标可产」在探针刚启动、首份快照未产出时误判为失败（控制面在 hello 后立即下发必被拒）：改为采集器在跑时最多等一个采集周期（夹在 500ms~5s）再判定。
 - 经桥调用 MCP 时审计来源丢失操作者：现按 `principal.operator` 记为 `bridge:<operator>`。
+- **装配期读配置的竞态**：`config.yml` 由 TabooLib 在加载期反射注入，而 IOC 组件的装配线程可能跑在注入之前，导致 `mcp.enabled` / `metrics.enabled` / `web.enabled` 偶发读到默认 `false`。实测表现为托管模式下 MCP 工具面偶发不挂上桥（控制面下发 `core.mcp` 得到“未注册执行器”的失败回执，代理端 5 轮里命中过 2 轮）。新增 `ProbeConfig.awaitLoaded()`（有界等注入 + 就绪后强制重载一次，超时降级并 WARN），并让 MCP 桥、本地 MCP 端点、Prometheus 端点与 Web 面板把「读开关 + 判定」整体移到后台线程、过门后再判（同时消除在启用线程上读配置的风险）。
 
 ### 测试
 
 - 新增真机 E2E 场景 `managed-config`（Paper 1.20.1）及版本矩阵 `managed-config-paper188` / `managed-config-paper1211`：逐项断言托管 hello 与能力位、配置下发热应用、周期指标推送、状态上报、按需推送回执、MCP 经桥、以及托管下三个监听端口全部不可连。
-- 新增代理端托管场景 `managed-config-bungee` / `managed-config-velocity`（经 `e2e<Key>Via<Proxy>` 任务运行）：身份文件与托管配置作为**代理模板**生成——mc-testkit 在场景任务内部才铺代理目录，而钩子跑在那之前，写进去的文件会被模板覆盖。模拟控制面由 Bungee / Velocity 的夹具插件（`harness-managed-bungee` / `-velocity`，运行于代理进程内）提供，与 Bukkit harness 共用平台无关的 `e2e/fixture-core`；原外置模拟控制面脚本已删除。**状态**：受本机外网不可用所限（mc-testkit 在 jar 解析阶段需访问远端 API），两个 via 场景本轮**尚未真机验证**。
+- 新增代理端托管场景 `managed-config-bungee` / `managed-config-velocity`（经 `e2e<Key>Via<Proxy>` 任务运行）：身份文件与托管配置作为**代理模板**生成——mc-testkit 在场景任务内部才铺代理目录，而钩子跑在那之前，写进去的文件会被模板覆盖。模拟控制面由 Bungee / Velocity 的夹具插件（`harness-managed-bungee` / `-velocity`，运行于代理进程内）提供，与 Bukkit harness 共用平台无关的 `e2e/fixture-core`；原外置模拟控制面脚本已删除。**真机结果**：`managed-config-velocity` 与 `managed-config-bungee` 修复后各多轮全绿（7/7 断言）。
 - 修复 `FrameSenderTest` 两处以“队列深度归零”为等待条件的竞态（计数在出队之后才递增）。
 
 ---

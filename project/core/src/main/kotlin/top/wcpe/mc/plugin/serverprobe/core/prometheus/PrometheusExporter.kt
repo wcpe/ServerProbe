@@ -101,14 +101,20 @@ class PrometheusExporter {
      */
     @PostEnable
     fun start() {
-        if (!ProbeConfig.metricsEnabled()) {
-            ProbeLogger.info("Prometheus /metrics 端点未开启(metrics.enabled=false),已跳过")
-            return
-        }
         stopping = false
-        // 托管模式下必须零监听:先等模式判定,再在后台线程里决定是否 bind
+        // 配置读取与判定放到后台线程：主线程零阻塞，且避免“配置尚未注入时读到默认 false 而误跳过端点”。
+        // 托管模式下必须零监听：先等模式判定，再在后台线程里决定是否 bind。
         LocalListenerLauncher(LocalListenerGate.Surface.METRICS, awaitDecision = { modeService.awaitReady(it) })
-            .launch(::bindIfStandalone)
+            .launch {
+                if (!ProbeConfig.awaitLoaded()) {
+                    ProbeLogger.warn("Prometheus 端点等待配置就绪超时，将按当前可见值判断 metrics.enabled")
+                }
+                if (!runCatching { ProbeConfig.metricsEnabled() }.getOrDefault(false)) {
+                    ProbeLogger.info("Prometheus /metrics 端点未开启(metrics.enabled=false),已跳过")
+                    return@launch
+                }
+                bindIfStandalone()
+            }
     }
 
     /**

@@ -78,18 +78,23 @@ class WebPanelServer {
      * 启动 Web 面板。
      *
      * 配置开关关闭则跳过;否则起后台线程**等托管模式判定**,只有独立模式才真正 bind。
-     * 主线程只做"读开关 + 起线程",既不阻塞也不做 IO。
+     * 配置读取与判定都在后台线程（主线程零阻塞），且先等配置就绪——否则可能读到尚未注入的默认值而误跳过。
      */
     @PostEnable
     fun start() {
-        if (!ProbeConfig.webEnabled()) {
-            ProbeLogger.info("Web 面板未开启(web.enabled=false),已跳过")
-            return
-        }
         stopping = false
         // 托管模式下必须零监听:先等模式判定,再在后台线程里决定是否 bind
         LocalListenerLauncher(LocalListenerGate.Surface.WEB, awaitDecision = { modeService.awaitReady(it) })
-            .launch(::bindIfStandalone)
+            .launch {
+                if (!ProbeConfig.awaitLoaded()) {
+                    ProbeLogger.warn("Web 面板等待配置就绪超时，将按当前可见值判断 web.enabled")
+                }
+                if (!runCatching { ProbeConfig.webEnabled() }.getOrDefault(false)) {
+                    ProbeLogger.info("Web 面板未开启(web.enabled=false),已跳过")
+                    return@launch
+                }
+                bindIfStandalone()
+            }
     }
 
     /**

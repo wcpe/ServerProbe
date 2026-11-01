@@ -37,6 +37,38 @@ object ProbeConfig {
     lateinit var conf: Configuration
 
     /**
+     * 等配置就绪（有界），并就绪后**强制从磁盘重载一次**。
+     *
+     * ## 为什么需要它
+     * [conf] 由 TabooLib 在插件加载期注入，而 IOC 组件的 `@PostEnable` 装配线程可能跑在注入之前：
+     * 实测（代理端托管 E2E）出现过「`config.yml` 里 `mcp.enabled: true`，组件刚启动时却读到默认 `false`」，
+     * 结果是 MCP 工具面没挂到桥上——且是否命中取决于两个后台线程谁先跑，表现为偶发。
+     *
+     * 因此凡是在装配期**用配置决定是否启用某个东西**的地方，先过这道门：
+     * 1. 有界等待注入完成（避免 `lateinit` 未初始化时读到异常后的默认值）；
+     * 2. 注入完成后调用一次 [Configuration.reload]，把“注入对象是否存在”与“文件内容是否已装载”两件事
+     *    都做实——后者正是竞态的另一半。
+     *
+     * 重载发生在插件启用早期，此时不可能有运行期对内存配置的修改需要保留（运行期修改见
+     * [ProbeConfigBridgeConfigSource] 的显式 reload 路径）。
+     *
+     * @param timeoutMs 等待注入的上限（毫秒）。
+     * @return true 表示配置已可用（已注入并已重载）；false 表示超时。
+     */
+    fun awaitLoaded(timeoutMs: Long = CONFIG_READY_WAIT_MS): Boolean {
+        val deadline = System.nanoTime() + timeoutMs * NANOS_PER_MILLI
+        while (System.nanoTime() < deadline) {
+            val view = runCatching { conf }.getOrNull()
+            if (view != null) {
+                runCatching { view.reload() }
+                return true
+            }
+            runCatching { Thread.sleep(CONFIG_READY_POLL_MS) }
+        }
+        return false
+    }
+
+    /**
      * 采集周期(单位 ticks),默认 100(约 5 秒)。
      *
      * @return 采集周期 tick 数。
@@ -1290,6 +1322,15 @@ object ProbeConfig {
 
     /** 默认 MCP 控制面关闭。 */
     private const val DEFAULT_MCP_ENABLED = false
+
+    /** 等配置注入完成的上限（毫秒）：与其它托管组件等模式判定的口径一致。 */
+    private const val CONFIG_READY_WAIT_MS = 5_000L
+
+    /** 等配置注入的轮询间隔（毫秒）：足够细以捕捉“注入先于装配结束”，又不至于忙等。 */
+    private const val CONFIG_READY_POLL_MS = 25L
+
+    /** 毫秒→纳秒的换算系数（用于截止时间计算，避免乘法溢出）。 */
+    private const val NANOS_PER_MILLI = 1_000_000L
 
     /** 默认 MCP 控制面仅监听本机回环。 */
     private const val DEFAULT_MCP_HOST = "127.0.0.1"
