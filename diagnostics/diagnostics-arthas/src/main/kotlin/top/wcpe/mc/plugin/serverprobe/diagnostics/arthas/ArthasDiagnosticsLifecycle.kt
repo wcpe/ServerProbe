@@ -50,17 +50,41 @@ class ArthasDiagnosticsLifecycle {
     private val runtime = LifecycleArthasRuntime(::startRuntime, ::stopRuntime) { tasks != null && instrumentation.instrumentation != null }
 
     /**
+     * 启动期自动加载的调度入口；默认提交到平台异步线程池（`submitAsync`）。
+     *
+     * 收口成可替换字段，是为了让“启动不得阻塞启用线程”这条红线能被**行为测试**验证：
+     * 测试注入捕获型调度器后可断言 `start()` 只交出任务、并没有在这里执行加载。
+     */
+    internal var autoLoadScheduler: (() -> Unit) -> Unit = { task -> submitAsync { task } }
+
+    /** 启动期是否需要自动加载；默认读 `mcp.enabled`（托管/独立判定不变），测试可替换。 */
+    internal var autoLoadGate: () -> Boolean = { ProbeConfig.mcpEnabled() }
+
+    /** 实际加载动作；默认 [startRuntime]，测试可替换以免在无平台环境下触碰宿主目录。 */
+    internal var runtimeLoader: () -> ArthasInstrumentationSnapshot = ::startRuntime
+
+    /**
      * 启动期：始终注册启停能力（使 `mcp.enabled=false` 的实例也能被控制台按需加载），
      * `mcp.enabled=true` 时**异步**自动加载。
      *
      * 加载含运行包解包与 Instrumentation 附加（必要时 spawn helper 子进程注入，等待上限 30s），
      * 不得占用启用线程（= 服务器主线程）；[startRuntime] 幂等且 `@Synchronized`，异步与命令路径并发安全。
-     * 异步任务可能被调度到 [stop]（卸载）之后执行，故以 [destroyed] 拒绝"卸载后加载"，避免残留线程阻止 JVM 退出。
+     * 异步任务可能被调度到 [stop]（卸载）之后执行，故由 [loadAfterStartup] 拒绝“卸载后加载”，
+     * 避免残留线程阻止 JVM 退出。
      */
     @PostEnable fun start() {
         runtimeRegistration.register(runtime)
-        if (ProbeConfig.mcpEnabled()) submitAsync { startRuntime() }
+        if (autoLoadGate()) autoLoadScheduler { loadAfterStartup() }
     }
+
+    /**
+     * 启动期异步加载的唯一入口：已卸载时直接拒绝，否则交给 [runtimeLoader]。
+     *
+     * 拒绝判定必须在真正加载之前完成——异步任务可能晚于 [stop]（`@PreDestroy`）被调度执行，
+     * 此时再拉起运行时只会留下阻止 JVM 退出的非 daemon 线程。
+     */
+    internal fun loadAfterStartup(): ArthasInstrumentationSnapshot =
+        if (destroyed) unavailableDestroyed() else runtimeLoader()
 
     @PreDestroy fun stop() {
         destroyed = true
