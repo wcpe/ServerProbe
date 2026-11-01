@@ -92,7 +92,6 @@ tasks.register<VerifyE2eResultsTask>("verifyE2eResults") {
     expectedScenarios.convention(
         providers.gradleProperty("expectedScenarios")
             .orElse(providers.environmentVariable("EXPECTED_SCENARIOS"))
-            .orElse("")
             .map { value -> value.split(Regex("\\s+")).filter { it.isNotEmpty() } },
     )
 }

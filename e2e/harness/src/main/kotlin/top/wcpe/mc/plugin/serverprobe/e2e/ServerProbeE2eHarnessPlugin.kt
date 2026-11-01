@@ -122,6 +122,10 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             // 这里再写就太晚了：TabooLib 在 LOAD 阶段已读完并缓存了配置。
             E2eScenario.INCISION_STARTUP -> Unit
             E2eScenario.MCP_DIAGNOSTICS_PAPER -> Unit
+            // 代理端托管：后端不铺配置、不起夹具（夹具与断言都在代理侧，见 harness-managed-*）。
+            E2eScenario.MANAGED_CONFIG_BUNGEE,
+            E2eScenario.MANAGED_CONFIG_VELOCITY,
+            -> Unit
         }
     }
 
@@ -167,6 +171,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
             E2eScenario.MCP_DIAGNOSTICS_PAPER,
             E2eScenario.MATRIX_SMOKE,
+            // 代理端托管：验收在代理侧完成，后端无需等启动完成再做事。
+            E2eScenario.MANAGED_CONFIG_BUNGEE,
+            E2eScenario.MANAGED_CONFIG_VELOCITY,
             -> Unit
             E2eScenario.FOLIA_OBSERVED_REGIONS -> prewarmEntityTypesForFolia()
         }
@@ -1373,6 +1380,11 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         MANAGED_CONFIG_PAPER1211("managed-config-paper1211"),
         // 控制面拒绝凭据：握手头两次回 401/403，之后再正常升级（验证不降级 + 能恢复）。
         MANAGED_AUTH_REJECT("managed-auth-reject"),
+        // 代理端托管场景：夹具在**代理进程内**（e2e/harness-managed-*），后端只是陪跑。
+        // 显式列出而不能靠“未知即静默”：拼错场景名时仍要大声明失败（原先这两个缺条目，
+        // 后端插件加载即抛“未知 E2E 场景”，但场景仍绿，导致“夹具没加载”与“夹具跑通”无法区分）。
+        MANAGED_CONFIG_BUNGEE("managed-config-bungee"),
+        MANAGED_CONFIG_VELOCITY("managed-config-velocity"),
         NETWORK_FORENSICS_BUNGEE("network-forensics-bungee"),
         FOLIA_OBSERVED_REGIONS("folia-observed-regions"),
         MCP_DIAGNOSTICS_PAPER("mcp-diagnostics-paper"),

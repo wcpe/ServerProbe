@@ -52,6 +52,13 @@ object E2eResultsVerifier {
             }
         }
 
+        // 清单没传时不能让校验形同虚设：空清单下没有一个场景会被要求出结果，
+        // 「所有场景都没跑」与「全部通过」在结果上无法区分（旧的内联脚本这里会直接 KeyError）。
+        if (expected.isEmpty()) {
+            lines += "[错误] 期望场景清单为空：必须通过 -PexpectedScenarios 或环境变量 EXPECTED_SCENARIOS 给出"
+            failed = true
+        }
+
         // 场景根本没产出结果文件（如服务端未能启动）同样判失败，不能静默放过
         expected.filterNot { present.containsKey(it) }.forEach { scenario ->
             lines += "[缺失] 未找到结果文件: $scenario"

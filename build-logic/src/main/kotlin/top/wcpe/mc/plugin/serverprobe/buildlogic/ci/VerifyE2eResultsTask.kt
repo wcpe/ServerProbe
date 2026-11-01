@@ -25,14 +25,27 @@ abstract class VerifyE2eResultsTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val resultsDirectory: DirectoryProperty
 
-    /** 期望出现的场景名（与结果文件名同源，kebab-case）。 */
+    /**
+     * 期望出现的场景名（与结果文件名同源，kebab-case）。
+     *
+     * 故意标 `@Optional`：缺值时不让 Gradle 在校验阶段报一句通用的 `Value not set`，
+     * 而是由任务动作抛出带修复指引的错误（空清单会让本校验形同虚设，必须大声失败）。
+     */
     @get:Input
+    @get:Optional
     abstract val expectedScenarios: ListProperty<String>
 
     @TaskAction
     fun verify() {
+        val expected = expectedScenarios.orNull.orEmpty()
+        if (expected.isEmpty()) {
+            // 空清单下“所有场景都没跑”与“全部通过”结果一致，必须硬失败（旧内联脚本缺变量即 KeyError）。
+            throw GradleException(
+                "必须通过 -PexpectedScenarios 或环境变量 EXPECTED_SCENARIOS 给出期望场景（空清单会让本校验形同虚设）",
+            )
+        }
         val dir = resultsDirectory.orNull?.asFile
-        val outcome = E2eResultsVerifier.verify(dir, expectedScenarios.get())
+        val outcome = E2eResultsVerifier.verify(dir, expected)
         outcome.lines.forEach { line -> logger.lifecycle(line) }
         if (outcome.failed) {
             throw GradleException("E2E 结果未全部通过或存在缺失场景")

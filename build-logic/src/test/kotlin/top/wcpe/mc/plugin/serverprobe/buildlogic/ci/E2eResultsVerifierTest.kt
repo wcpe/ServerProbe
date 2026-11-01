@@ -61,6 +61,21 @@ class E2eResultsVerifierTest {
         assertTrue(outcome.lines.contains("[FAIL] a -> status=None"), "实际:${outcome.lines}")
     }
 
+    @DisplayName("期望清单为空时判失败（清单没传不能让校验形同虚设）")
+    @Test
+    fun `空期望清单判失败`(@TempDir root: File) {
+        val dir = File(root, "results")
+        writeResult(dir, "a", "status=PASS\n")
+
+        val outcome = E2eResultsVerifier.verify(dir, emptyList())
+
+        assertEquals(true, outcome.failed, "空清单下「什么都没跑」与「全部通过」不可区分，必须判失败")
+        assertTrue(
+            outcome.lines.any { it.contains("期望场景清单为空") },
+            "失败理由应指向清单缺失，实际:${outcome.lines}",
+        )
+    }
+
     @DisplayName("properties 解析：跳注释与空行，按第一个等号切分")
     @Test
     fun `解析 properties`() {
