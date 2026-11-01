@@ -72,10 +72,10 @@ class ScenarioResultWriter(private val resultFile: File) {
     /** 兼容既有调用点签名：断言全部通过才写 PASS，已登记的失败断言会把 PASS 降级为 FAIL。 */
     fun pass(message: String, details: Map<String, String>) = finish(message, details)
 
-    /** 兼容既有调用点签名：无条件写 FAIL，断言汇总一并落盘。 */
-    fun fail(message: String) {
+    /** 兼容既有调用点签名：无条件写 FAIL，断言汇总与附加详情（如取证判据）一并落盘。 */
+    fun fail(message: String, details: Map<String, String> = emptyMap()) {
         val snapshot = snapshot()
-        write(STATUS_FAIL, message, withSummary(emptyMap(), snapshot, failedNames(snapshot)))
+        write(STATUS_FAIL, message, withSummary(details, snapshot, failedNames(snapshot)))
     }
 
     /** 断言表的原子快照，避免落盘过程中被并发登记打断。 */
