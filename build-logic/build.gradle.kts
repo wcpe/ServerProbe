@@ -13,7 +13,10 @@ dependencies {
     // 未升到它之前，@Surgeon/@Lead/@Trail 会被改写到插件命名空间而运行期不存在，
     // Incision 全程静默失效（incisionEnabled 永远 false）。
     implementation("io.izzel.taboolib:io.izzel.taboolib.gradle.plugin:2.0.38-wcpe.3")
-    implementation("top.wcpe.taboolib.ioc:top.wcpe.taboolib.ioc.gradle.plugin:0.0.6")
+    // 0.2.1 起静态诊断会按源码事实抑制候选（字段已有初值 / 已手工装配），与运行时 taboolib-ioc 1.3.0 配套。
+    // 注意：根 settings.gradle.kts 的 pluginManagement.plugins 只约束根构建的 plugins {}；
+    // 本 included build 通过 implementation 自带 IoC 插件类路径，实际生效的版本由这一行决定。
+    implementation("top.wcpe.taboolib.ioc:top.wcpe.taboolib.ioc.gradle.plugin:0.2.1")
     implementation("io.gitlab.arturbosch.detekt:io.gitlab.arturbosch.detekt.gradle.plugin:1.23.7")
     // 0.10.0 起 `ServerLauncher` 用前缀 `io.papermc.paperclip.` 识别 paperclip 入口（旧版是精确匹配
     // `...paperclip.Main`）。Paper 1.8.8–1.17.1 的主类是 `...paperclip.Paperclip`，精确匹配识别不到，

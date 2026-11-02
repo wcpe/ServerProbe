@@ -31,7 +31,7 @@ taboolib {
 dependencies {
     compileOnly(project(":api"))
     compileOnly(project(":project:core"))
-    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
+    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:${property("taboolib.ioc.version")}")
     compileOnly("com.velocitypowered:velocity-api:${velocityApiVersion.get()}")
 
     testImplementation(project(":api"))
