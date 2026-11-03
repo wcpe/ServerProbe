@@ -4,6 +4,7 @@ import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.api.bridge.Principal
 import top.wcpe.mc.plugin.serverprobe.core.json.Json
 import top.wcpe.mc.plugin.serverprobe.core.json.JsonObject
+import top.wcpe.mc.plugin.serverprobe.core.json.JsonText
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -225,13 +226,19 @@ class BridgeKernel(
         )
     }
 
-    private companion object {
+    internal companion object {
 
         /** 下行命令帧类型。 */
         const val TYPE_COMMAND = "command"
 
         /** 下行帧内承载操作者上下文的字段名。 */
         const val FIELD_PRINCIPAL = "principal"
+
+        /** 下行帧内的字符串载荷字段名（业务命令约定）。 */
+        const val FIELD_PAYLOAD_JSON = "payloadJson"
+
+        /** 下行帧内的结构化载荷字段名（协议规格 §3.4.1）。 */
+        const val FIELD_PAYLOAD = "payload"
 
         /** 回执超大（无法分片传输）时回写给 JM 的失败原因。 */
         const val REASON_TOO_LARGE = "回执过大无法分片传输"
@@ -246,6 +253,19 @@ class BridgeKernel(
          */
         fun parseCommand(raw: String): BridgeCommand? {
             val frame = Json.parse(raw)
+            return toCommand(frame)
+        }
+
+        /**
+         * 帧对象 → 命令载体（**纯逻辑**，不碰运行期 JSON 后端）。
+         *
+         * 单独抽出的原因与 [parseCommand] 同：单测要在没有 nightconfig 的裸类路径上验证
+         * "帧字段 → 命令载体"的映射（尤其是载荷两种形态的取舍），故映射本身不能依赖解析器。
+         *
+         * @param frame 已解析的下行帧。
+         * @return 命令载体；非 `command` 帧返回 null。
+         */
+        fun toCommand(frame: JsonObject): BridgeCommand? {
             if (frame.getString("type") != TYPE_COMMAND) return null
             return BridgeCommand(
                 action = frame.getString("action"),
@@ -253,9 +273,26 @@ class BridgeKernel(
                 reason = frame.getString("reason"),
                 requestId = frame.getString("requestId"),
                 domain = frame.getString("domain"),
-                payload = frame.getString("payloadJson"),
+                payload = payloadText(frame),
                 principal = parsePrincipal(frame.getObject(FIELD_PRINCIPAL)),
             )
+        }
+
+        /**
+         * 取下行帧的载荷文本。
+         *
+         * 协议规格 §3.4.1 的结构化载荷是**嵌套对象**（`payload`），而业务命令沿用 `payloadJson` 字符串。
+         * 两者都要支持:只认字符串会让嵌套形态拿到空载荷——表现为"载荷为空"的拒绝,且没有任何编译期提示。
+         *
+         * @param frame 已解析的下行帧。
+         * @return 载荷文本;两者都缺失时为空串。
+         */
+        fun payloadText(frame: JsonObject): String {
+            val text = frame.getString(FIELD_PAYLOAD_JSON)
+            if (text.isNotEmpty()) return text
+            val nested = frame.getObject(FIELD_PAYLOAD) ?: return ""
+            // 嵌套对象经统一 JSON 适配器还原为文本:不落盘、不跨库,故不依赖运行期 JSON 后端。
+            return runCatching { JsonText.encode(nested.toMap()) }.getOrDefault("")
         }
 
         /**

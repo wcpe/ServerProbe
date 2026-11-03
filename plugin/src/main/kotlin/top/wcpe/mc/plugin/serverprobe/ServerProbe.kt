@@ -12,6 +12,9 @@ import taboolib.common.platform.function.info
  *
  * 启动分段打点已下沉到 core 的 `PhaseTimingRecorder`(同样经 `@Awake`在各生命周期记录 `nanoTime`),
  * 故主类不再维护时间戳,仅保留启用/就绪/卸载的关键中文日志。
+ *
+ * 不需“服务器就绪后回调”这类机制：`ProbeConfig.awaitLoaded()` 已经覆盖了配置就绪问题，
+ * 需要延后读配置的组件自己调它即可，不必再引入一层回调登记。
  */
 object ServerProbe {
 

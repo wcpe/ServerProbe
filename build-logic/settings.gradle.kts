@@ -8,7 +8,7 @@ pluginManagement {
         maven("https://maven.aliyun.com/repository/gradle-plugin")
         maven("https://maven.aliyun.com/repository/central")
         mavenCentral()
-        maven("https://maven.wcpe.top/repository/maven-public/")
+        maven("https://repo.wcpe.top/repository/maven-public/")
     }
 }
 
@@ -18,6 +18,6 @@ dependencyResolutionManagement {
         maven("https://maven.aliyun.com/repository/central")
         maven("https://maven.aliyun.com/repository/gradle-plugin")
         mavenCentral()
-        maven("https://maven.wcpe.top/repository/maven-public/")
+        maven("https://repo.wcpe.top/repository/maven-public/")
     }
 }

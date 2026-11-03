@@ -4,6 +4,9 @@ import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.api.model.metrics.MetricSnapshot
 import top.wcpe.mc.plugin.serverprobe.core.bridge.ServerStateSupport
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneModeService
+import top.wcpe.mc.plugin.serverprobe.core.control.LocalListenerGate
+import top.wcpe.mc.plugin.serverprobe.core.control.LocalListenerLauncher
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.Named
@@ -15,7 +18,18 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-/** 默认关闭的 MCP 控制面生命周期；仅启用后才创建监听 socket。 */
+/**
+ * 默认关闭的 MCP 控制面生命周期；仅启用后才创建监听 socket。
+ *
+ * ## 托管模式下零监听（协议规格 §3.6）
+ * 托管模式下本控制面**一律不起服**，运行期开启命令同样被拒——判断依据是运行模式，不是 `mcp.enabled`：
+ * 该键虽属 FORBIDDEN 档，但本地 `config.yml` 里遗留的 `true` 不会被迁移清掉，故必须由
+ * [LocalListenerGate] 按模式强制关断。独立模式行为与引入托管能力前完全一致。
+ *
+ * ## 启动期异步、运行期同步
+ * - `@PostEnable` 的 [start] 只起后台线程**等托管模式判定**（主线程零阻塞），判定后才决定是否 bind；
+ * - 控制台命令触发的 [enable] 发生在判定完成之后，故直接同步过闸门即可。
+ */
 @Service
 class McpControlPlane {
 
@@ -35,7 +49,13 @@ class McpControlPlane {
     @Inject
     lateinit var mcpArtifactWorkspaceRegistry: McpArtifactWorkspaceRegistry
 
-    /**：可选注入的世界明细提供者；非 Bukkit 平台缺失时降级为既有输出。 */
+    /**
+     * 托管模式判定服务：启动期必须先等它给出结论，再决定是否监听（托管模式零监听的承诺）。
+     */
+    @Inject
+    lateinit var modeService: ControlPlaneModeService
+
+    /** 可选注入的世界明细提供者；非 Bukkit 平台缺失时降级为既有输出。 */
     @Inject(required = false)
     var worldDetailProvider: WorldDetailProvider? = null
 
@@ -45,10 +65,21 @@ class McpControlPlane {
     private var artifacts: McpArtifactWorkspace? = null
 
     @PostEnable
-    @Synchronized
     fun start() {
-        val settings = settings()
-        if (!settings.enabled) {
+        // 配置读取与“是否监听”的判定一律放到后台线程：
+        // 1) 主线程零阻塞（项目红线）；
+        // 2) `mcp.enabled` 属禁止远程档，值只能来自本地 config.yml，而 IOC 装配线程可能跑在
+        //    TabooLib 注入配置之前——在主线程直接读会偶发拿到默认 false，把端点误判为“未开启”。
+        LocalListenerLauncher(LocalListenerGate.Surface.MCP, awaitDecision = { modeService.awaitReady(it) })
+            .launch { startIfEnabled() }
+    }
+
+    /** 后台判定：等配置就绪 → `mcp.enabled` 为真才真正尝试起服。 */
+    private fun startIfEnabled() {
+        if (!ProbeConfig.awaitLoaded()) {
+            ProbeLogger.warn("MCP 控制面等待配置就绪超时，将按当前可见值判断 mcp.enabled")
+        }
+        if (!runCatching { settings().enabled }.getOrDefault(false)) {
             ProbeLogger.info("MCP 控制面未开启(mcp.enabled=false)，已跳过")
             return
         }
@@ -77,6 +108,11 @@ class McpControlPlane {
      */
     @Synchronized
     fun enable(): McpToggleOutcome {
+        // 托管模式下零监听：判断依据是运行模式而非配置值，本地遗留的 mcp.enabled=true 不作数。
+        // 这是全类唯一的 bind 入口，故启动期与运行期命令两条路径都被这一道闸门覆盖。
+        if (!LocalListenerGate.allows(LocalListenerGate.Surface.MCP)) {
+            return McpToggleOutcome(false, "托管模式下不启动本地监听端口（零监听端口承诺），MCP 控制面已跳过。")
+        }
         val settings = settings(enabled = true)
         if (running) return McpToggleOutcome(true, "MCP 控制面已在运行中，无需重复开启。")
         McpSafetyWarnings.messages(settings).forEach(ProbeLogger::warn)
@@ -101,6 +137,8 @@ class McpControlPlane {
      */
     @Synchronized
     fun disable(): Boolean {
+        // 先注销回撤登记：本方法就是回撤动作本身，避免完场后还留着悬空引用
+        LocalListenerGate.unregisterBound(LocalListenerGate.Surface.MCP)
         if (httpServer == null && artifacts == null) return false
         stopServer()
         return true
@@ -112,36 +150,69 @@ class McpControlPlane {
 
     private fun startServer(settings: McpSettings) {
         stopServer()
-        val workspace = getDataFolder().toPath().resolve("mcp-workspace")
-        val artifactWorkspace = McpArtifactWorkspace(workspace.resolve("artifacts"), artifactSettings())
-        artifactWorkspace.cleanup()
-        artifacts = artifactWorkspace
-        val audit = McpAuditTrail(
+        ensureRuntime()
+        McpHttpServer(
+            settings,
+            McpJsonRpcDispatcher(providers(), audit = auditTrail, encodeResult = McpJsonWriter::encode),
+        ).also { server ->
+            server.start()
+            httpServer = server
+        }
+        // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉。
+        // 返回 false 表示回撤已经发生（本次登记晚于回撤）——必须当场关掉，不得起清理线程/谎报“已启动”。
+        val kept = LocalListenerGate.registerBound(LocalListenerGate.Surface.MCP) { disable() }
+        if (!kept) {
+            disable()
+            return
+        }
+        artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
+        }.also { executor ->
+            executor.scheduleWithFixedDelay({
+                runCatching { artifacts?.cleanup() }.onFailure { error ->
+                    ProbeLogger.warn("MCP 工件定期清理失败：${error.javaClass.simpleName}")
+                }
+            }, CLEANUP_INTERVAL_HOURS, CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS)
+        }
+        ProbeLogger.info("MCP 控制面已启动，监听 ${settings.host}:${settings.port}/mcp")
+    }
+
+    /**
+     * 按需创建工件工作区与审计轨迹（幂等）。
+     *
+     * ## 为什么与 "起监听" 拆开
+     * 托管模式下 MCP 不再监听本地端口（零监听端口承诺），但仍需完整的工具面——工件工作区（堆 dump、
+     * GC JFR 等大产物落盘）与审计轨迹与端口无关。不拆开就只能二选一：要么开端口（违背承诺），
+     * 要么退化成“只能调无状态工具”。
+     *
+     * @return 工件工作区；数据目录不可用时为 null（工具面仍可用，只是大产物类工具降级）。
+     */
+    @Synchronized
+    internal fun ensureRuntime(): McpArtifactWorkspace? {
+        artifacts?.let { return it }
+        val workspace = runCatching { getDataFolder().toPath().resolve("mcp-workspace") }.getOrNull() ?: return null
+        val created = McpArtifactWorkspace(workspace.resolve("artifacts"), artifactSettings())
+        runCatching { created.cleanup() }
+        artifacts = created
+        auditTrail = McpAuditTrail(
             workspace,
             maxFileBytes = ProbeConfig.mcpAuditMaxFileMb() * 1024L * 1024L,
             retentionDays = ProbeConfig.mcpAuditRetentionDays(),
         )
-        McpHttpServer(settings, McpJsonRpcDispatcher(
-            providers(),
-            audit = audit,
-            encodeResult = McpJsonWriter::encode,
-        )).also { server ->
-            server.start()
-            // HttpServer.start() 成功后才注册工作区与审计，避免启动失败（端口占用等）留下幽灵注册与线程泄漏
-            mcpArtifactWorkspaceRegistry.register(artifactWorkspace)
-            httpServer = server
-            auditTrail = audit
-            artifactCleanup = Executors.newSingleThreadScheduledExecutor { runnable ->
-                Thread(runnable, "ServerProbe-McpArtifactCleanup").apply { isDaemon = true }
-            }.also { executor ->
-                executor.scheduleWithFixedDelay({
-                    runCatching(artifactWorkspace::cleanup).onFailure { error ->
-                        ProbeLogger.warn("MCP 工件定期清理失败：${error.javaClass.simpleName}")
-                    }
-                }, CLEANUP_INTERVAL_HOURS, CLEANUP_INTERVAL_HOURS, TimeUnit.HOURS)
-            }
-        }
-        ProbeLogger.info("MCP 控制面已启动，监听 ${settings.host}:${settings.port}/mcp")
+        mcpArtifactWorkspaceRegistry.register(created)
+        return created
+    }
+
+    /**
+     * 供桥（WS 传输）复用的 JSON-RPC 分发器：**不绑定任何端口**。
+     *
+     * 与本地 HTTP 端点共用同一份工具面、工件工作区与审计口径，因此两条通道的行为一致；
+     * 由调用方持有生命周期，停机时调 [disable] 释放工作区与审计。
+     */
+    @Synchronized
+    internal fun bridgeDispatcher(): McpJsonRpcDispatcher {
+        ensureRuntime()
+        return McpJsonRpcDispatcher(providers(), audit = auditTrail, encodeResult = McpJsonWriter::encode)
     }
 
     private fun stopServer() {

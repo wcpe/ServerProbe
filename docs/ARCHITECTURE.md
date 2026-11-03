@@ -288,3 +288,38 @@ bootstrap CL 通道的边界很窄,真机踩过两个坑,记录以备后人:
 - **Folia**:无单一主线程,**主线程栈采样降级标 N/A**(此场景引导用 spark);插件计时复用 Bukkit 路径。
 - **BungeeCord**:推迟,本阶段不做。
 - **真机覆盖(诚实边界)**:仅 **1.21.4 Paper 单端**全通——`Done` 正常、逐插件精确耗时正确、栈采样正常、无 `IllegalAccessError`/`NoClassDefFound`、不破坏启动;**其他端(1.8 / Folia / BungeeCord)未逐一真机**。
+
+## 14. 托管模式（0.8.0-SNAPSHOT，开发中）
+
+> 需求：FR-42~FR-47；规格：`docs/specs/managed-mode.md`（行为）与 `docs/specs/mcp-over-bridge.md`（对接）。
+
+### 14.1 一个开关、两种模式
+
+探针有且只有两种运行模式，**由身份文件是否存在机械判定**，配置项不参与判定：
+
+| 模式 | 判定 | 连接目标 | 本地监听面 | 配置真源 |
+|---|---|---|---|---|
+| 托管 | `plugins/ServerProbe/agent-identity.json` 存在且可解析 | 身份文件的 `endpoint` / `credential` / `instanceId` | **全部关断**（metrics/web/mcp） | 托管缓存 > `config.yml` > 默认值 |
+| 独立 | 无身份文件（或解析失败） | `bridge.*` 配置（若启用） | 由 `metrics/web/mcp.enabled` 决定 | `config.yml` > 默认值 |
+
+存量部署（有 `bridge` 段、无身份文件）在首次启动时**自动迁移**：生成身份文件 + 备份 `config.yml.bak.<时间戳>` + 移除 `bridge` 段，幂等可重跑。
+
+### 14.2 组件与线程
+
+```
+ControlPlaneModeService  ── 后台线程判定模式（读身份文件/迁移），awaitReady 放行等待方
+   ├─ ManagedConfigResolver ── ProbeConfig 全部键的取值来源（托管缓存 > config.yml > 默认值）
+   ├─ ManagedConfigService  ── config_push 应用 + config_state 上报（仅托管）
+   ├─ MetricPushService     ── metric_snapshot 周期推送 + metrics_now
+   ├─ McpBridgeService      ── core.mcp（JSON-RPC over bridge，仅托管且 mcp.enabled）
+   └─ BridgeClient          ── 反向 WS 连接；托管目标由身份文件驱动
+LocalListenerGate  ── metrics/web/mcp 的 bind 闸门：按模式关断，不看配置值
+```
+
+主线程零阻塞：所有判定、装配、应用、推送都在后台/池线程；`config_push` 由桥的命令池执行，自检等待有硬上限。
+
+### 14.3 失败语义
+
+- 配置应用失败 → 自动回退上一版，回执 `failed` 并带中文原因（缓存不被污染）；
+- 桥断 → 指标/MCP 都不可用（零监听的代价），控制面须显示"不可用"而非旧值；
+- 凭据被拒（401/403）→ `config_state.connection=unauthorized`，**不降级到文件配置**（避免"以为托管着"的认知分裂）。

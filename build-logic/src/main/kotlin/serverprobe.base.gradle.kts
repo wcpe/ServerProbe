@@ -45,6 +45,12 @@ configure<TabooLibExtension> {
 // 当成本项目待满足的依赖:platform-velocity 经 velocity-api 传递引入的 com.google.inject(guice)
 // 会报 missing-bean: com.google.inject.Injector 并中断构建。这类依赖由第三方库自行解决,
 // 不该纳入本项目的装配校验;而跨模块依赖(如 core 的 ProbeRegistry)仍须保留,否则会漏报真实缺陷。
+//
+// sourceDirectories 必须同时包含兄弟模块源码：分析器的 missing-inject-annotation 抑制依赖
+// 「按源码事实判断字段是否已有初值 / 已手工装配」（BytecodeBeanIndexBuilder.enrichSourceLocations）。
+// 若某条注入点的 owner 类只出现在 jar 里而源码根不含对应文件，就无法定位源码行 → 不被抑制
+// → 直接报 ERROR 阻断构建。实测（:plugin 分析任务）：只给本模块源码时 125 个注入点仅 10 个可定位，
+// 补上兄弟模块后 108 个可定位——差距就是潜在的误报。
 tasks.withType<top.wcpe.taboolib.ioc.gradle.analysis.AnalyzeTaboolibIocBeansTask>().configureEach {
     dependencyArtifacts.setFrom(
         provider {
@@ -54,6 +60,22 @@ tasks.withType<top.wcpe.taboolib.ioc.gradle.analysis.AnalyzeTaboolibIocBeansTask
                 .map { it.file }
         },
     )
+    // 这里刻意用 configuration 而不是 tasks/依赖解析：只读取兄弟工程的源码目录字面量，
+    // 不引入任务依赖，因此不会改变构建图的拓扑。
+    val siblingSources = project.rootProject.allprojects
+        .asSequence()
+        .filter { it != project && it.plugins.hasPlugin("java-base") }
+        .flatMap { sibling ->
+            sibling.extensions.findByType(JavaPluginExtension::class.java)
+                ?.sourceSets?.findByName("main")?.allSource?.srcDirs
+                ?.asSequence()
+                ?: emptySequence()
+        }
+        .filter { it.isDirectory }
+        .toList()
+    if (siblingSources.isNotEmpty()) {
+        sourceDirectories.from(siblingSources)
+    }
 }
 
 // 依赖仓库统一在 settings.gradle.kts 的 dependencyResolutionManagement(PREFER_SETTINGS)集中声明,

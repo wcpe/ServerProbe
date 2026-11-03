@@ -4,7 +4,7 @@ import top.wcpe.mc.plugin.serverprobe.api.bridge.BridgeCommandResult
 import top.wcpe.mc.plugin.serverprobe.api.bridge.Principal
 
 /**
- * 一条由 JianManager Worker 经反向 WS 下发给探针的**治理**指令。
+ * 一条由外部控制面经反向 WS 下发给探针的**治理**指令。
  *
  * 平台无关的数据载体:core 解析 `command` 帧得到本对象,交平台层 [BridgeCommandHandler] 执行
  * (Bukkit/Bungee 各自实现踢/封/解封/白名单/在线列表)。
@@ -49,6 +49,23 @@ interface BridgeCommandHandler {
      *
      * @param command 待执行指令。
      * @return 执行结果(成功/输出/失败原因)。
+     */
+    fun handle(command: BridgeCommand): BridgeCommandResult
+}
+
+/**
+ * core 内置动作的执行器(FR-46,如 `metrics_now`)。
+ *
+ * 与 [BridgeCommandHandler] 的区别:内置动作**不需要平台 API**(core 自己能完成),故按动作名注册到
+ * [BridgeCommandRegistry],与平台治理动作共用同一套分发与回执语义。实现须线程安全且绝不抛。
+ */
+fun interface BridgeActionHandler {
+
+    /**
+     * 执行一个内置动作。
+     *
+     * @param command 待执行指令(可从中取 action/payload/requestId)。
+     * @return 执行结果;`requestId` 回传由 [BridgeClient] 统一负责。
      */
     fun handle(command: BridgeCommand): BridgeCommandResult
 }

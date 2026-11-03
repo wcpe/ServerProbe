@@ -34,14 +34,50 @@ class ArthasMemoryShellRunner(
         }
     }
 
-    /** 读取指定类的当前已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。 */
+    /** 读取指定类的已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。
+     *
+     * ## 为什么不是 Instrumentation.getBytecodes
+     *
+     * 该方法**不存在**。`java.lang.instrument.Instrumentation` 只能改字节码
+     * （redefine/retransform），没有任何读取入口——真机实证：
+     * `Instrumentation.getMethod("getBytecodes")` 恒抛 NoSuchMethodException。
+     * 旧实现就建在这个错误假设上，所以自动备份从来没生效过（日志一直是
+     * 「当前 Arthas 控制器未提供字节码备份能力」）。
+     *
+     * 可行做法：经已加载 Class 拿它的 ClassLoader，用 getResourceAsStream
+     * 读 `a/b/C.class`——这是该加载器当前可见的那份字节码，正是打补丁前需要备案的东西。
+     * 局限：它等于「加载器眼里的源字节码」，若之前已被别的工具 redefine 过内存副本，
+     * 这里拿到的是从资源的原始版本。对「回滚到官版」这个目的而言，这正是想要的。
+     */
     fun dumpClassBytes(className: String): ByteArray? {
-        val inst = instrumentation() ?: return null
-        val target = inst.allLoadedClasses.firstOrNull { it.name == className } ?: return null
-        // getBytecodes 为 Java 9+ 才加入 Instrumentation，Java 8 编译期无此方法，经反射调用保持双版本兼容。
+        val inst = instrumentation()
+        if (inst == null) {
+            ProbeLogger.warn("字节码备份失败：当前 JVM 未提供 Instrumentation，无法枚举已加载类（$className）")
+            return null
+        }
+        // 同名类可能被多次加载（插件重载/类加载器隔离）；优先取非 bootstrap 加载器的那份，
+        // 因为插件类必然由插件自己的 ClassLoader 加载。
+        val candidates = inst.allLoadedClasses.filter { it.name == className }
+        val target = candidates.firstOrNull { it.classLoader != null } ?: candidates.firstOrNull()
+        if (target == null) {
+            ProbeLogger.warn("字节码备份失败：类未加载（$className）")
+            return null
+        }
+        val resource = className.replace('.', '/') + ".class"
+        val loader = target.classLoader
         return runCatching {
-            val method = Instrumentation::class.java.getMethod("getBytecodes", Class::class.java)
-            (method.invoke(inst, target) as? Array<*>)?.firstOrNull() as? ByteArray
+            val stream = if (loader != null) {
+                loader.getResourceAsStream(resource)
+            } else {
+                ClassLoader.getSystemResourceAsStream(resource)
+            }
+            stream?.use { it.readBytes() }
+        }.onSuccess { bytes ->
+            if (bytes == null) {
+                ProbeLogger.warn("字节码备份失败：加载器拿不到资源 $resource（$className）")
+            }
+        }.onFailure { error ->
+            ProbeLogger.warn("字节码备份失败：读取 $resource 抛异常（$className）：${error.javaClass.simpleName}: ${error.message}")
         }.getOrNull()
     }
 

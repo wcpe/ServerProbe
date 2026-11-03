@@ -1,0 +1,17 @@
+name: BridgeLoadHarness
+main: top.wcpe.mc.plugin.serverprobe.e2e.load.BridgeLoadHarnessPlugin
+version: 1.0.0-SNAPSHOT
+api-version: '1.13'
+# 压测桩：依赖 ServerProbe 提供公开 API（api 模块）。
+depend: []
+softdepend: [ServerProbe]
+description: ServerProbe 桥链路压测桩（外置，不改探针内部）
+commands:
+  bridgeload:
+    description: 向 ServerProbe 桥注流量并输出延迟分位
+    usage: /bridgeload <count> [threads] [maxInFlight]
+    permission: bridgeload.use
+permissions:
+  bridgeload.use:
+    description: 允许执行桥压测
+    default: op

@@ -202,5 +202,23 @@ internal class ConfigJsonObject(private val section: ConfigurationSection) : Jso
     override fun contains(key: String): Boolean = section.contains(key)
 
     override fun getObject(key: String): JsonObject? =
-        section.getConfigurationSection(key)?.let { ConfigJsonObject(it) }
+        section.getConfigurationSection(key)?.let(::ConfigJsonObject)
+
+    override fun toMap(): Map<String, Any?> = sectionToMap(section)
+
+    /** 把 section 逐键还原为 Map；嵌套 section 递归展开，保持键顺序。 */
+    private fun sectionToMap(section: ConfigurationSection): Map<String, Any?> {
+        val values = LinkedHashMap<String, Any?>()
+        for (key in section.getKeys(false)) {
+            values[key] = plainValue(section.get(key))
+        }
+        return values
+    }
+
+    /** 嵌套 section 递归还原，其余标量/列表原样返回。 */
+    private fun plainValue(value: Any?): Any? = when (value) {
+        is ConfigurationSection -> sectionToMap(value)
+        is List<*> -> value.map(::plainValue)
+        else -> value
+    }
 }

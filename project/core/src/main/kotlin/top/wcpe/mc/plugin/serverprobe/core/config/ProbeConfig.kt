@@ -16,6 +16,12 @@ import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
  * 以 `object`实现并对外暴露**带默认值兜底的取值方法**:配置缺项或类型不符时回退默认值,确保即使配置异常也不致空指针。
  * 各取值方法对应一个配置键,集中收口默认值与键名,避免散落的魔法值(规范第 6 条)。
  *
+ * ## 取值一律经 [ManagedConfigResolver](FR-43,协议规格 §3.3)
+ * 全部 66 个取值方法都不再直接读 [conf],而是经 [ManagedConfigResolver]:
+ * - **托管模式**:托管缓存当前值 → 上一次的值 → `config.yml` → 代码默认值;`bridge.*` 四键另取身份文件。
+ * - **独立模式**:`config.yml` → 代码默认值,与引入托管能力前**逐字节一致**(键名/默认值/类型转换/兜底全部不变)。
+ * 故本类只保留"键名 + 默认值"的收口职责,取值顺序的复杂度在解析器一侧。
+ *
  * 注:本类不纳入 IOC 容器——[Config] 字段注入由 TabooLib 反射扫描完成,与 IOC 互不干扰;
  * IOC 组件直接以 Kotlin `object`方式读取本类即可,无需注入。
  */
@@ -25,30 +31,92 @@ object ProbeConfig {
      * 主配置实例(`config.yml`)。
      *
      * 由 TabooLib 在加载期经 [Config] 注入,故声明为 `lateinit`;在 [LifeCycle.ENABLE] 及之后访问均已就绪。
+     * **仅供 [ManagedConfigResolver] 作为"配置源"读取**;各取值方法不要直接读它,否则会绕过托管面。
      */
     @Config("config.yml")
     lateinit var conf: Configuration
+
+    /** 配置重载的实现；单测可替换以观测"同一个实例只重载一次"。 */
+    internal var reloader: (Configuration) -> Unit = { configuration -> configuration.reload() }
+
+    /** 重载串行化锁：四个装配组件会并发进来，重载必须收敛到一处。 */
+    private val reloadLock = Any()
+
+    /** 已成功装载过的配置实例：同一个实例不再重复重载。失败**不**缓存，留给下一个调用者重试。 */
+    @Volatile
+    private var reloadedConf: Configuration? = null
+
+    /**
+     * 等配置就绪（有界），并就绪后**从磁盘重载一次**（每个配置实例只做一次）。
+     *
+     * ## 为什么需要它
+     * [conf] 由 TabooLib 在插件加载期反射注入，而 IOC 组件的 `@PostEnable` 装配线程可能跑在注入之前：
+     * 实测（代理端托管 E2E）出现过「`config.yml` 里 `mcp.enabled: true`，组件刚启动时却读到默认 `false`」，
+     * 结果是 MCP 工具面没挂到桥上——是否命中取决于两个后台线程谁先跑，表现为偶发。
+     *
+     * ## 三条硬约束（都对应一个已发生过的故障形态）
+     * 1. **有界**：等不到就返回 false，由调用方按"未就绪"降级，绝不无限等待；
+     * 2. **只重载一次**：四个装配组件会并发调用本方法，重载收敛到 [reloadLock] 内并以 [reloadedConf]
+     *    记录已处理的实例——既避免对同一个 `Configuration` 并发 `reload()`（其线程安全未声明），
+     *    也省掉三次多余的磁盘 IO；
+     * 3. **失败不装成成功**：重载抛异常时 WARN 并返回 false。返回 true 却拿着未装载的默认值，
+     *    正是本方法要消灭的那类误判。
+     *
+     * @param timeoutMs 等待注入的上限（毫秒）。
+     * @return true 表示配置已注入且已重载成功。
+     */
+    fun awaitLoaded(timeoutMs: Long = CONFIG_READY_WAIT_MS): Boolean {
+        val deadline = System.nanoTime() + timeoutMs * NANOS_PER_MILLI
+        while (System.nanoTime() < deadline) {
+            val view = runCatching { conf }.getOrNull()
+            if (view == null) {
+                try {
+                    Thread.sleep(CONFIG_READY_POLL_MS)
+                } catch (_: InterruptedException) {
+                    // 停服时打断装配线程：恢复中断位并如实返回"未就绪"
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+                continue
+            }
+            synchronized(reloadLock) {
+                // 同一个配置实例重载成功过就不再重载：并发的其它调用者拿到锁后直接复用这个结论
+                if (reloadedConf === view) {
+                    return true
+                }
+                val ok = runCatching { reloader(view) }
+                    .onFailure { error -> ProbeLogger.warn("配置重载失败,按未就绪降级:${error.message}") }
+                    .isSuccess
+                // 只缓存成功：失败不记“已处理”，好让后续调用者（或下一次启动）还能重试
+                if (ok) {
+                    reloadedConf = view
+                }
+                return ok
+            }
+        }
+        return false
+    }
 
     /**
      * 采集周期(单位 ticks),默认 100(约 5 秒)。
      *
      * @return 采集周期 tick 数。
      */
-    fun collectPeriodTicks(): Long = conf.getLong(KEY_COLLECT_PERIOD_TICKS, DEFAULT_COLLECT_PERIOD_TICKS)
+    fun collectPeriodTicks(): Long = ManagedConfigResolver.getLong(KEY_COLLECT_PERIOD_TICKS, DEFAULT_COLLECT_PERIOD_TICKS)
 
     /**
      * 近期历史容量(份),默认 360(约覆盖 30 分钟)。
      *
      * @return 历史缓冲容量。
      */
-    fun historyCapacity(): Int = conf.getInt(KEY_HISTORY_CAPACITY, DEFAULT_HISTORY_CAPACITY)
+    fun historyCapacity(): Int = ManagedConfigResolver.getInt(KEY_HISTORY_CAPACITY, DEFAULT_HISTORY_CAPACITY)
 
     /**
      * 慢插件榜展示条数,默认 5。
      *
      * @return Top-N 条数。
      */
-    fun startupTopN(): Int = conf.getInt(KEY_STARTUP_TOP_N, DEFAULT_STARTUP_TOP_N)
+    fun startupTopN(): Int = ManagedConfigResolver.getInt(KEY_STARTUP_TOP_N, DEFAULT_STARTUP_TOP_N)
 
     /**
      * 指标聚合窗口大小(份),默认 12(约 1 分钟 @ 5 秒采集周期)。
@@ -57,28 +125,28 @@ object ProbeConfig {
      *
      * @return 聚合窗口份数。
      */
-    fun aggregationWindow(): Int = conf.getInt(KEY_AGGREGATION_WINDOW, DEFAULT_AGGREGATION_WINDOW)
+    fun aggregationWindow(): Int = ManagedConfigResolver.getInt(KEY_AGGREGATION_WINDOW, DEFAULT_AGGREGATION_WINDOW)
 
     /**
      * 配置覆盖的实例名;为空白则返回 null(交由 [top.wcpe.mc.plugin.serverprobe.core.store.InstanceId] 自动生成)。
      *
      * @return 去空白后的实例名;未配置或空白时为 null。
      */
-    fun configuredServerName(): String? = conf.getString(KEY_SERVER_NAME)?.trim()?.takeIf { it.isNotEmpty() }
+    fun configuredServerName(): String? = ManagedConfigResolver.getString(KEY_SERVER_NAME)?.trim()?.takeIf { it.isNotEmpty() }
 
     /**
      * 是否开启 DEBUG 日志,默认 false。
      *
      * @return 是否开启调试日志。
      */
-    fun debug(): Boolean = conf.getBoolean(KEY_DEBUG, DEFAULT_DEBUG)
+    fun debug(): Boolean = ManagedConfigResolver.getBoolean(KEY_DEBUG, DEFAULT_DEBUG)
 
     /**
      * 启动画像归档保留份数,默认 30(超出后清理最旧的)。
      *
      * @return 保留份数。
      */
-    fun historyRetention(): Int = conf.getInt(KEY_HISTORY_RETENTION, DEFAULT_HISTORY_RETENTION)
+    fun historyRetention(): Int = ManagedConfigResolver.getInt(KEY_HISTORY_RETENTION, DEFAULT_HISTORY_RETENTION)
 
     /**
      * 是否开启历史指标落盘,默认 true。
@@ -87,7 +155,7 @@ object ProbeConfig {
      *
      * @return 是否落盘历史指标。
      */
-    fun historyFileEnabled(): Boolean = conf.getBoolean(KEY_HISTORY_FILE_ENABLED, DEFAULT_HISTORY_FILE_ENABLED)
+    fun historyFileEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_HISTORY_FILE_ENABLED, DEFAULT_HISTORY_FILE_ENABLED)
 
     /**
      * 历史指标文件保留天数,默认 7;按自然日,含当天在内保留最近 N 天,更早的文件清理。
@@ -95,15 +163,15 @@ object ProbeConfig {
      * @return 保留天数。
      */
     fun historyFileRetentionDays(): Int =
-        conf.getInt(KEY_HISTORY_FILE_RETENTION_DAYS, DEFAULT_HISTORY_FILE_RETENTION_DAYS)
+        ManagedConfigResolver.getInt(KEY_HISTORY_FILE_RETENTION_DAYS, DEFAULT_HISTORY_FILE_RETENTION_DAYS)
 
     /** 过期指标 jsonl 的 gzip 归档保留天数(0=过期即删不归档)。 */
     fun historyFileArchiveDays(): Int =
-        conf.getInt(KEY_HISTORY_FILE_ARCHIVE_DAYS, DEFAULT_HISTORY_FILE_ARCHIVE_DAYS)
+        ManagedConfigResolver.getInt(KEY_HISTORY_FILE_ARCHIVE_DAYS, DEFAULT_HISTORY_FILE_ARCHIVE_DAYS)
 
     /** 启动画像栈样本保留条数(均匀抽稀;0=不限,默认 10)。 */
     fun agentStackMaxSamples(): Int =
-        conf.getInt(KEY_AGENT_STACK_MAX_SAMPLES, DEFAULT_AGENT_STACK_MAX_SAMPLES)
+        ManagedConfigResolver.getInt(KEY_AGENT_STACK_MAX_SAMPLES, DEFAULT_AGENT_STACK_MAX_SAMPLES)
 
     /**
      * 单实例历史指标文件总体积上限(MB),默认 200;超出后从最旧文件起清理至达标(绝不删当天)。
@@ -111,7 +179,7 @@ object ProbeConfig {
      * @return 体积上限(MB)。
      */
     fun historyFileMaxTotalMb(): Int =
-        conf.getInt(KEY_HISTORY_FILE_MAX_TOTAL_MB, DEFAULT_HISTORY_FILE_MAX_TOTAL_MB)
+        ManagedConfigResolver.getInt(KEY_HISTORY_FILE_MAX_TOTAL_MB, DEFAULT_HISTORY_FILE_MAX_TOTAL_MB)
 
     /**
      * 世界指标采样周期(单位 ticks),默认 600(约 30 秒)。
@@ -121,7 +189,7 @@ object ProbeConfig {
      *
      * @return 世界采样周期 tick 数。
      */
-    fun worldSamplePeriodTicks(): Long = conf.getLong(KEY_WORLD_SAMPLE_PERIOD_TICKS, DEFAULT_WORLD_SAMPLE_PERIOD_TICKS)
+    fun worldSamplePeriodTicks(): Long = ManagedConfigResolver.getLong(KEY_WORLD_SAMPLE_PERIOD_TICKS, DEFAULT_WORLD_SAMPLE_PERIOD_TICKS)
 
     /**
      * 是否统计各世界按类型的实体分布,默认 true。
@@ -130,7 +198,7 @@ object ProbeConfig {
      *
      * @return 是否开启按类型实体统计。
      */
-    fun worldEntityTypes(): Boolean = conf.getBoolean(KEY_WORLD_ENTITY_TYPES, DEFAULT_WORLD_ENTITY_TYPES)
+    fun worldEntityTypes(): Boolean = ManagedConfigResolver.getBoolean(KEY_WORLD_ENTITY_TYPES, DEFAULT_WORLD_ENTITY_TYPES)
 
     /**
      * Folia 已观测 region 无新样本后的过期秒数，默认 60，至少为 1。
@@ -138,33 +206,33 @@ object ProbeConfig {
      * @return region 指标过期秒数。
      */
     fun foliaObservedRegionExpireSeconds(): Long =
-        conf.getLong(KEY_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS, DEFAULT_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS)
+        ManagedConfigResolver.getLong(KEY_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS, DEFAULT_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS)
             .coerceAtLeast(MIN_FOLIA_OBSERVED_REGION_EXPIRE_SECONDS)
 
     /** 是否开启 SQLite 网络包取证，默认开启。 */
     fun networkForensicsEnabled(): Boolean =
-        conf.getBoolean(KEY_NETWORK_FORENSICS_ENABLED, DEFAULT_NETWORK_FORENSICS_ENABLED)
+        ManagedConfigResolver.getBoolean(KEY_NETWORK_FORENSICS_ENABLED, DEFAULT_NETWORK_FORENSICS_ENABLED)
 
     /** 允许保存载荷的包类型白名单。 */
     fun networkForensicsPayloadPacketTypes(): Set<String> =
-        conf.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_PACKET_TYPES).map(String::trim).filter(String::isNotEmpty).toSet()
+        ManagedConfigResolver.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_PACKET_TYPES).map(String::trim).filter(String::isNotEmpty).toSet()
 
     /** Plugin Message 允许保存载荷的频道白名单。 */
     fun networkForensicsPayloadChannels(): Set<String> =
-        conf.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_CHANNELS).map(String::trim).filter(String::isNotEmpty).toSet()
+        ManagedConfigResolver.getStringList(KEY_NETWORK_FORENSICS_PAYLOAD_CHANNELS).map(String::trim).filter(String::isNotEmpty).toSet()
 
     /** 单包保留载荷的最大字节数，最小为 1。 */
     fun networkForensicsMaxPayloadBytes(): Int =
-        conf.getInt(KEY_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES, DEFAULT_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES)
+        ManagedConfigResolver.getInt(KEY_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES, DEFAULT_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES)
             .coerceAtLeast(MIN_NETWORK_FORENSICS_MAX_PAYLOAD_BYTES)
 
     /** SQLite 取证保留天数，最小为 0。 */
     fun networkForensicsRetentionDays(): Int =
-        conf.getInt(KEY_NETWORK_FORENSICS_RETENTION_DAYS, DEFAULT_NETWORK_FORENSICS_RETENTION_DAYS).coerceAtLeast(0)
+        ManagedConfigResolver.getInt(KEY_NETWORK_FORENSICS_RETENTION_DAYS, DEFAULT_NETWORK_FORENSICS_RETENTION_DAYS).coerceAtLeast(0)
 
     /** SQLite 与 WAL 文件合计上限，单位为字节，最小为 1 GiB。 */
     fun networkForensicsMaxTotalBytes(): Long =
-        conf.getLong(KEY_NETWORK_FORENSICS_MAX_TOTAL_GIB, DEFAULT_NETWORK_FORENSICS_MAX_TOTAL_GIB)
+        ManagedConfigResolver.getLong(KEY_NETWORK_FORENSICS_MAX_TOTAL_GIB, DEFAULT_NETWORK_FORENSICS_MAX_TOTAL_GIB)
             .coerceAtLeast(MIN_NETWORK_FORENSICS_MAX_TOTAL_GIB) * BYTES_PER_GIB
 
     /**
@@ -174,7 +242,7 @@ object ProbeConfig {
      *
      * @return 是否开启外呼监控。
      */
-    fun httpMonitorEnabled(): Boolean = conf.getBoolean(KEY_HTTP_MONITOR_ENABLED, DEFAULT_HTTP_MONITOR_ENABLED)
+    fun httpMonitorEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_HTTP_MONITOR_ENABLED, DEFAULT_HTTP_MONITOR_ENABLED)
 
     /**
      * 外呼是否实时打印到控制台/插件日志,默认 true。关闭后仍写文件/进 `/probe http`,只是不刷控制台。
@@ -182,7 +250,7 @@ object ProbeConfig {
      * @return 是否打印到控制台。
      */
     fun httpMonitorLogToConsole(): Boolean =
-        conf.getBoolean(KEY_HTTP_MONITOR_LOG_CONSOLE, DEFAULT_HTTP_MONITOR_LOG_CONSOLE)
+        ManagedConfigResolver.getBoolean(KEY_HTTP_MONITOR_LOG_CONSOLE, DEFAULT_HTTP_MONITOR_LOG_CONSOLE)
 
     /**
      * 外呼日志是否附带(已脱敏的)请求头,默认 false(默认仅 URL/方法/响应码/耗时/调用方,避免刷屏)。
@@ -190,7 +258,7 @@ object ProbeConfig {
      * @return 是否记录请求头。
      */
     fun httpMonitorLogHeaders(): Boolean =
-        conf.getBoolean(KEY_HTTP_MONITOR_LOG_HEADERS, DEFAULT_HTTP_MONITOR_LOG_HEADERS)
+        ManagedConfigResolver.getBoolean(KEY_HTTP_MONITOR_LOG_HEADERS, DEFAULT_HTTP_MONITOR_LOG_HEADERS)
 
     /**
      * 是否把外呼明细落盘到 `data/http/`,默认 true。
@@ -198,7 +266,7 @@ object ProbeConfig {
      * @return 是否落盘外呼明细。
      */
     fun httpMonitorFileEnabled(): Boolean =
-        conf.getBoolean(KEY_HTTP_MONITOR_FILE_ENABLED, DEFAULT_HTTP_MONITOR_FILE_ENABLED)
+        ManagedConfigResolver.getBoolean(KEY_HTTP_MONITOR_FILE_ENABLED, DEFAULT_HTTP_MONITOR_FILE_ENABLED)
 
     /**
      * `/probe http`可回看的近期外呼条数(内存缓冲),默认 500。
@@ -206,7 +274,7 @@ object ProbeConfig {
      * @return 近期缓冲容量。
      */
     fun httpMonitorRecentCapacity(): Int =
-        conf.getInt(KEY_HTTP_MONITOR_RECENT_CAPACITY, DEFAULT_HTTP_MONITOR_RECENT_CAPACITY)
+        ManagedConfigResolver.getInt(KEY_HTTP_MONITOR_RECENT_CAPACITY, DEFAULT_HTTP_MONITOR_RECENT_CAPACITY)
 
     /**
      * 外呼记录拉取周期(ticks),默认 20(约 1 秒)。监控线程在任意线程产生记录,本周期从 agent 增量拉取并呈现。
@@ -214,7 +282,7 @@ object ProbeConfig {
      * @return 拉取周期 tick 数。
      */
     fun httpMonitorDrainPeriodTicks(): Long =
-        conf.getLong(KEY_HTTP_MONITOR_DRAIN_PERIOD_TICKS, DEFAULT_HTTP_MONITOR_DRAIN_PERIOD_TICKS)
+        ManagedConfigResolver.getLong(KEY_HTTP_MONITOR_DRAIN_PERIOD_TICKS, DEFAULT_HTTP_MONITOR_DRAIN_PERIOD_TICKS)
 
     /**
      * 是否开启 Prometheus `/metrics`端点,默认 false(关闭)。
@@ -223,7 +291,7 @@ object ProbeConfig {
      *
      * @return 是否开启导出端点。
      */
-    fun metricsEnabled(): Boolean = conf.getBoolean(KEY_METRICS_ENABLED, DEFAULT_METRICS_ENABLED)
+    fun metricsEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_METRICS_ENABLED, DEFAULT_METRICS_ENABLED)
 
     /**
      * Prometheus 端点绑定地址,默认 `127.0.0.1`(仅本机回环,不对外暴露)。
@@ -232,7 +300,8 @@ object ProbeConfig {
      *
      * @return 绑定主机地址。
      */
-    fun metricsHost(): String = conf.getString(KEY_METRICS_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_METRICS_HOST
+    fun metricsHost(): String =
+        ManagedConfigResolver.getString(KEY_METRICS_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_METRICS_HOST
 
     /**
      * Prometheus 端点监听端口,默认 9940。
@@ -241,7 +310,7 @@ object ProbeConfig {
      *
      * @return 监听端口。
      */
-    fun metricsPort(): Int = conf.getInt(KEY_METRICS_PORT, DEFAULT_METRICS_PORT)
+    fun metricsPort(): Int = ManagedConfigResolver.getInt(KEY_METRICS_PORT, DEFAULT_METRICS_PORT)
 
     /**
      * Prometheus 端点鉴权 token,默认空串(不启用 token 鉴权)。
@@ -250,7 +319,7 @@ object ProbeConfig {
      *
      * @return 鉴权 token;未配置时为空串。
      */
-    fun metricsToken(): String = conf.getString(KEY_METRICS_TOKEN)?.trim() ?: DEFAULT_METRICS_TOKEN
+    fun metricsToken(): String = ManagedConfigResolver.getString(KEY_METRICS_TOKEN)?.trim() ?: DEFAULT_METRICS_TOKEN
 
     /**
      * Prometheus 端点 IP 白名单,默认 `["127.0.0.1"]`(仅本机)。
@@ -262,67 +331,71 @@ object ProbeConfig {
      */
     fun metricsAllowedIps(): List<String> {
         // getStringList 在键缺失时返回空列表;再以 takeIf 兜底为默认白名单,确保恒非空(安全默认)
-        val configured = runCatching { conf.getStringList(KEY_METRICS_ALLOWED_IPS) }.getOrNull()
+        val configured = runCatching { ManagedConfigResolver.getStringList(KEY_METRICS_ALLOWED_IPS) }.getOrNull()
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
         return configured?.takeIf { it.isNotEmpty() } ?: DEFAULT_METRICS_ALLOWED_IPS
     }
 
     /** 是否开启事故诊断 MCP 控制面，默认关闭。 */
-    fun mcpEnabled(): Boolean = conf.getBoolean(KEY_MCP_ENABLED, DEFAULT_MCP_ENABLED)
+    fun mcpEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_MCP_ENABLED, DEFAULT_MCP_ENABLED)
 
     /** MCP 监听地址，默认仅本机回环。 */
-    fun mcpHost(): String = conf.getString(KEY_MCP_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MCP_HOST
+    fun mcpHost(): String = ManagedConfigResolver.getString(KEY_MCP_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MCP_HOST
 
     /** MCP 监听端口，默认 9942。 */
-    fun mcpPort(): Int = conf.getInt(KEY_MCP_PORT, DEFAULT_MCP_PORT)
+    fun mcpPort(): Int = ManagedConfigResolver.getInt(KEY_MCP_PORT, DEFAULT_MCP_PORT)
 
     /** MCP Bearer 密钥；空串表示显式允许无认证。 */
-    fun mcpSecret(): String = conf.getString(KEY_MCP_SECRET)?.trim() ?: DEFAULT_MCP_SECRET
+    fun mcpSecret(): String = ManagedConfigResolver.getString(KEY_MCP_SECRET)?.trim() ?: DEFAULT_MCP_SECRET
 
     /** MCP Arthas 同时运行的任务数。 */
-    fun mcpTaskMaxConcurrent(): Int = conf.getInt(KEY_MCP_TASK_MAX_CONCURRENT, DEFAULT_MCP_TASK_MAX_CONCURRENT).coerceAtLeast(1)
+    fun mcpTaskMaxConcurrent(): Int =
+        ManagedConfigResolver.getInt(KEY_MCP_TASK_MAX_CONCURRENT, DEFAULT_MCP_TASK_MAX_CONCURRENT).coerceAtLeast(1)
 
     /** MCP Arthas 单任务最长分钟数；零表示不限时。 */
-    fun mcpTaskTimeoutMinutes(): Long = conf.getLong(KEY_MCP_TASK_TIMEOUT_MINUTES, DEFAULT_MCP_TASK_TIMEOUT_MINUTES).coerceAtLeast(0)
+    fun mcpTaskTimeoutMinutes(): Long =
+        ManagedConfigResolver.getLong(KEY_MCP_TASK_TIMEOUT_MINUTES, DEFAULT_MCP_TASK_TIMEOUT_MINUTES).coerceAtLeast(0)
 
     /** MCP Arthas 单任务输出上限，单位 MiB。 */
-    fun mcpTaskOutputMebibytes(): Int = conf.getInt(KEY_MCP_TASK_OUTPUT_MEBIBYTES, DEFAULT_MCP_TASK_OUTPUT_MEBIBYTES).coerceAtLeast(1)
+    fun mcpTaskOutputMebibytes(): Int =
+        ManagedConfigResolver.getInt(KEY_MCP_TASK_OUTPUT_MEBIBYTES, DEFAULT_MCP_TASK_OUTPUT_MEBIBYTES).coerceAtLeast(1)
 
     /** MCP Arthas 完成任务的保留分钟数。 */
-    fun mcpTaskRetentionMinutes(): Long = conf.getLong(KEY_MCP_TASK_RETENTION_MINUTES, DEFAULT_MCP_TASK_RETENTION_MINUTES).coerceAtLeast(1)
+    fun mcpTaskRetentionMinutes(): Long =
+        ManagedConfigResolver.getLong(KEY_MCP_TASK_RETENTION_MINUTES, DEFAULT_MCP_TASK_RETENTION_MINUTES).coerceAtLeast(1)
 
     /** MCP 工件保留小时数。 */
     fun mcpArtifactRetentionHours(): Long =
-    conf.getLong(KEY_MCP_ARTIFACT_RETENTION_HOURS, DEFAULT_MCP_ARTIFACT_RETENTION_HOURS).coerceAtLeast(1)
+    ManagedConfigResolver.getLong(KEY_MCP_ARTIFACT_RETENTION_HOURS, DEFAULT_MCP_ARTIFACT_RETENTION_HOURS).coerceAtLeast(1)
 
     /** 外呼 .log 原始保留天数(过期 gzip 归档)。 */
     fun httpMonitorFileRetentionDays(): Int =
-        conf.getInt(KEY_HTTP_MONITOR_FILE_RETENTION_DAYS, DEFAULT_HTTP_MONITOR_FILE_RETENTION_DAYS)
+        ManagedConfigResolver.getInt(KEY_HTTP_MONITOR_FILE_RETENTION_DAYS, DEFAULT_HTTP_MONITOR_FILE_RETENTION_DAYS)
 
     /** 外呼 gzip 归档保留天数(0=过期直接删除)。 */
     fun httpMonitorFileArchiveDays(): Int =
-        conf.getInt(KEY_HTTP_MONITOR_FILE_ARCHIVE_DAYS, DEFAULT_HTTP_MONITOR_FILE_ARCHIVE_DAYS)
+        ManagedConfigResolver.getInt(KEY_HTTP_MONITOR_FILE_ARCHIVE_DAYS, DEFAULT_HTTP_MONITOR_FILE_ARCHIVE_DAYS)
 
     /** MCP 审计记录轮转阈值(活跃文件超过该体积 gzip 轮转),单位 MB。 */
-    fun mcpAuditMaxFileMb(): Int = conf.getInt(KEY_MCP_AUDIT_MAX_FILE_MB, DEFAULT_MCP_AUDIT_MAX_FILE_MB)
+    fun mcpAuditMaxFileMb(): Int = ManagedConfigResolver.getInt(KEY_MCP_AUDIT_MAX_FILE_MB, DEFAULT_MCP_AUDIT_MAX_FILE_MB)
 
     /** MCP 审计 gzip 归档保留天数(0=不过期)。 */
-    fun mcpAuditRetentionDays(): Int = conf.getInt(KEY_MCP_AUDIT_RETENTION_DAYS, DEFAULT_MCP_AUDIT_RETENTION_DAYS)
+    fun mcpAuditRetentionDays(): Int = ManagedConfigResolver.getInt(KEY_MCP_AUDIT_RETENTION_DAYS, DEFAULT_MCP_AUDIT_RETENTION_DAYS)
 
     /** MCP 工件工作区总容量上限，单位 GiB。 */
-    fun mcpArtifactMaxGib(): Long = conf.getLong(KEY_MCP_ARTIFACT_MAX_GIB, DEFAULT_MCP_ARTIFACT_MAX_GIB).coerceAtLeast(1)
+    fun mcpArtifactMaxGib(): Long = ManagedConfigResolver.getLong(KEY_MCP_ARTIFACT_MAX_GIB, DEFAULT_MCP_ARTIFACT_MAX_GIB).coerceAtLeast(1)
 
     /**
-     * 是否开启插件桥反向 WS(见 JianManager ADR-016),默认 false(关闭)。
+     * 是否开启插件桥反向 WS(见控制面 ADR-016),默认 false(关闭)。
      *
-     * 由 JianManager 建服时写入 `bridge.enabled=true`并下发 url/instance/token;独立使用探针(非 JianManager
+     * 由外部控制面建服时写入 `bridge.enabled=true` 并下发 url/instance/token;独立使用探针(无控制面
      * 托管)时保持关闭,探针不连任何外部 Worker。关闭时 [top.wcpe.mc.plugin.serverprobe.core.bridge.BridgeClient]
      * 不起连接。
      *
      * @return 是否开启插件桥。
      */
-    fun bridgeEnabled(): Boolean = conf.getBoolean(KEY_BRIDGE_ENABLED, DEFAULT_BRIDGE_ENABLED)
+    fun bridgeEnabled(): Boolean = ManagedConfigResolver.bridgeEnabled(KEY_BRIDGE_ENABLED, DEFAULT_BRIDGE_ENABLED)
 
     /**
      * 插件桥目标 Worker 的 WS 地址(如 `ws://127.0.0.1:9102/ws/plugin-bridge`),默认空串(未配置)。
@@ -331,16 +404,16 @@ object ProbeConfig {
      *
      * @return 去空白后的 WS 地址;未配置或空白时为空串。
      */
-    fun bridgeUrl(): String = conf.getString(KEY_BRIDGE_URL)?.trim() ?: DEFAULT_BRIDGE_URL
+    fun bridgeUrl(): String = ManagedConfigResolver.bridgeUrl(KEY_BRIDGE_URL, DEFAULT_BRIDGE_URL)
 
     /**
-     * 插件桥实例标识(JianManager 实例 UUID),默认空串。
+     * 插件桥实例标识(控制面实例 UUID),默认空串。
      *
      * 作为握手 `?instance=`参数,须与 token 内 instanceId 一致(Worker 校验)。
      *
      * @return 去空白后的实例标识;未配置时为空串。
      */
-    fun bridgeInstance(): String = conf.getString(KEY_BRIDGE_INSTANCE)?.trim() ?: DEFAULT_BRIDGE_INSTANCE
+    fun bridgeInstance(): String = ManagedConfigResolver.bridgeInstance(KEY_BRIDGE_INSTANCE, DEFAULT_BRIDGE_INSTANCE)
 
     /**
      * 插件桥连接 token(实例级 HS256 JWT,scope=plugin-bridge),默认空串。
@@ -349,7 +422,33 @@ object ProbeConfig {
      *
      * @return token;未配置时为空串。
      */
-    fun bridgeToken(): String = conf.getString(KEY_BRIDGE_TOKEN)?.trim() ?: DEFAULT_BRIDGE_TOKEN
+    fun bridgeToken(): String = ManagedConfigResolver.bridgeToken(KEY_BRIDGE_TOKEN, DEFAULT_BRIDGE_TOKEN)
+
+    /**
+     * 指标经反向 WS 推送的间隔(毫秒),默认 5000(协议规格 §3.4.4 / 本仓 `managed-mode.md` §3.5)。
+     *
+     * 该键属 GUARDED 档(见 [top.wcpe.mc.plugin.serverprobe.core.control.ConfigTier]):托管面可下发调整,
+     * 但下限 1000ms(规格 §3.3,防止把反向 WS 打满);越界值在 [ManagedConfigResolver] 取用时按物理下限兜底,
+     * 读取侧不因异常载荷把间隔压到危险值。
+     *
+     * @return 生效的推送间隔(毫秒,恒 >= 1000)。
+     */
+    fun metricsPushIntervalMs(): Long =
+        ManagedConfigResolver.getLong(KEY_METRICS_PUSH_INTERVAL_MS, DEFAULT_METRICS_PUSH_INTERVAL_MS)
+            .coerceAtLeast(MIN_METRICS_PUSH_INTERVAL_MS)
+
+    /**
+     * 托管状态(`config_state`)的上报周期(毫秒),默认 30000。
+     *
+     * 该键属 SAFE 档(协议规格 §3.4.3 "周期默认 30s,可经 SAFE 档键调整",定档见
+     * [top.wcpe.mc.plugin.serverprobe.core.control.ConfigTier]):托管面可下发调整,类型校验通过即应用;
+     * 物理下限 5000ms 在**读取侧**兜底(SAFE 档不做边界校验),防止异常载荷把上报打成每秒一次。
+     *
+     * @return 生效的上报周期(毫秒,恒 >= 5000)。
+     */
+    fun configStateIntervalMs(): Long =
+        ManagedConfigResolver.getLong(KEY_CONFIG_STATE_INTERVAL_MS, DEFAULT_CONFIG_STATE_INTERVAL_MS)
+            .coerceAtLeast(MIN_CONFIG_STATE_INTERVAL_MS)
 
     // ---------------------------------------------------------------------------
     // 插件桥运行参数(bridge.line/dispatch/reload/chunk/subscribe/health/reconnect.*)
@@ -555,28 +654,28 @@ object ProbeConfig {
      *
      * @return 是否开启告警。
      */
-    fun alertEnabled(): Boolean = conf.getBoolean(KEY_ALERT_ENABLED, DEFAULT_ALERT_ENABLED)
+    fun alertEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_ALERT_ENABLED, DEFAULT_ALERT_ENABLED)
 
     /**
      * 是否开启日志告警通道,默认 true。
      *
      * @return 是否启用日志通道。
      */
-    fun alertChannelLog(): Boolean = conf.getBoolean(KEY_ALERT_CHANNEL_LOG, DEFAULT_ALERT_CHANNEL_LOG)
+    fun alertChannelLog(): Boolean = ManagedConfigResolver.getBoolean(KEY_ALERT_CHANNEL_LOG, DEFAULT_ALERT_CHANNEL_LOG)
 
     /**
      * 是否开启游戏内告警通道,默认 true(仅 Bukkit 端生效)。
      *
      * @return 是否启用游戏内通道。
      */
-    fun alertChannelInGame(): Boolean = conf.getBoolean(KEY_ALERT_CHANNEL_IN_GAME, DEFAULT_ALERT_CHANNEL_IN_GAME)
+    fun alertChannelInGame(): Boolean = ManagedConfigResolver.getBoolean(KEY_ALERT_CHANNEL_IN_GAME, DEFAULT_ALERT_CHANNEL_IN_GAME)
 
     /**
      * 是否开启 Webhook 告警通道,默认 false。
      *
      * @return 是否启用 Webhook 通道。
      */
-    fun alertWebhookEnabled(): Boolean = conf.getBoolean(KEY_ALERT_WEBHOOK_ENABLED, DEFAULT_ALERT_WEBHOOK_ENABLED)
+    fun alertWebhookEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_ALERT_WEBHOOK_ENABLED, DEFAULT_ALERT_WEBHOOK_ENABLED)
 
     /**
      * Webhook 回调地址,默认空串(未配置)。
@@ -585,7 +684,7 @@ object ProbeConfig {
      *
      * @return 去空白后的 URL;未配置或空白时为空串。
      */
-    fun alertWebhookUrl(): String = conf.getString(KEY_ALERT_WEBHOOK_URL)?.trim() ?: DEFAULT_ALERT_WEBHOOK_URL
+    fun alertWebhookUrl(): String = ManagedConfigResolver.getString(KEY_ALERT_WEBHOOK_URL)?.trim() ?: DEFAULT_ALERT_WEBHOOK_URL
 
     /**
      * Webhook 连接/读取超时(毫秒),默认 3000;低于下限时兜底为下限,避免 0/负值导致无限等待。
@@ -593,7 +692,7 @@ object ProbeConfig {
      * @return 超时毫秒数(不小于 [MIN_ALERT_WEBHOOK_TIMEOUT_MS])。
      */
     fun alertWebhookTimeoutMs(): Int =
-        conf.getInt(KEY_ALERT_WEBHOOK_TIMEOUT_MS, DEFAULT_ALERT_WEBHOOK_TIMEOUT_MS)
+        ManagedConfigResolver.getInt(KEY_ALERT_WEBHOOK_TIMEOUT_MS, DEFAULT_ALERT_WEBHOOK_TIMEOUT_MS)
             .coerceAtLeast(MIN_ALERT_WEBHOOK_TIMEOUT_MS)
 
     /**
@@ -604,7 +703,7 @@ object ProbeConfig {
      *
      * @return 是否开启运行期 CPU 归因。
      */
-    fun cpuEnabled(): Boolean = conf.getBoolean(KEY_CPU_ENABLED, DEFAULT_CPU_ENABLED)
+    fun cpuEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_CPU_ENABLED, DEFAULT_CPU_ENABLED)
 
     /**
      * 是否开启 Incision 方法级精确归因,默认 false。
@@ -613,14 +712,14 @@ object ProbeConfig {
      *
      * @return 是否请求启用 Incision。
      */
-    fun incisionEnabled(): Boolean = conf.getBoolean(KEY_INCISION_ENABLED, DEFAULT_INCISION_ENABLED)
+    fun incisionEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_INCISION_ENABLED, DEFAULT_INCISION_ENABLED)
 
     /**
      * CPU 采样周期(单位 ticks),默认 20(约 1 秒)。
      *
      * @return 采样周期 tick 数。
      */
-    fun cpuSamplePeriodTicks(): Long = conf.getLong(KEY_CPU_SAMPLE_PERIOD_TICKS, DEFAULT_CPU_SAMPLE_PERIOD_TICKS)
+    fun cpuSamplePeriodTicks(): Long = ManagedConfigResolver.getLong(KEY_CPU_SAMPLE_PERIOD_TICKS, DEFAULT_CPU_SAMPLE_PERIOD_TICKS)
 
     /**
      * CPU 归因聚合窗口(轮),默认 60(约 1 分钟 @ 1 秒采样周期)。
@@ -630,7 +729,7 @@ object ProbeConfig {
      *
      * @return 窗口轮数。
      */
-    fun cpuWindowRounds(): Int = conf.getInt(KEY_CPU_WINDOW_ROUNDS, DEFAULT_CPU_WINDOW_ROUNDS)
+    fun cpuWindowRounds(): Int = ManagedConfigResolver.getInt(KEY_CPU_WINDOW_ROUNDS, DEFAULT_CPU_WINDOW_ROUNDS)
 
     /**
      * 是否开启 Web 面板(M3,P2),默认 false(关闭)。
@@ -640,21 +739,21 @@ object ProbeConfig {
      *
      * @return 是否开启 Web 面板。
      */
-    fun webEnabled(): Boolean = conf.getBoolean(KEY_WEB_ENABLED, DEFAULT_WEB_ENABLED)
+    fun webEnabled(): Boolean = ManagedConfigResolver.getBoolean(KEY_WEB_ENABLED, DEFAULT_WEB_ENABLED)
 
     /**
      * Web 面板绑定地址,默认 `127.0.0.1`(仅本机回环,不对外暴露)。
      *
      * @return 绑定主机地址。
      */
-    fun webHost(): String = conf.getString(KEY_WEB_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_WEB_HOST
+    fun webHost(): String = ManagedConfigResolver.getString(KEY_WEB_HOST)?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_WEB_HOST
 
     /**
      * Web 面板监听端口,默认 9941(与 Prometheus 9940 区分)。
      *
      * @return 监听端口。
      */
-    fun webPort(): Int = conf.getInt(KEY_WEB_PORT, DEFAULT_WEB_PORT)
+    fun webPort(): Int = ManagedConfigResolver.getInt(KEY_WEB_PORT, DEFAULT_WEB_PORT)
 
     /**
      * Web 面板鉴权 token,默认空串(不启用 token 鉴权)。
@@ -663,7 +762,7 @@ object ProbeConfig {
      *
      * @return 鉴权 token;未配置时为空串。
      */
-    fun webToken(): String = conf.getString(KEY_WEB_TOKEN)?.trim() ?: DEFAULT_WEB_TOKEN
+    fun webToken(): String = ManagedConfigResolver.getString(KEY_WEB_TOKEN)?.trim() ?: DEFAULT_WEB_TOKEN
 
     /**
      * Web 面板 IP 白名单,默认 `["127.0.0.1"]`(仅本机)。
@@ -671,7 +770,7 @@ object ProbeConfig {
      * @return 允许访问的 IP 列表(恒非空,至少含本机回环)。
      */
     fun webAllowedIps(): List<String> {
-        val configured = runCatching { conf.getStringList(KEY_WEB_ALLOWED_IPS) }.getOrNull()
+        val configured = runCatching { ManagedConfigResolver.getStringList(KEY_WEB_ALLOWED_IPS) }.getOrNull()
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
         return configured?.takeIf { it.isNotEmpty() } ?: DEFAULT_WEB_ALLOWED_IPS
@@ -690,11 +789,11 @@ object ProbeConfig {
         val path = "$KEY_ALERT_RULES.${spec.key}"
         AlertRule(
             type = spec.type,
-            threshold = conf.getDouble("$path.$SUB_THRESHOLD", spec.defaultThreshold),
-            sustainCycles = conf.getInt("$path.$SUB_SUSTAIN_CYCLES", spec.defaultSustainCycles)
+            threshold = ManagedConfigResolver.getDouble("$path.$SUB_THRESHOLD", spec.defaultThreshold),
+            sustainCycles = ManagedConfigResolver.getInt("$path.$SUB_SUSTAIN_CYCLES", spec.defaultSustainCycles)
                 .coerceAtLeast(MIN_SUSTAIN_CYCLES),
-            level = parseLevel(conf.getString("$path.$SUB_LEVEL"), spec.defaultLevel),
-            enabled = conf.getBoolean("$path.$SUB_ENABLED", spec.defaultEnabled)
+            level = parseLevel(ManagedConfigResolver.getString("$path.$SUB_LEVEL"), spec.defaultLevel),
+            enabled = ManagedConfigResolver.getBoolean("$path.$SUB_ENABLED", spec.defaultEnabled)
         )
     }
 
@@ -862,6 +961,22 @@ object ProbeConfig {
 
     /** 配置键名:Prometheus 端点 IP 白名单。 */
     private const val KEY_METRICS_ALLOWED_IPS = "metrics.allowed-ips"
+
+    /**
+     * 配置键名:指标经反向 WS 推送的间隔(毫秒)。
+     *
+     * 顶层键(非 `metrics.` 段):监听面整组属 FORBIDDEN 档,而推送间隔是托管面可调的 GUARDED 键,
+     * 放同一段里会让"禁止远程"的判定变得含混。定档见 `ConfigTier` 的保留键表。
+     */
+    private const val KEY_METRICS_PUSH_INTERVAL_MS = "metrics-push-interval-ms"
+
+    /**
+     * 配置键名:托管状态(`config_state`)周期上报间隔(毫秒)。
+     *
+     * 与 `metrics-push-interval-ms` 同理放在顶层:它同样是"托管面可调的节奏键",
+     * 不是监听面的一部分。定档见 `ConfigTier` 的预 SAFE 档键表。
+     */
+    private const val KEY_CONFIG_STATE_INTERVAL_MS = "config-state-interval-ms"
 
     /** 配置键名:MCP 控制面总开关。 */
     private const val KEY_MCP_ENABLED = "mcp.enabled"
@@ -1222,8 +1337,29 @@ object ProbeConfig {
     /** 默认 Prometheus 端点 IP 白名单:仅本机回环(配置缺失/异常时兜底,杜绝裸奔)。 */
     private val DEFAULT_METRICS_ALLOWED_IPS = listOf("127.0.0.1")
 
+    /** 默认指标推送间隔(毫秒):与协议规格 §3.5 的"默认 5s"一致。 */
+    private const val DEFAULT_METRICS_PUSH_INTERVAL_MS = 5_000L
+
+    /** 指标推送间隔的物理下限(毫秒):规格 §3.3 的 GUARDED 下限,防止把反向 WS 打满。 */
+    private const val MIN_METRICS_PUSH_INTERVAL_MS = 1_000L
+
+    /** 默认托管状态上报周期(毫秒):与协议规格 §3.4.3 的"周期默认 30s"一致。 */
+    private const val DEFAULT_CONFIG_STATE_INTERVAL_MS = 30_000L
+
+    /** 托管状态上报周期的物理下限(毫秒):防止异常载荷把上报打成每秒一次。 */
+    private const val MIN_CONFIG_STATE_INTERVAL_MS = 5_000L
+
     /** 默认 MCP 控制面关闭。 */
     private const val DEFAULT_MCP_ENABLED = false
+
+    /** 等配置注入完成的上限（毫秒）：与其它托管组件等模式判定的口径一致。 */
+    private const val CONFIG_READY_WAIT_MS = 5_000L
+
+    /** 等配置注入的轮询间隔（毫秒）：足够细以捕捉“注入先于装配结束”，又不至于忙等。 */
+    private const val CONFIG_READY_POLL_MS = 25L
+
+    /** 毫秒→纳秒的换算系数（用于截止时间计算，避免乘法溢出）。 */
+    private const val NANOS_PER_MILLI = 1_000_000L
 
     /** 默认 MCP 控制面仅监听本机回环。 */
     private const val DEFAULT_MCP_HOST = "127.0.0.1"
@@ -1250,7 +1386,7 @@ object ProbeConfig {
 
     private const val DEFAULT_MCP_ARTIFACT_MAX_GIB = 10L
 
-    /** 默认插件桥总开关:关闭(独立使用探针时不连任何 Worker;由 JianManager 下发开启)。 */
+    /** 默认插件桥总开关:关闭(独立使用探针时不连任何 Worker;由外部控制面下发开启)。 */
     private const val DEFAULT_BRIDGE_ENABLED = false
 
     /** 默认插件桥 Worker WS 地址:空串(未配置)。 */
@@ -1303,8 +1439,24 @@ object ProbeConfig {
     /** 默认回执有界阻塞预算(毫秒)。 */
     private const val DEFAULT_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS = 500L
 
-    /** 默认启用不可丢事件落盘兜底。 */
-    private const val DEFAULT_BRIDGE_LINE_SPILL_ENABLED = true
+    /**
+     * 默认**关闭**不可丢事件落盘兜底。
+     *
+     * 曾默认为 true，为「断线不丢数据」设计；但本通道的语义约定是
+     * **不可靠 / 幂等 / 不堵塞**，落盘与这三条都相反：
+     *
+     * - **与幂等重复**：业务事件带 dedupKey，重复到达不会产生重复扣款；
+     *   断线窗口丢的事件由重连后的全量同步补齐（重放安全）。落盘只是把
+     *   “重连后重新拉一遍”换成“从磁盘回放”，语义上没多出任何保证。
+     * - **与不堵塞冲突**：`spill.append()` 跑在发送线程的 `write()` 里（见 FrameWriter），
+     *   是**同步磁盘写**。常见部署是机械盘（ROTA=1），断线时每条可靠事件都要
+     *   等一次寻道，发送线程被拖住，队列迅速回满，回执也会跟着挤不上。
+     * - **收益极小、风险集中**：落盘只在“已断线”时发生，而那段窗口本来就丢；
+     *   保留它等于用“不堵”换“可能会丢的少量事件”，与需求相反。
+     *
+     * 需要的宿主仍可在 config.yml 里显式 `bridge.line.spill-enabled: true` 打开。
+     */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_ENABLED = false
 
     /** 默认落盘目录。 */
     private const val DEFAULT_BRIDGE_LINE_SPILL_DIR = "data/bridge-spill"
@@ -1423,8 +1575,13 @@ object ProbeConfig {
     /** 默认告警总开关:关闭(需显式开启)。 */
     private const val DEFAULT_ALERT_ENABLED = false
 
-    /** 默认 CPU 归因总开关:关闭(P2 增强,需显式开启)。 */
-    private const val DEFAULT_CPU_ENABLED = false
+    /** 默认 CPU 归因总开关:开启。
+     *
+     * 采样是异步线程里 dumpAllThreads + 栈帧归并，开销远低于期望——但它回答的是
+     * 「哪个插件运行期更吃线程」这类事故里最关键的问题。默认关着等于现场永远没数据，
+     * 而事故不会提前打招呼。因此默认开启，确实在意开销的部署可显式关掉。
+     */
+    private const val DEFAULT_CPU_ENABLED = true
 
     /** 默认 Incision 方法级精确归因开关:关闭(需显式开启)。 */
     private const val DEFAULT_INCISION_ENABLED = false

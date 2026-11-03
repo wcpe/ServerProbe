@@ -17,9 +17,9 @@ taboolib {
 dependencies {
     compileOnly(project(":api"))
     // IOC 注解(仅编译期);运行期由 plugin 的 autoTakeover 统一扫描纳管
-    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
+    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:${property("taboolib.ioc.version")}")
     // 启动画像兜底装配需容错读取 IOC 容器(BeanContainer);仅编译期,运行期由 plugin 合并后的重定位容器提供。
-    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc:1.2.0-SNAPSHOT")
+    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc:${property("taboolib.ioc.version")}")
     // core:依赖 ProbeRegistry / ProbeLogger 完成服务发现自注册
     compileOnly(project(":project:core"))
     // NMS / Bukkit API:用于 P5 ServerTickSampler 的 nmsProxy 读取 recentTps、以及世界/实体采集

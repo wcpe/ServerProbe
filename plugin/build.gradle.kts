@@ -22,8 +22,18 @@ taboolib {
     // TabooLib 打包阶段（taboolibMainTask）会用 ASM ClassRemapper 按此前缀改写全部 .class：
     // 既改写 ASM 自身的包名，也同步改写 agent 类对 ASM 的全部引用，二者保持一致。
     relocate("org.objectweb.asm", "top.wcpe.mc.plugin.serverprobe.agent.shadow.asm")
-    // 以项目内的同名实现替换 IoC 的扫描器：先按平台过滤，再反射方法，避免 Bungee 解析 Bukkit 方法签名。
-    exclude("top/wcpe/taboolib/ioc/scan/ComponentVisitor")
+    // 这里**不再** exclude IoC 的 ComponentVisitor / 也不自带扫描器。
+    //
+    // 历史：单 jar 多平台下，官方 ComponentVisitor 把全部候选类逐个交给 ClassScanner.scan()，
+    // 而 ClassScanner 内部 `clazz.declaredMethods` / `declaredFields` 会强制解析方法签名里的
+    // 全部类型引用；Bukkit 端 classpath 没有 net.md_5.bungee.api.CommandSender，于是抛
+    // NoClassDefFoundError，从 LOAD 阶段冒泡、中断整条注入链（真机 64 个组件全未注册，插件自我禁用）。
+    //
+    // 项目内曾用自定义扫描器绕过，但那是消费侧止血。该缺陷已在 taboolib-ioc 1.3.1 根治：
+    //   ① ClassScanner / ConfigurationScanner 的裸反射全部收敛到 ReflectionAccess，
+    //      只吞类型解析类 Error，单类失败不再拖垮整条链；
+    //   ② @PlatformSide 判定前移到 scan 之前（PlatformGate）。
+    // 因此恢复使用官方实现——自有实现会重复框架职责，且与框架后续修复脱节。
     env {
         install(Basic)
         install(Bukkit)
@@ -62,7 +72,7 @@ dependencies {
     // 随后由上方 relocate 规则改写到 agent 影子包,确保 system ClassLoader 能加载到 relocate 后的 ASM。
     taboo("org.ow2.asm:asm:9.10.1")
     taboo("org.ow2.asm:asm-commons:9.10.1")
-    // plugin 模块的测试覆盖命令层纯函数（ProbeFormat 的单位换算与区域无关性）与 IoC 扫描契约。
+    // plugin 模块的测试覆盖命令层纯函数（ProbeFormat 的单位换算与区域无关性）。
     // TabooLib 传递的 junit 5.8.1 与 5.14.4 冲突，故引擎与 launcher 版本配对显式锁死，
     // 保证 JUnit Platform 正常加载。
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")

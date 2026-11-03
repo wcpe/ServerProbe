@@ -1,6 +1,7 @@
 package top.wcpe.mc.plugin.serverprobe.core.mcp
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -71,14 +72,36 @@ class GcJfrToolProviderTest {
         assertEquals("QUEUED", result["state"])
     }
 
+    /**
+     * `jfr stop` 必须带 `--recording`，且路径不加引号。
+     *
+     * 回归防线：真机实测过——只给 `--filename` 而不给 `--recording` 时，Arthas 恒报
+     * `Failed to stop. please input recording id`：start 成功、status 也看得到 recording
+     * 在跑，但永远停不下来，产物永远是空的。旧实现正是这样写的，而旧断言只检查
+     * 「包含 jfr stop」所以没能拦住。
+     */
     @Test
     fun `jfr_stop 默认命名并写工作区路径`() {
         val provider = provider()
+        provider.call("jfr_start", null)
         val result = provider.call("jfr_stop", arguments("artifactName" to "trace.jfr"))
 
         assertNotNull(result["taskId"])
-        assertTrue(arthas.commands.single().contains("jfr stop"))
-        assertTrue(arthas.commands.single().contains("trace.jfr"))
+        val stop = arthas.commands.last()
+        assertTrue(stop.startsWith("jfr stop"), "应当提交 jfr stop：$stop")
+        assertTrue(stop.contains("trace.jfr"), "产物名未进命令：$stop")
+        assertTrue(stop.contains("--recording"), "缺 --recording 时 Arthas 无法确定该停哪个 recording：$stop")
+        assertFalse(stop.contains("'"), "命令串不是 shell，引号会被当成文件名的一部分：$stop")
+    }
+
+    /** 调用方显式给的 recordingId 优先于内部记账。 */
+    @Test
+    fun `jfr_stop 可用 recordingId 显式覆盖`() {
+        val provider = provider()
+        provider.call("jfr_start", null)
+        provider.call("jfr_stop", arguments("artifactName" to "trace.jfr", "recordingId" to 7L))
+
+        assertTrue(arthas.commands.last().contains("--recording 7"), "显式 recordingId 未生效：${arthas.commands.last()}")
     }
 
     @Test

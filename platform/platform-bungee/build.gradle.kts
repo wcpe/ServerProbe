@@ -14,7 +14,7 @@ taboolib {
 dependencies {
     compileOnly(project(":api"))
     // IOC 注解(仅编译期);运行期由 plugin 的 autoTakeover 统一扫描纳管
-    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
+    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:${property("taboolib.ioc.version")}")
     // core:依赖 ProbeRegistry / ProbeLogger 完成服务发现自注册
     compileOnly(project(":project:core"))
     // BungeeCord 服务端 API(ProxyServer / ServerInfo 等),代理端采集 totalOnline 与各子服在线

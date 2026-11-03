@@ -41,6 +41,23 @@ interface ArthasControl {
      * 返回非 null 但为空数组表示读取失败，调用方应拒绝替换。默认实现返回 null 以保持向后兼容。
      */
     fun dumpClassBytes(className: String): ByteArray? = null
+
+    /**
+     * 同步执行一条 Arthas 命令并返回其文本输出。
+     *
+     * 用于「必须先读到当前状态才能决定下一步」的场景——异步 submit 只能拿到 taskId，
+     * 调用方还得轮询 output，对一条短命令而言既麻烦又多一次往返。
+     *
+     * 与 [submit] 的区别只是调用方式：实现可以复用同一执行器，但**不能**在包内循环上调用
+     * （会阻塞心跳），调用方应在异步上下文里用它。
+     *
+     * 默认实现返回 null（能力未提供），调用方自行降级。
+     *
+     * @param command 原始命令。
+     * @param timeoutMillis 超时毫秒。
+     * @return 命令输出文本；不可用或超时时返回 null。
+     */
+    fun executeSync(command: String, timeoutMillis: Long): String? = null
 }
 
 /** Arthas 控制器的生命周期注册契约，平台/诊断模块不依赖具体 registry。 */
@@ -81,6 +98,14 @@ class ArthasControlRegistry : ArthasControl, ArthasControlRegistration {
     override fun cancel(taskId: String): ArthasTaskSnapshot = controlOrNull()
         ?.cancel(taskId)
         ?: unavailableSnapshot(taskId)
+
+    /**
+     * 转发同步执行。**必须重写**：不重写就会落到接口的默认实现 `= null`，
+     * 真实控制器的实现永远走不到——调用方会一直拿到 null 并默默降级，
+     * 看起来像“能力未提供”，实际是注册表没转发。
+     */
+    override fun executeSync(command: String, timeoutMillis: Long): String? = controlOrNull()
+        ?.executeSync(command, timeoutMillis)
 
     override fun retryAttach(): ArthasInstrumentationSnapshot = controlOrNull()
         ?.retryAttach()

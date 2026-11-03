@@ -92,10 +92,11 @@ http-monitor:
 
 # 运行期 CPU 采样归因(M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
 # 得到"哪个插件运行期更吃线程"的近似占比(/probe cpu 查看,Prometheus 导出)。
-# 默认关闭(P2 增强,采样有一定开销)。注:运行期 CPU 火焰图不自研,建议并用 spark。
+# 默认开启(采样在异步线程,开销可控;事故现场需要时才有数据)。
+# 注:运行期 CPU 火焰图不自研,建议并用 spark。
 cpu:
-  # 是否开启运行期 CPU 归因。默认 false(关闭)。
-  enabled: false
+  # 是否开启运行期 CPU 归因。默认 true(开启)。
+  enabled: true
   # 采样周期(单位:tick;20 tick = 1 秒)。默认 20(约 1 秒)。
   sample-period-ticks: 20
   # 聚合窗口(轮,每采样周期一轮)。默认 60(约 1 分钟)。
@@ -172,6 +173,12 @@ web:
   allowed-ips:
     - "127.0.0.1"
 
+# 托管模式下上行节拍(毫秒)。托管面可经下发热调，详见 docs/specs/managed-mode.md。
+# 指标经反向 WS 推送的间隔，与 /metrics 抓取同源同口径；物理下限 1000ms，小于该值按 1000 生效。
+metrics-push-interval-ms: 5000
+# 托管状态 config_state 的周期上报间隔；物理下限 5000ms，小于该值按 5000 生效。
+config-state-interval-ms: 30000
+
 # 插件桥反向 WebSocket(JianManager 托管时使用,见 JianManager ADR-016 /)。
 # 探针启用后主动反向连入【本机 Worker】的 /ws/plugin-bridge,建立实时双向通道:上报玩家 join/quit/chat
 # 与跨服路由(BC 端),并接收治理指令。独立使用探针(非 JianManager 托管)时保持 enabled=false,
@@ -211,8 +218,15 @@ bridge:
     receipt-capacity: 256
     # 池线程提交回执时的有界阻塞预算;读线程不用它(走非阻塞入口)。
     receipt-offer-budget-ms: 500
-    # 不可丢事件落盘兜底:队列满时写盘,重连后回放(至少一次,由 dedupKey 去重)。
-    spill-enabled: true
+    # 不可丢事件落盘兜底：队列满时写盘，重连后回放（至少一次，由 dedupKey 去重）。
+    #
+    # **默认关闭**。本通道的语义是「不可靠 / 幂等 / 不堵塞」，落盘与这三条都相反：
+    #   · 幂等事件重复到达不会重复生效，断线窗口丢的由重连后全量同步补齐，
+    #     落盘换不来任何额外保证；
+    #   · `spill.append()` 是**同步磁盘写**，跑在发送线程里；机械盘（ROTA=1）上
+    #     断线时每条事件都要等寻道，发送线程被拖住 → 队列回满 → 回执也挤不上。
+    # 需要「断线也不丢」的宿主可显式改为 true。
+    spill-enabled: false
     spill-dir: data/bridge-spill
     spill-max-files: 8
     spill-max-bytes: 8388608

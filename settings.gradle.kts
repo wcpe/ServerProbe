@@ -4,11 +4,12 @@ pluginManagement {
         mavenLocal()
         mavenCentral()
         gradlePluginPortal()
-        maven("https://maven.wcpe.top/repository/maven-public/")
+        maven("https://repo.wcpe.top/repository/maven-public/")
     }
 
     plugins {
-        id("top.wcpe.taboolib.ioc") version "0.0.6"
+        // 0.2.1：需与运行时 taboolib-ioc 1.3.0 配套（旧 0.0.6 已不再对应仓库里的实际产物）
+        id("top.wcpe.taboolib.ioc") version "0.2.1"
     }
 }
 
@@ -16,7 +17,7 @@ pluginManagement {
 // 起因:io.izzel.taboolib 插件硬编码向工程注入 repo.spongepowered.org/maven 镜像,该站近期持续 522
 // (Cloudflare 源站超时);Gradle 解析依赖一旦命中其 5xx 即整体中止、不回退其它仓库,致探针构建失败。
 // 在此集中声明全部健康仓库(不含 spongepowered),令插件注入的死镜像被忽略;所需制品均可正常解析:
-// asm→mavenCentral / aliyun,taboolib-ioc→maven.wcpe.top,taboolib 框架与 ink.ptms.core→tabooproject。
+// asm→mavenCentral / aliyun,taboolib-ioc→repo.wcpe.top,taboolib 框架与 ink.ptms.core→tabooproject。
 // 公共仓库(mavenCentral / aliyun)置于最前:任一私仓(如 wcpe.top)对个别制品返回 5xx 时,
 // 若其排在前面会导致 Gradle 中止不回退(detekt 工具依赖 kotlin-compiler-embeddable 曾因此解析失败)。
 dependencyResolutionManagement {
@@ -37,11 +38,11 @@ dependencyResolutionManagement {
             }
         }
         if (velocityApi4RepositoryFallback) {
-            maven("https://maven.wcpe.top/repository/maven-public/")
+            maven("https://repo.wcpe.top/repository/maven-public/")
         }
         mavenCentral()
         maven("https://maven.aliyun.com/repository/central")
-        maven("https://maven.wcpe.top/repository/maven-public/")
+        maven("https://repo.wcpe.top/repository/maven-public/")
         maven("https://repo.tabooproject.org/repository/releases/")
         maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
         maven("https://repo.papermc.io/repository/maven-public/")
@@ -65,7 +66,10 @@ include("diagnostics:diagnostics-arthas")
 include("plugin")
 
 // E2E 验收桩（原独立 Gradle 工程收编为子项目，产物仍为 mc-testkit-*-harness jar）
+include("e2e:fixture-core")
 include("e2e:harness")
+include("e2e:harness-managed-bungee")
+include("e2e:harness-managed-velocity")
 include("e2e:harness-network-bukkit")
 include("e2e:harness-network-bungee")
 include("e2e:harness-network-velocity")
@@ -74,3 +78,5 @@ include("e2e:harness-mcp-bukkit")
 include("e2e:harness-mcp-bungee")
 include("e2e:harness-mcp-velocity")
 include("e2e:harness-mcp-java8")
+// 桥链路压测桩（外置插件）：不改 ServerProbe 内部，通过公开 API 注洪峰并采集延迟分位。
+include("e2e:harness-bridge-load")

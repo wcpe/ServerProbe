@@ -5,6 +5,12 @@ import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
 import top.wcpe.mc.plugin.serverprobe.api.ProbeReadApi
 import top.wcpe.mc.plugin.serverprobe.core.config.ProbeConfig
+import top.wcpe.mc.plugin.serverprobe.core.control.ControlPlaneModeService
+import top.wcpe.mc.plugin.serverprobe.core.control.LocalListenerGate
+import top.wcpe.mc.plugin.serverprobe.core.control.LocalListenerLauncher
+import top.wcpe.mc.plugin.serverprobe.core.net.HttpListenerFactory
+import top.wcpe.mc.plugin.serverprobe.core.net.JdkHttpListenerFactory
+import top.wcpe.mc.plugin.serverprobe.core.net.LocalHttpListener
 import top.wcpe.mc.plugin.serverprobe.core.util.ProbeLogger
 import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostEnable
@@ -20,8 +26,13 @@ import java.util.concurrent.Executors
  * 提供三个只读页面:总览(`/`)、启动画像(`/startup`)、历史趋势(`/history`),
  * 数据经注入的 [ProbeReadApi] 读取(最新快照 / 最近启动画像 / 近期历史),HTML 由 [WebPanelHtml] 渲染。
  *
+ * ## 托管模式下零监听(FR-46,协议规格 §3.6)
+ * 托管模式下本面板**一律不起服**——判断依据是运行模式,不是 `web.enabled`:该键虽属 FORBIDDEN 档,
+ * 但本地 `config.yml` 里遗留的 `true` 不会被迁移清掉,故由 [LocalListenerGate] 按模式强制关断。
+ * 独立模式起停行为与引入托管能力前完全一致。
+ *
  * ## 稳定性:绝不成为事故源
- * - [start] 整体 try/catch,**起服失败仅 WARN 降级**(如端口被占用),不影响插件启用;
+ * - [start] 只起后台线程,**主线程零阻塞**;起服失败仅 WARN 降级(如端口被占用),不影响插件启用;
  * - 请求处理跑在 HttpServer 自带 daemon 线程池(非主线程),不阻塞服务器主线程;
  * - 单次请求异常捕获后尽力回 500,不向线程池抛出。
  *
@@ -39,61 +50,125 @@ class WebPanelServer {
     @Inject
     lateinit var readApi: ProbeReadApi
 
-    /** 运行中的 HTTP 服务句柄;未开启或起服失败时为 null。 */
+    /**
+     * 托管模式判定服务(FR-42):面板必须先等它给出结论,再决定是否 bind——
+     * 否则托管探针可能在判定完成前抢先把端口开起来(FR-46 零监听承诺)。
+     */
+    @Inject
+    lateinit var modeService: ControlPlaneModeService
+
+    /**
+     * 本地监听器工厂:把 `HttpServer.create` 收口为单一可替换注入点。
+     * 单测据此断言"托管模式下一次 bind 都没有发生"(FR-46 验收手段)。
+     */
+    internal var listenerFactory: HttpListenerFactory = JdkHttpListenerFactory
+
+    /** 运行中的监听句柄;未开启、托管模式或起服失败时为 null。 */
     @Volatile
-    private var server: HttpServer? = null
+    private var server: LocalHttpListener? = null
+
+    /** 是否已进入停止流程:防止"stop 先到、bind 后到"时泄漏一个不该存在的监听。 */
+    @Volatile
+    private var stopping = false
+
+    /** bind/stop 的串行化锁。 */
+    private val bindLock = Any()
 
     /**
      * 启动 Web 面板。
      *
-     * 配置开关关闭则跳过;否则按 host/port 创建 [HttpServer],挂载 daemon 线程池与三个
-     * 页面处理器并启动。整体 try/catch:任何异常仅 WARN 降级,绝不抛出。
+     * 配置开关关闭则跳过;否则起后台线程**等托管模式判定**,只有独立模式才真正 bind。
+     * 配置读取与判定都在后台线程（主线程零阻塞），且先等配置就绪——否则可能读到尚未注入的默认值而误跳过。
      */
     @PostEnable
     fun start() {
-        if (!ProbeConfig.webEnabled()) {
-            ProbeLogger.info("Web 面板未开启(web.enabled=false),已跳过")
-            return
-        }
-        stopQuietly()
-        val host = ProbeConfig.webHost()
-        val port = ProbeConfig.webPort()
-        // 起服失败需广捕兜底:探针绝不成为事故源,任何异常只降级跳过,故 catch(Exception) 有意为之。
-        @Suppress("TooGenericExceptionCaught")
-        try {
-            val httpServer = HttpServer.create(InetSocketAddress(host, port), 0)
-            httpServer.executor = Executors.newCachedThreadPool { runnable ->
-                Thread(runnable, "ServerProbe-Web").apply { isDaemon = true }
+        stopping = false
+        // 托管模式下必须零监听:先等模式判定,再在后台线程里决定是否 bind
+        LocalListenerLauncher(LocalListenerGate.Surface.WEB, awaitDecision = { modeService.awaitReady(it) })
+            .launch {
+                if (!ProbeConfig.awaitLoaded()) {
+                    ProbeLogger.warn("Web 面板等待配置就绪超时，将按当前可见值判断 web.enabled")
+                }
+                if (!runCatching { ProbeConfig.webEnabled() }.getOrDefault(false)) {
+                    ProbeLogger.info("Web 面板未开启(web.enabled=false),已跳过")
+                    return@launch
+                }
+                bindIfStandalone()
             }
-            val handler = PanelHandler(readApi, ProbeConfig.webToken(), ProbeConfig.webAllowedIps())
-            httpServer.createContext(ROOT_PATH, handler)
-            httpServer.createContext(STARTUP_PATH, handler)
-            httpServer.createContext(HISTORY_PATH, handler)
-            httpServer.createContext(NETWORK_FORENSICS_PATH, handler)
-            httpServer.start()
-            server = httpServer
-            ProbeLogger.info("Web 面板已启动,监听 $host:$port(/、/startup、/history、/network-forensics)")
-        } catch (e: Exception) {
-            // 起服失败静默降级:探针绝不成为事故源
-            ProbeLogger.warn("Web 面板启动失败($host:$port),已降级跳过:${e.message}(若端口被占用请改 web.port 后重试)")
-        }
     }
 
     /**
      * 停止 Web 面板。
      *
-     * 在容器关闭时由 `@PreDestroy`回调触发,释放底层 HTTP 服务与线程池。
+     * 在容器关闭时由 `@PreDestroy` 回调触发,释放底层监听与线程池。
      */
     @PreDestroy
     fun stop() {
-        stopQuietly()
+        stopping = true
+        LocalListenerGate.unregisterBound(LocalListenerGate.Surface.WEB)
+        synchronized(bindLock) { stopQuietly() }
         ProbeLogger.info("Web 面板已停止")
     }
 
-    /** 安静地停止当前 HTTP 服务(若有),供 [start] 幂等保护与 [stop] 复用。 */
+    /**
+     * bind 的唯一入口:先过托管闸门,再按配置起服。
+     *
+     * 托管模式在此直接返回,**绝不创建监听器**;独立模式行为与改造前一致。内部可见以便单测断言"未 bind"。
+     */
+    internal fun bindIfStandalone() {
+        // 判断依据是运行模式而非配置值:本地遗留的 web.enabled=true 不作数
+        if (!LocalListenerGate.allows(LocalListenerGate.Surface.WEB)) {
+            return
+        }
+        val host = ProbeConfig.webHost()
+        val port = ProbeConfig.webPort()
+        synchronized(bindLock) {
+            // stop 已先到:不再 bind,避免留下无人关闭的监听
+            if (stopping) {
+                return
+            }
+            stopQuietly()
+            // 起服失败需广捕兜底:探针绝不成为事故源,任何异常只降级跳过,故 catch(Exception) 有意为之。
+            @Suppress("TooGenericExceptionCaught")
+            try {
+                server = listenerFactory.bind(InetSocketAddress(host, port), 0) { httpServer -> configure(httpServer) }
+                // 登记回撤动作：若托管模式在 bind 之后才落定，由闸门在 publish 时把它关掉。
+                // 返回 false 表示回撤已经发生（本次登记晚于回撤）——必须当场关掉，不得谎报“已启动”。
+                val kept = LocalListenerGate.registerBound(LocalListenerGate.Surface.WEB) {
+                    synchronized(bindLock) { stopQuietly() }
+                }
+                if (!kept) {
+                    stopQuietly()
+                    return
+                }
+                ProbeLogger.info("Web 面板已启动,监听 $host:$port(/、/startup、/history、/network-forensics)")
+            } catch (e: Exception) {
+                // 起服失败静默降级:探针绝不成为事故源
+                ProbeLogger.warn("Web 面板启动失败($host:$port),已降级跳过:${e.message}(若端口被占用请改 web.port 后重试)")
+            }
+        }
+    }
+
+    /**
+     * 挂载线程池与各页面处理器(在 `HttpServer.create` 之后、`start` 之前执行)。
+     *
+     * @param httpServer JDK HTTP 服务实例。
+     */
+    private fun configure(httpServer: HttpServer) {
+        httpServer.executor = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "ServerProbe-Web").apply { isDaemon = true }
+        }
+        val handler = PanelHandler(readApi, ProbeConfig.webToken(), ProbeConfig.webAllowedIps())
+        httpServer.createContext(ROOT_PATH, handler)
+        httpServer.createContext(STARTUP_PATH, handler)
+        httpServer.createContext(HISTORY_PATH, handler)
+        httpServer.createContext(NETWORK_FORENSICS_PATH, handler)
+    }
+
+    /** 安静地停止当前监听(若有),供 [bindIfStandalone] 幂等保护与 [stop] 复用。 */
     private fun stopQuietly() {
         val current = server ?: return
-        runCatching { current.stop(0) }
+        runCatching { current.stop() }
         server = null
     }
 

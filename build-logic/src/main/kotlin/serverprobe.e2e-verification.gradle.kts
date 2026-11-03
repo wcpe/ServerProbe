@@ -27,6 +27,35 @@ val pluginJarFile: File = pluginJarFileProvider.asFile
 // 运行目录不再集中定义：mc-testkit 0.10.0 起每个后端一个独立目录（run-<backend>），
 // 需要定位时一律走 `mcTestkit.backendRunDirectory(backend)`（见 installE2eConfig / prepareDirectHarness）。
 
+// ── 托管代理场景（Bungee / Velocity）的一次性参数 ──
+// 代理运行目录由 mc-testkit 在**场景任务内部**用代理模板铺开，而场景钩子跑在那之前：
+// 钩子写进 `plugins/<数据目录>` 的文件会被模板覆盖掉（实测身份文件会消失，探针因此退回独立模式）。
+// 所以身份文件只能作为**模板的一部分**生成。端口与凭据只在生成模板的那一刻取一次
+// （见 `prepareManagedProxyTemplates`）——配置期取会得到一个 TOCTOU 窗口等于整个构建的空闲端口，
+// 且对 configuration cache 不友好。
+val managedBungeeTemplateDir = "build/mc-testkit/templates/managed-bungee"
+val managedVelocityTemplateDir = "build/mc-testkit/templates/managed-velocity"
+
+/** 取一个当前空闲的回环端口（在任务动作里调用，端口占用窗口最小）。 */
+private fun freeLoopbackPort(): Int = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { socket -> socket.localPort }
+
+/** 一次性回环凭据（测试夹具用，非生产密钥）。 */
+private fun e2eToken(): String = "e2e-" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+
+/**
+ * 身份文件 JSON：连接目标写在文件里，文件即托管开关（字段与探针侧 `ControlPlaneModeService` 一致）。
+ *
+ * @param port 模拟控制面监听端口。
+ * @param token 一次性凭据。
+ * @return 身份文件内容。
+ */
+private fun managedIdentityJson(port: Int, token: String): String {
+    val createdAt = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
+    return """{"schemaVersion":1,"provider":"e2e","endpoint":"ws://127.0.0.1:$port/ws/plugin-bridge",""" +
+        """"instanceId":"e2e-fixture","credential":"$token","capabilities":[],""" +
+        """"createdAt":"$createdAt"}"""
+}
+
 
 // ── mc-testkit 拓扑声明 ──
 // harness 产物由收编后的子项目任务构建（原 9 个 Exec 调子 gradlew 的 hack 已删除）：
@@ -38,7 +67,7 @@ mcTestkit.apply {
     backend("paper") {
         platform = paper
         version = "1.20.1"
-        // 25575 与用户测试服(luminol)冲突,改用 25620。
+        // 25575 与外部测试服端口冲突，改用 25620。
         port = 25620
     }
     backend("paper-incision") {
@@ -288,6 +317,28 @@ mcTestkit.apply {
         plugin("plugin/build/libs/$pluginJarName")
         plugin("e2e/harness-velocity-matrix/build/libs/mc-testkit-velocity-matrix-harness-1.0.0-SNAPSHOT.jar")
     }
+    // 托管模式下的代理：模板里含托管 `config.yml` 与一次性身份文件（由 prepareManagedProxyTemplates 生成）。
+    // 不能复用 bungee-mcp / velocity-mcp：模板按**代理声明**给出，而这两个模板是独立模式（bridge 段）配置。
+    // 夹具插件（harness-managed-*）随代理启动：它在代理进程内扮模拟控制面，端口与凭据直接读身份文件。
+    proxy("bungee-managed") {
+        platform = bungeecord
+        // 与 bungee-mcp(25605) / velocity-mcp(25606) 错开。
+        port = 25609
+        routesTo("paper-mcp-proxy")
+        templateDirectory(managedBungeeTemplateDir)
+        plugin("plugin/build/libs/$pluginJarName")
+        plugin("e2e/harness-managed-bungee/build/libs/mc-testkit-managed-bungee-harness-1.0.0-SNAPSHOT.jar")
+    }
+    proxy("velocity-managed") {
+        platform = velocity
+        version = "3.1.1"
+        // 25623：避开后端/矩阵已占用的 25576-25622 与 25630。
+        port = 25623
+        routesTo("paper-mcp-proxy")
+        templateDirectory(managedVelocityTemplateDir)
+        plugin("plugin/build/libs/$pluginJarName")
+        plugin("e2e/harness-managed-velocity/build/libs/mc-testkit-managed-velocity-harness-1.0.0-SNAPSHOT.jar")
+    }
     scenario("read-api") { backend = "paper" }
     // Incision 织入的场景：必须开 `incision.enabled`，且要等首个启动画像落盘。
     // 单独一个 backend 是为了不把“开织入”这个变量泄到其他场景上。
@@ -298,6 +349,23 @@ mcTestkit.apply {
     scenario("topic-fixture") { backend = "paper" }
     scenario("health-fixture") { backend = "paper" }
     scenario("reload-fixture") { backend = "paper" }
+    // 托管模式：连接目标写在身份文件里（身份文件即开关），故没有 bridge 段可自动迁移。
+    scenario("managed-config") { backend = "paper" }
+    // 版本矩阵：同一套托管断言在旧版与新版运行时上各跑一遍（1.8 锁 Java 8）。
+    scenario("managed-config-paper188") { backend = "matrix-paper-1-8-8" }
+    scenario("managed-config-paper1211") { backend = "matrix-paper-1-21-1" }
+    // 控制面拒绝凭据（401/403）：夹具在握手头两次分别回 401、403，验「被拒不降级」与「恢复后能连上」。
+    scenario("managed-auth-reject") { backend = "paper" }
+    // 代理端托管：身份文件随代理模板生成（钩子早于模板铺设，写不进去）；
+    // 夹具插件在代理进程内起模拟控制面并把断言写成结果文件。
+    scenario("managed-config-bungee") {
+        backend = "paper-mcp-proxy"
+        via = "bungee-managed"
+    }
+    scenario("managed-config-velocity") {
+        backend = "paper-mcp-proxy"
+        via = "velocity-managed"
+    }
     scenario("mcp-diagnostics-paper") { backend = "paper-mcp" }
     scenario("mcp-diagnostics-paper-java21") { backend = "paper-mcp-java21" }
     scenario("mcp-diagnostics-folia") { backend = "folia-mcp" }
@@ -442,6 +510,10 @@ mcTestkit.apply {
 
 // ── e2e 场景配置注入统一工具：模板文件 + 占位符替换，禁止在脚本内嵌 YAML 字符串 ──
 
+/** 身份文件名（与探针侧 `ControlPlaneModeService` 的常量保持一致）。 */
+private val identityFileName = "agent-identity.json"
+
+
 /**
  * 读取 `e2e/templates/configs/<scenario>/` 下的配置模板，替换占位符后写入**目标后端运行目录**。
  *
@@ -461,11 +533,29 @@ private fun Project.installE2eConfig(
     var content = template.readText()
     replacements.forEach { (key, value) -> content = content.replace(key, value) }
     target.writeText(content)
+    // FR-30 托管模式：带 bridge 段的夹具在首次启动时会被自动迁移成身份文件（bridge 段随之移除）。
+    // 夹具每次 prepare 都重新生成端口与 token，若上一次运行留下的 agent-identity.json 不被清掉，
+    // 探针会按**旧身份**连**旧端口**，表现为桥连不上——故"重新注入配置"即等同"重新下发探针"，
+    // 一并清除同目录下的身份文件。
+    val identityFile = File(target.parentFile, identityFileName)
+    if (identityFile.isFile && !identityFile.delete()) {
+        logger.warn("无法清理残留身份文件：${identityFile.absolutePath}")
+    }
 }
 
-/** 为 e2e 任务统一挂 prepare 依赖（支持任务路径字符串与 TaskProvider）。 */
+/**
+ * 为 e2e 任务统一挂 prepare 依赖（支持任务路径字符串与 TaskProvider）。
+ *
+ * 不能只靠 `tasks.matching {}"`：名字拼错时它什么也不匹配、于是依赖静默不挂（“看着接线了，实际没挂”）。
+ * 因此配置结束后补一次存在性断言，把“拼错/改名”从运行时静默变成配置期失败。
+ */
 private fun Project.wireE2eDependency(e2eTaskName: String, vararg prepare: Any) {
     tasks.matching { it.name == e2eTaskName }.configureEach { dependsOn(*prepare) }
+    afterEvaluate {
+        check(tasks.names.contains(e2eTaskName)) {
+            "e2e 接线引用的任务不存在：$e2eTaskName（任务名拼错会让 prepare 依赖静默不挂）"
+        }
+    }
 }
 
 // ── harness 产物接线：prepareE2e* 任务依赖收编后的子项目 jar 任务 ──
@@ -477,6 +567,35 @@ private fun Project.wireE2eDependency(e2eTaskName: String, vararg prepare: Any) 
 // 磁盘上、问题被掩盖。
 tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
     dependsOn(":e2e:harness:jar", ":e2e:harness-network-bukkit:jar")
+}
+
+// ── 身份文件残留清理（与场景无关）──
+// 身份文件即托管开关：托管场景会把它写进后端运行目录，而非托管场景（read-api / storage-spi / matrix-*）
+// 走的是 harness 自写配置的路径、不经 installE2eConfig，于是前一个场景留下的身份文件会让它们以
+// **托管模式**启动并连向已关闭的夹具端口（表现为难查的模式漂移）。故在所有 prepareE2e* 之前统一清一次；
+// 托管场景自己的 prepare（prepareManagedConfig*）在那之后重新写入，顺序由 dependsOn 链保证。
+val cleanE2eIdentityResidue by tasks.registering {
+    group = "verification"
+    description = "清理各后端运行目录里残留的托管身份文件（避免非托管场景以托管模式启动）"
+    outputs.upToDateWhen { false }
+    doLast {
+        val workRoot = rootProject.layout.buildDirectory.dir("mc-testkit").get().asFile
+        val residues = workRoot.listFiles { file -> file.isDirectory && file.name.startsWith("run-") }
+            ?.flatMap { runDir -> (runDir.resolve("plugins").listFiles() ?: emptyArray()).toList() }
+            ?.mapNotNull { dataDir -> dataDir.resolve(identityFileName).takeIf { it.isFile } }
+            .orEmpty()
+        residues.forEach { file ->
+            if (!file.delete()) {
+                logger.warn("无法清理残留身份文件：${file.absolutePath}")
+            }
+        }
+        if (residues.isNotEmpty()) {
+            logger.lifecycle("已清理残留托管身份文件 ${residues.size} 个（防止非托管场景以托管模式启动）")
+        }
+    }
+}
+tasks.matching { it.name.startsWith("prepareE2e") }.configureEach {
+    dependsOn(cleanE2eIdentityResidue)
 }
 
 tasks.matching { it.name.startsWith("prepareE2eNetworkForensics") }.configureEach {
@@ -498,7 +617,7 @@ val prepareBridgeFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             runDirectory.get().asFile,
             "bridge-fixture",
@@ -521,7 +640,7 @@ val prepareChunkFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "chunk-fixture",
@@ -544,7 +663,7 @@ val prepareTopicFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "topic-fixture",
@@ -570,7 +689,7 @@ val prepareHealthFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             runDirectory.get().asFile,
             "health-fixture",
@@ -594,7 +713,7 @@ val prepareReloadFixture by tasks.registering {
     doLast {
         val tokenBytes = ByteArray(24).also { SecureRandom().nextBytes(it) }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes)
-        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val port = freeLoopbackPort()
         installE2eConfig(
             mcTestkit.backendRunDirectory("paper").get().asFile,
             "reload-fixture",
@@ -605,6 +724,115 @@ val prepareReloadFixture by tasks.registering {
 }
 
 wireE2eDependency("e2eReloadFixture", prepareReloadFixture)
+
+// ── 托管模式 fixture ──
+// 与桥场景的关键差别：连接目标写在**身份文件**里（身份文件即托管开关），config.yml 不含 bridge 段。
+// 身份文件必须在服启动前就位，故与配置一起在 prepare 阶段落盘；installE2eConfig 会清理残留身份文件，
+// 因此必须写在它之后。
+
+val prepareManagedConfig by tasks.registering {
+    group = "verification"
+    description = "为托管模式 fixture 写入身份文件与不带 bridge 段的配置"
+    dependsOn("prepareE2eManagedConfig")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
+    doLast { installManagedScenario(runDirectory.get().asFile) }
+}
+
+wireE2eDependency("e2eManagedConfig", prepareManagedConfig)
+
+// 版本矩阵：同模板不同后端（1.8 锁 Java 8，1.21 用默认 JDK）。
+val prepareManagedConfigPaper188 by tasks.registering {
+    group = "verification"
+    description = "为托管模式 fixture（Paper 1.8.8）写入身份文件与配置"
+    dependsOn("prepareE2eManagedConfigPaper188")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("matrix-paper-1-8-8")
+    doLast { installManagedScenario(runDirectory.get().asFile) }
+}
+
+wireE2eDependency("e2eManagedConfigPaper188", prepareManagedConfigPaper188)
+
+val prepareManagedConfigPaper1211 by tasks.registering {
+    group = "verification"
+    description = "为托管模式 fixture（Paper 1.21.1）写入身份文件与配置"
+    dependsOn("prepareE2eManagedConfigPaper1211")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("matrix-paper-1-21-1")
+    doLast { installManagedScenario(runDirectory.get().asFile) }
+}
+
+wireE2eDependency("e2eManagedConfigPaper1211", prepareManagedConfigPaper1211)
+
+// 拒绝凭据场景：配置与身份文件同托管场景（同一个模板，三个监听面故意开着），
+// 这样「是否降级到文件配置」可以直接用端口探活判定。
+val prepareManagedAuthReject by tasks.registering {
+    group = "verification"
+    description = "为托管拒绝凭据场景写入身份文件与配置"
+    dependsOn("prepareE2eManagedAuthReject")
+    outputs.upToDateWhen { false }
+    val runDirectory = mcTestkit.backendRunDirectory("paper")
+    doLast { installManagedScenario(runDirectory.get().asFile) }
+}
+
+wireE2eDependency("e2eManagedAuthReject", prepareManagedAuthReject)
+
+// ── 托管代理场景模板生成（Bungee / Velocity）──
+// 代理运行目录是 mc-testkit 在**场景任务内部**用代理模板铺开的，场景钩子跑在那之前，
+// 所以身份文件与托管 config.yml 必须作为**模板的一部分**存在（见文件头的说明）。
+// 生成任务必须早于场景任务的 staging，故挂到 via 场景任务上。
+
+val prepareManagedProxyTemplates by tasks.registering {
+    group = "verification"
+    description = "生成托管代理场景模板（托管 config.yml + 一次性身份文件）"
+    outputs.upToDateWhen { false }
+    doLast {
+        // 端口/凭据在动作里取：配置期取会得到一个“空闲窗口 = 整个构建”的 TOCTOU 空隙，
+        // 且 configuration cache 会把值冻结进缓存条目。
+        writeManagedProxyTemplate(managedBungeeTemplateDir, "ServerProbe", freeLoopbackPort(), e2eToken())
+        writeManagedProxyTemplate(managedVelocityTemplateDir, "serverprobe", freeLoopbackPort(), e2eToken())
+    }
+}
+
+// 任务名由 mc-testkit 按 `e2e<场景>Via<代理>` 生成（代理名 bungee-managed → BungeeManaged）。
+wireE2eDependency("e2eManagedConfigBungeeViaBungeeManaged", prepareManagedProxyTemplates)
+wireE2eDependency("e2eManagedConfigVelocityViaVelocityManaged", prepareManagedProxyTemplates)
+
+/**
+ * 生成一个托管代理模板目录：托管 `config.yml`（无 `bridge` 段）+ 身份文件。
+ *
+ * @param templateDir 模板目录（相对 rootProject，与 ProxySpec.templateDirectory 一致）。
+ * @param pluginDataDir 插件数据目录名（Bungee 大写 `ServerProbe`，Velocity 小写 `serverprobe`）。
+ * @param port 模拟控制面端口（夹具插件从身份文件读取后监听）。
+ * @param token 一次性凭据（夹具插件从身份文件读取后完成握手校验）。
+ */
+private fun Project.writeManagedProxyTemplate(templateDir: String, pluginDataDir: String, port: Int, token: String) {
+    val dataDir = File(rootProject.layout.projectDirectory.asFile, "$templateDir/plugins/$pluginDataDir")
+    dataDir.mkdirs()
+    val template = rootProject.layout.projectDirectory
+        .file("e2e/templates/configs/managed-config/plugins/ServerProbe/config.yml").asFile
+    check(template.isFile) { "托管场景配置模板缺失：${template.absolutePath}" }
+    template.copyTo(File(dataDir, "config.yml"), overwrite = true)
+    File(dataDir, identityFileName).writeText(managedIdentityJson(port, token))
+}
+
+/**
+ * 写入托管模式场景的两份输入：不带 `bridge` 段的 `config.yml` + 身份文件（端口/凭据一次性随机）。
+ *
+ * 身份文件必须在配置注入**之后**写：`installE2eConfig` 会清理同目录下的残留身份文件（避免上次运行残留的旧身份
+ * 把探针指向旧端口）。
+ */
+private fun Project.installManagedScenario(runDir: File) {
+    // 端口/凭据/身份 JSON 全部复用同一组 helper：此前这里内联了一份相同的 JSON 与另一种 token 风格，
+    // 改一处忘一处就会出现“模板与案例读到的凭据不同”的谜之失败。
+    val token = e2eToken()
+    val port = freeLoopbackPort()
+    installE2eConfig(runDir, "managed-config", "plugins/ServerProbe/config.yml")
+    // 身份文件名与探针侧 ControlPlaneModeService 的常量一致；实例标识与 fixture 的 INSTANCE_ID 一致。
+    val identity = File(runDir, "plugins/ServerProbe/$identityFileName")
+    identity.parentFile.mkdirs()
+    identity.writeText(managedIdentityJson(port, token))
+}
 
 // ── Incision 织入场景配置注入 ──
 // 必须在服启动前写入：`incision.enabled` 由 TabooLib 在 LOAD 阶段读入并缓存，
@@ -703,3 +931,6 @@ wireE2eDependency("e2eMcpDiagnosticsSpigot", prepareMcpSpigotHarness)
 wireE2eDependency("prepareE2eMcpDiagnosticsBungee", ":e2e:harness-mcp-bungee:jar")
 wireE2eDependency("prepareE2eMcpDiagnosticsVelocity", ":e2e:harness-mcp-velocity:jar")
 wireE2eDependency("prepareE2eMcpDiagnosticsVelocityJava25", ":e2e:harness-mcp-velocity:jar")
+// 代理端托管场景的夹具 jar：在代理进程内起模拟控制面，故必须由 prepare 任务先构出来。
+wireE2eDependency("prepareE2eManagedConfigBungee", ":e2e:harness-managed-bungee:jar")
+wireE2eDependency("prepareE2eManagedConfigVelocity", ":e2e:harness-managed-velocity:jar")

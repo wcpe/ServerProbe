@@ -47,6 +47,8 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private var healthFixture: HealthFrameFixture? = null
     /** 配置重载通知的回环 fixture（独立状态机，见 ReloadFrameFixture）。 */
     private var reloadFixture: ReloadFrameFixture? = null
+    /** 托管模式的回环 fixture：由身份文件驱动的控制面，验收配置下发 / 状态上报 / 指标推送与零监听。 */
+    private var managedFixture: ManagedConfigFixture? = null
     /** 场景的监听器观测点：fixture 与三个监听器共享同一实例（计数即证据）。 */
     private val reloadState = ReloadFixtureState()
     /** 场景的三个监听器注册句柄：onDisable 一并关闭，避免留下未注销的监听器。 */
@@ -99,6 +101,17 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.RELOAD_FIXTURE -> {
                 reloadFixture = ReloadFrameFixture.startFromProbeConfiguration(dataFolder.parentFile, reloadState)
             }
+            // 托管模式场景（含版本矩阵）：探针同样一连上就发 hello，fixture 必须提前监听（端口来自身份文件）。
+            E2eScenario.MANAGED_CONFIG,
+            E2eScenario.MANAGED_CONFIG_PAPER188,
+            E2eScenario.MANAGED_CONFIG_PAPER1211,
+            -> {
+                managedFixture = ManagedConfigFixture.startFromIdentityFile(dataFolder.parentFile)
+            }
+            // 拒绝凭据场景：夹具先回 401 再 403，之后才升级——验“被拒也不降级”与“控制面恢复后能连上”。
+            E2eScenario.MANAGED_AUTH_REJECT -> {
+                managedFixture = ManagedConfigFixture.startWithAuthReject(dataFolder.parentFile)
+            }
             E2eScenario.READ_API,
             E2eScenario.STORAGE_SPI,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
@@ -109,6 +122,10 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             // 这里再写就太晚了：TabooLib 在 LOAD 阶段已读完并缓存了配置。
             E2eScenario.INCISION_STARTUP -> Unit
             E2eScenario.MCP_DIAGNOSTICS_PAPER -> Unit
+            // 代理端托管：后端不铺配置、不起夹具（夹具与断言都在代理侧，见 harness-managed-*）。
+            E2eScenario.MANAGED_CONFIG_BUNGEE,
+            E2eScenario.MANAGED_CONFIG_VELOCITY,
+            -> Unit
         }
     }
 
@@ -145,11 +162,18 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             E2eScenario.TOPIC_FIXTURE -> startTopicScenario()
             E2eScenario.HEALTH_FIXTURE -> startHealthScenario()
             E2eScenario.RELOAD_FIXTURE -> startReloadScenario()
+            E2eScenario.MANAGED_CONFIG -> startManagedScenario()
+            E2eScenario.MANAGED_CONFIG_PAPER188 -> startManagedScenario()
+            E2eScenario.MANAGED_CONFIG_PAPER1211 -> startManagedScenario()
+            E2eScenario.MANAGED_AUTH_REJECT -> startManagedScenario()
             E2eScenario.READ_API,
             E2eScenario.INCISION_STARTUP,
             E2eScenario.NETWORK_FORENSICS_BUNGEE,
             E2eScenario.MCP_DIAGNOSTICS_PAPER,
             E2eScenario.MATRIX_SMOKE,
+            // 代理端托管：验收在代理侧完成，后端无需等启动完成再做事。
+            E2eScenario.MANAGED_CONFIG_BUNGEE,
+            E2eScenario.MANAGED_CONFIG_VELOCITY,
             -> Unit
             E2eScenario.FOLIA_OBSERVED_REGIONS -> prewarmEntityTypesForFolia()
         }
@@ -202,9 +226,16 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             // Folia 场景需要该事件在“服务端刚就绪”这一刻预热实体类型表，
             // 否则首个 bot 登录会在 global region 线程上慢过 watchdog 阈值。
             scenario == E2eScenario.FOLIA_OBSERVED_REGIONS ||
-            scenario == E2eScenario.RELOAD_FIXTURE
+            scenario == E2eScenario.RELOAD_FIXTURE ||
+            // 托管模式同样在启动完成后才开验收：探针需先完成模式判定与首份指标快照。
+            scenario == E2eScenario.MANAGED_CONFIG ||
+            scenario == E2eScenario.MANAGED_CONFIG_PAPER188 ||
+            scenario == E2eScenario.MANAGED_CONFIG_PAPER1211 ||
+            scenario == E2eScenario.MANAGED_AUTH_REJECT
         if (!needsStartupEvent) return
         if (runCatching { Class.forName("org.bukkit.event.server.ServerLoadEvent", false, javaClass.classLoader) }.isFailure) {
+            // 旧版服务端（1.8~1.12）没有 ServerLoadEvent：按固定延时进场景，否则永远等不到“启动完成”信号。
+            runLater(FALLBACK_START_TICKS) { handleServerLoad(true) }
             return
         }
         server.pluginManager.registerEvents(ServerLoadBridge(this), this)
@@ -223,6 +254,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         unregisterBusinessProvider()
         stopFoliaRegionTasks()
         bridgeFixture?.close()
+        managedFixture?.close()
         chunkFixture?.close()
         topicFixture?.close()
         healthFixture?.close()
@@ -239,7 +271,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     private fun checkIncisionInjected(remaining: Int) {
         val evidence = runCatching { ReadApiConsumer.readIncisionEvidence() }.getOrNull()
         if (evidence != null) {
-            pass("Incision 已织入 SimplePluginManager#enablePlugin 并产出逐插件实测耗时", evidence)
+            pass("Incision 已织入 SimplePluginManager#enablePlugin 并产出逐插件实测耗时", evidence, requireAssertions = false)
             return
         }
         if (remaining == 0) {
@@ -259,7 +291,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             return
         }
         if (scenario != E2eScenario.READ_API) {
-            pass("第三方插件已经公开门面读到运行快照与启动画像", evidence)
+            pass("第三方插件已经公开门面读到运行快照与启动画像", evidence, requireAssertions = false)
             return
         }
         // FR-26:historySnapshots 明示"可能读盘、宜异步",主线程调用是该 API 的红线,故另起线程调用。
@@ -269,7 +301,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
                 retryReadApi(remaining)
                 return@Thread
             }
-            pass("第三方插件已经公开门面读到运行快照、启动画像与落盘历史指标", evidence + history)
+            pass("第三方插件已经公开门面读到运行快照、启动画像与落盘历史指标", evidence + history, requireAssertions = false)
         }, HISTORY_THREAD_NAME).apply { isDaemon = true; start() }
     }
 
@@ -576,7 +608,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
 
     private fun checkObservedRegionsExpired(evidence: Map<String, String>, remaining: Int) {
         if (ReadApiConsumer.observedRegionsExpired()) {
-            pass("Folia 真实 region tick 已形成明细、汇总并在离开后过期", evidence + ("expired" to "true"))
+            pass("Folia 真实 region tick 已形成明细、汇总并在离开后过期", evidence + ("expired" to "true"), requireAssertions = false)
             return
         }
         if (remaining == 0) {
@@ -633,6 +665,7 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
                 "startupWrites" to ReadApiConsumer.startupWrites(session).toString(),
                 "historyWrites" to historyWritesAtClose.toString(),
             ),
+            requireAssertions = false,
         )
     }
 
@@ -823,7 +856,9 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             val name = key.removePrefix(prefix)
             resultWriter?.assertTrue(name, value == ASSERT_PASSED_VALUE, value)
         }
-        pass(message, details.associate { it.key to it.value })
+        // 证据驱动场景必须至少登记一条断言：前缀写错时证据会全落进 details，
+        // 若此时仍写 PASS，“跑完即通过”的假阳性就又回来了（要求真断言）。
+        pass(message, details.associate { it.key to it.value }, requireAssertions = true)
     }
 
     /**
@@ -890,6 +925,27 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
             )
         }.onFailure {
             fail("启动配置重载验收失败:${it.message}")
+        }
+    }
+
+    /**
+     * 托管模式场景：fixture 扮演**身份文件驱动的控制面**，逐项验收托管链路。
+     *
+     * 判定全部发生在 fixture 侧（hello 托管位与能力位 / 配置下发应用 / 周期指标推送 / 状态上报 /
+     * 按需推送回执 / 托管下零监听），这里只负责把结论落成结果文件。
+     */
+    private fun startManagedScenario() {
+        runCatching {
+            val activeFixture = checkNotNull(managedFixture) { "托管 fixture 未启动" }
+            awaitFixture(
+                activeFixture,
+                MANAGED_FIXTURE_TIMEOUT_SECONDS,
+                "托管 fixture 完成 配置下发与指标推送验收",
+                "托管 fixture 验收失败",
+                assertPrefix = ManagedConfigFixture.ASSERT_PREFIX,
+            )
+        }.onFailure {
+            fail("启动托管模式验收失败:${it.message}")
         }
     }
 
@@ -1295,10 +1351,17 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
     /** E2E 仅在指定 region 线程读取 Folia 真实内部 id，用来与公开快照严格对应。 */
     private val foliaRegionIdReader: FoliaRegionIdReader by lazy { FoliaRegionIdReader.create() }
 
-    private fun pass(message: String, details: Map<String, String>) {
+    /**
+     * 收尾并写 PASS。
+     *
+     * @param message 结果文案。
+     * @param details 附加详情。
+     * @param requireAssertions 是否要求至少一条断言（证据驱动场景传 true，否则前缀写错也能“零断言通过”）。
+     */
+    private fun pass(message: String, details: Map<String, String>, requireAssertions: Boolean = true) {
         if (completed.compareAndSet(false, true)) {
             stopFoliaRegionTasks()
-            resultWriter?.pass(message, details)
+            resultWriter?.finish(message, details, allowZeroAssertions = !requireAssertions)
             runLater { server.shutdown() }
         }
     }
@@ -1321,6 +1384,17 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
         TOPIC_FIXTURE("topic-fixture"),
         HEALTH_FIXTURE("health-fixture"),
         RELOAD_FIXTURE("reload-fixture"),
+        MANAGED_CONFIG("managed-config"),
+        // 版本矩阵：同一套托管断言换后端（1.8 锁 Java 8，1.21 用默认 JDK）。
+        MANAGED_CONFIG_PAPER188("managed-config-paper188"),
+        MANAGED_CONFIG_PAPER1211("managed-config-paper1211"),
+        // 控制面拒绝凭据：握手头两次回 401/403，之后再正常升级（验证不降级 + 能恢复）。
+        MANAGED_AUTH_REJECT("managed-auth-reject"),
+        // 代理端托管场景：夹具在**代理进程内**（e2e/harness-managed-*），后端只是陪跑。
+        // 显式列出而不能靠“未知即静默”：拼错场景名时仍要大声明失败（原先这两个缺条目，
+        // 后端插件加载即抛“未知 E2E 场景”，但场景仍绿，导致“夹具没加载”与“夹具跑通”无法区分）。
+        MANAGED_CONFIG_BUNGEE("managed-config-bungee"),
+        MANAGED_CONFIG_VELOCITY("managed-config-velocity"),
         NETWORK_FORENSICS_BUNGEE("network-forensics-bungee"),
         FOLIA_OBSERVED_REGIONS("folia-observed-regions"),
         MCP_DIAGNOSTICS_PAPER("mcp-diagnostics-paper"),
@@ -1419,6 +1493,12 @@ class ServerProbeE2eHarnessPlugin : JavaPlugin(), Listener {
          * 给足余量只为让失败路径仍能拿到"哪条断言先破"的完整消息，而不是提前超时。
          */
         private const val RELOAD_FIXTURE_TIMEOUT_SECONDS = 60L
+
+        /** 托管模式场景：等配置应用 + 一次指标/状态推送 + 零监听判定（故意比其它场景宽）。 */
+        private const val MANAGED_FIXTURE_TIMEOUT_SECONDS = 120L
+
+        /** 旧版服务端（无 ServerLoadEvent）的兜底启动延时（ticks）：按 20 tps 约 20 秒，覆盖 1.8 冷启动。 */
+        private const val FALLBACK_START_TICKS = 400L
         /** 断言成立时 fixture 写入的值；此处按同一口径判定该条断言通过。 */
         private const val ASSERT_PASSED_VALUE = "true"
         private const val REQUIRED_FOLIA_PLAYERS = 2

@@ -25,6 +25,14 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
         "async-profiler/libasyncProfiler-linux-arm64.so" to "libasyncProfiler-linux-arm64.so",
         "async-profiler/libasyncProfiler-mac.dylib" to "libasyncProfiler-mac.dylib",
     )
+    // vmtool 的 JNI 库（仅 4.x 含）：Arthas 的 VmToolCommand 静态初始化时从
+    // **arthas-core.jar 所在目录下的 `lib/<平台库名>`** 定位（File(codeSourceLocation).resolve("lib").resolve(name)），
+    // 官方包里就在 lib/ 下。不按这个布局摆，vmtool 恒报
+    // `no ArthasJniLibrary in java.library.path`。
+    // 只带 x64（本平台目标）；其余平台缺库时 vmtool 结构化降级，不影响其他命令。
+    val vmToolLibraries = listOf(
+        "lib/libArthasJniLibrary-x64.so" to "lib/libArthasJniLibrary-x64.so",
+    )
     ZipFile(archive).use { packaging ->
         jarNames.forEach { name ->
             val entry = packaging.getEntry(name) ?: error("官方 Arthas 发行包缺少：$name")
@@ -39,6 +47,16 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
                 }
             }
         }
+        // vmtool 的 JNI 库需落在 `lib/` 子目录（Arthas 按 core jar 旁的 lib/<name> 查找）
+        vmToolLibraries.forEach { (source, target) ->
+            packaging.getEntry(source)?.let { entry ->
+                val destination = output.toPath().resolve(target)
+                destination.parent?.let(Files::createDirectories)
+                packaging.getInputStream(entry).use { input ->
+                    Files.copy(input, destination)
+                }
+            }
+        }
     }
     ZipFile(output.toPath().resolve("arthas-core.jar").toFile()).use { core ->
         mapOf("META-INF/LICENSE" to "LICENSE", "META-INF/NOTICE" to "NOTICE").forEach { (source, target) ->
@@ -49,7 +67,8 @@ fun extractArthasRuntime(archive: java.io.File, output: java.io.File) {
         }
     }
     // checksum manifest：4 个 jar + 实际提取到的原生库（存在才写；3.1.1 无原生库则跳过）
-    val checksummed = jarNames + asyncProfilerLibraries.map { it.second }.filter { Files.isRegularFile(output.toPath().resolve(it)) }
+    val nativeLibraries = asyncProfilerLibraries.map { it.second } + vmToolLibraries.map { it.second }
+    val checksummed = jarNames + nativeLibraries.filter { Files.isRegularFile(output.toPath().resolve(it)) }
     val manifest = checksummed.joinToString("\n") { name -> "$name=${sha256(output.toPath().resolve(name))}" }
     output.resolve("sha256.properties").writeText(manifest + "\n")
 }
@@ -229,8 +248,13 @@ val arthasLegacyVersion = providers.gradleProperty("arthasLegacyVersion").orElse
                     )
                 }.toSet() + "META-INF/serverprobe/arthas/runtime.properties"
                 check(entries.containsAll(required)) { "发行 Jar 缺少 Arthas 运行闭包：${required - entries}" }
-                // async-profiler 原生库：仅现代闭包（4.x）应含 Linux x64 库
+                // 现代闭包必须带 vmtool 的 JNI 库（在 lib/ 子目录）——缺它 vmtool 恒报
+                // "no ArthasJniLibrary in java.library.path"，而运行期不会联网补下载。
                 val modernPrefix = "META-INF/serverprobe/arthas/${arthasModernVersion.get()}/"
+                check("${modernPrefix}lib/libArthasJniLibrary-x64.so" in entries) {
+                    "发行 Jar 缺少 vmtool JNI 库：${modernPrefix}lib/libArthasJniLibrary-x64.so"
+                }
+                // async-profiler 原生库：仅现代闭包（4.x）应含 Linux x64 库
                 check(entries.contains("${modernPrefix}libasyncProfiler-linux-x64.so")) {
                     "发行 Jar 现代 Arthas 闭包缺少 libasyncProfiler-linux-x64.so"
                 }

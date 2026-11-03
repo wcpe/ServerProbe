@@ -13,7 +13,7 @@ taboolib {
 
 dependencies {
     compileOnly(project(":project:core"))
-    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:1.2.0-SNAPSHOT")
+    compileOnly("top.wcpe.taboolib.ioc:taboolib-ioc-annotation:${property("taboolib.ioc.version")}")
 
     testImplementation(project(":project:core"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.14.4")

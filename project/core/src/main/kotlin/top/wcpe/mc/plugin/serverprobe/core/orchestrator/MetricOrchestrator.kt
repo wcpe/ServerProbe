@@ -58,11 +58,27 @@ class MetricOrchestrator {
     private var task: PlatformExecutor.PlatformTask? = null
 
     /**
+     * 采集调度是否在运行（FR-44 自检的 `collectorAlive`）。
+     *
+     * 由采集线程外的调用方（桥的读线程）读取，故 `@Volatile`。语义是"定时采集任务已提交且未被取消"，
+     * 而不是"最近一次采集成功"——后者由 `metricProducible` 那一项负责判定，两项刻意不重复。
+     */
+    @Volatile
+    private var running = false
+
+    /**
      * 获取最新一份指标快照。
      *
      * @return 最新快照;尚无任何采样时为 null。
      */
     fun latestSnapshot(): MetricSnapshot? = latest
+
+    /**
+     * 采集调度是否在运行（供托管配置自检判定"采集器活着"）。
+     *
+     * @return true 表示定时采集任务已启动且尚未停止。
+     */
+    fun isRunning(): Boolean = running
 
     /**
      * 启动定时采集。
@@ -77,6 +93,7 @@ class MetricOrchestrator {
         task = submit(period = ProbeConfig.collectPeriodTicks(), async = true) {
             runCatching { collect() }.onFailure { ProbeLogger.error("指标采集失败", it) }
         }
+        running = true
         ProbeLogger.info("已启动定时采集")
     }
 
@@ -88,6 +105,7 @@ class MetricOrchestrator {
     @PreDestroy
     fun stop() {
         task?.cancel()
+        running = false
         ProbeLogger.info("已停止定时采集")
     }
 

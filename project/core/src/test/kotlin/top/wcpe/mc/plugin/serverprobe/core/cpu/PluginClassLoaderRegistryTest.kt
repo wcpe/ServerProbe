@@ -2,6 +2,7 @@ package top.wcpe.mc.plugin.serverprobe.core.cpu
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.URL
@@ -22,6 +23,25 @@ class PluginClassLoaderRegistryTest {
 
         val owner = registry.ownerOf(PluginClassLoaderRegistryTest::class.java.name)
         assertEquals("TestPlugin", owner)
+    }
+
+    /**
+     * `loaderOf` 是「插件名 → 加载器」的正向查表，与 `ownerOf`（类名 → 插件）方向相反。
+     *
+     * 回归防线：插件元数据曾把**插件名**丢给 `ownerOf`，后者把它当类名去
+     * `loadClass` → 必然失败 → 遍历全部 ClassLoader → 写「无归属」缓存。
+     * 60+ 插件时每枚举一次就是 60+ 轮全量遍历，直接把 plugin_list 拖过 MCP 同步超时。
+     */
+    @Test
+    fun `loaderOf 按插件名 O(1) 直取且两者语义不互换`() {
+        val registry = PluginClassLoaderRegistry()
+        val loader = definingLoader()
+        registry.register("TestPlugin", loader)
+
+        assertSame(loader, registry.loaderOf("TestPlugin"), "正向查表应直接命中")
+        assertNull(registry.loaderOf("NotRegistered"), "未注册返回 null")
+        // 反向查：插件名不是类名，不应解析出归属
+        assertNull(registry.ownerOf("TestPlugin"), "插件名当类名查应无归属——这正是旧实现的错误前提")
     }
 
     /**
