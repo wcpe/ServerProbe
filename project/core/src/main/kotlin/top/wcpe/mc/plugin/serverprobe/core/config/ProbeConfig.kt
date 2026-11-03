@@ -1575,8 +1575,13 @@ object ProbeConfig {
     /** 默认告警总开关:关闭(需显式开启)。 */
     private const val DEFAULT_ALERT_ENABLED = false
 
-    /** 默认 CPU 归因总开关:关闭(P2 增强,需显式开启)。 */
-    private const val DEFAULT_CPU_ENABLED = false
+    /** 默认 CPU 归因总开关:开启。
+     *
+     * 采样是异步线程里 dumpAllThreads + 栈帧归并，开销远低于期望——但它回答的是
+     * 「哪个插件运行期更吃线程」这类事故里最关键的问题。默认关着等于现场永远没数据，
+     * 而事故不会提前打招呼。因此默认开启，确实在意开销的部署可显式关掉。
+     */
+    private const val DEFAULT_CPU_ENABLED = true
 
     /** 默认 Incision 方法级精确归因开关:关闭(需显式开启)。 */
     private const val DEFAULT_INCISION_ENABLED = false

@@ -127,7 +127,7 @@ class ProbeConfigStandaloneTest {
         assertFalse(ProbeConfig.alertWebhookEnabled())
         assertEquals("", ProbeConfig.alertWebhookUrl())
         assertEquals(3_000, ProbeConfig.alertWebhookTimeoutMs())
-        assertFalse(ProbeConfig.cpuEnabled())
+        assertTrue(ProbeConfig.cpuEnabled())
         assertFalse(ProbeConfig.incisionEnabled())
         assertEquals(20L, ProbeConfig.cpuSamplePeriodTicks())
         assertEquals(60, ProbeConfig.cpuWindowRounds())
@@ -342,7 +342,7 @@ class ProbeConfigStandaloneTest {
             "getBoolean|alert.channels.webhook.enabled|false",
             "getString|alert.channels.webhook.url|null",
             "getInt|alert.channels.webhook.timeout-ms|3000",
-            "getBoolean|cpu.enabled|false",
+            "getBoolean|cpu.enabled|true",
             "getBoolean|incision.enabled|false",
             "getLong|cpu.sample-period-ticks|20",
             "getInt|cpu.window-rounds|60",

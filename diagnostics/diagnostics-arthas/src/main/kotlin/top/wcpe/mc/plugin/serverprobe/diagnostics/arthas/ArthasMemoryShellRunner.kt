@@ -34,14 +34,46 @@ class ArthasMemoryShellRunner(
         }
     }
 
-    /** 读取指定类的当前已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。 */
+    /** 读取指定类的当前已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。
+     *
+     * 为什么不用 Arthas 的 `dump` 命令：这里要的是「补丁前的字节码」——必须拿到**当前已加载**
+     * 的那份，而不是磁盘上的原文件（可能已被前一次补丁改过）。`Instrumentation.getBytecodes`
+     * 正是唯一能拿到它的入口。
+     *
+     * 失败原因必须可诊断：返回 null 时补给方会跳过备份直接替换（有风险），所以每一步都单独
+     * 告警，而不是吞成一句 runCatching。
+     */
     fun dumpClassBytes(className: String): ByteArray? {
-        val inst = instrumentation() ?: return null
-        val target = inst.allLoadedClasses.firstOrNull { it.name == className } ?: return null
-        // getBytecodes 为 Java 9+ 才加入 Instrumentation，Java 8 编译期无此方法，经反射调用保持双版本兼容。
+        val inst = instrumentation()
+        if (inst == null) {
+            ProbeLogger.warn("字节码备份失败：当前 JVM 未提供 Instrumentation（$className）")
+            return null
+        }
+        // 同一类名可能被多次加载（插件重载、类加载器隔离），取当前存活的那个即可；
+        // allLoadedClasses 不保证顺序，优先取类加载器非 bootstrap 的实例（插件类总是这样加载）。
+        val candidates = inst.allLoadedClasses.filter { it.name == className }
+        val target = candidates.firstOrNull { it.classLoader != null } ?: candidates.firstOrNull()
+        if (target == null) {
+            ProbeLogger.warn("字节码备份失败：类未加载（$className）")
+            return null
+        }
+        val method = runCatching {
+            Instrumentation::class.java.getMethod("getBytecodes", Class::class.java)
+        }.getOrNull()
+        if (method == null) {
+            // Java 8 及更早的 Instrumentation 没有 getBytecodes（JDK 9 才加），只能跳过备份。
+            ProbeLogger.warn("字节码备份失败：当前 JVM 的 Instrumentation 不提供 getBytecodes（需 JDK 9+，$className）")
+            return null
+        }
         return runCatching {
-            val method = Instrumentation::class.java.getMethod("getBytecodes", Class::class.java)
-            (method.invoke(inst, target) as? Array<*>)?.firstOrNull() as? ByteArray
+            val ret = method.invoke(inst, target)
+            val bytes = (ret as? Array<*>)?.firstOrNull() as? ByteArray
+            if (bytes == null) {
+                ProbeLogger.warn("字节码备份失败：getBytecodes 未返回字节（$className）")
+            }
+            bytes
+        }.onFailure { error ->
+            ProbeLogger.warn("字节码备份失败：getBytecodes 抛异常（$className）：${error.javaClass.simpleName}: ${error.message}")
         }.getOrNull()
     }
 

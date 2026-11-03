@@ -92,10 +92,11 @@ http-monitor:
 
 # 运行期 CPU 采样归因(M3,P2):周期采样线程栈,按插件 ClassLoader 归并,
 # 得到"哪个插件运行期更吃线程"的近似占比(/probe cpu 查看,Prometheus 导出)。
-# 默认关闭(P2 增强,采样有一定开销)。注:运行期 CPU 火焰图不自研,建议并用 spark。
+# 默认开启(采样在异步线程,开销可控;事故现场需要时才有数据)。
+# 注:运行期 CPU 火焰图不自研,建议并用 spark。
 cpu:
-  # 是否开启运行期 CPU 归因。默认 false(关闭)。
-  enabled: false
+  # 是否开启运行期 CPU 归因。默认 true(开启)。
+  enabled: true
   # 采样周期(单位:tick;20 tick = 1 秒)。默认 20(约 1 秒)。
   sample-period-ticks: 20
   # 聚合窗口(轮,每采样周期一轮)。默认 60(约 1 分钟)。
