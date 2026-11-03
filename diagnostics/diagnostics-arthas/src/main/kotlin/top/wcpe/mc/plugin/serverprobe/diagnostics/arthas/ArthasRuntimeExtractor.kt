@@ -39,9 +39,14 @@ object ArthasRuntimeLayout {
      */
     val vmToolLibraries = listOf("libArthasJniLibrary-x64.so")
 
-    /** 指定版本运行闭包应含的原生库（3.1.1 无 async-profiler 能力，仅 4.x）。 */
+    /** 指定版本运行闭包应含的原生库（3.1.1 无 async-profiler 能力，仅 4.x）。
+     *
+     * 包含 vmtool 的 JNI 库——它必须进入这个清单，否则「已有目录校验通过 → 跳过解压」
+     * 会在升级时把新加的库挡在外面：旧目录的 sha256.properties 里没有这个键，
+     * 旧校验不看它，于是永远不重新解压，JNI 永远补不上（真机踩过）。
+     */
     fun requiredLibraries(version: String): List<String> =
-        if (ArthasRuntimeSelector.usesModernBridge(version)) asyncProfilerLibraries else emptyList()
+        if (ArthasRuntimeSelector.usesModernBridge(version)) asyncProfilerLibraries + vmToolLibraries else emptyList()
 
     /** 原生库在运行闭包内的相对路径；顶层库就是文件名，lib/ 下的需保留子目录。 */
     fun libraryRelativePath(name: String): String =
@@ -151,9 +156,11 @@ class ArthasRuntimeExtractor(
         val libraries = ArthasRuntimeLayout.requiredLibraries(version)
         if (libraries.isEmpty()) return true
         val librariesOk = libraries.all { name ->
-            val file = target.resolve(ArthasRuntimeLayout.libraryRelativePath(name))
+            val relative = ArthasRuntimeLayout.libraryRelativePath(name)
+            val file = target.resolve(relative)
             if (!Files.isRegularFile(file)) return@all false
-            expected[name]?.let { sha256(file) == it } ?: true
+            // 清单键用相对路径（lib/xxx.so），不是裸文件名
+            expected[relative]?.let { sha256(file) == it } ?: true
         }
         if (!librariesOk) return false
         val platformName = platformLibraryName()
@@ -189,7 +196,8 @@ class ArthasRuntimeExtractor(
             val relative = ArthasRuntimeLayout.libraryRelativePath(name)
             val destination = target.resolve(relative)
             destination.parent?.let(Files::createDirectories)
-            copyResourceAtomically(version, relative, destination, expected[name])
+            // 清单键用相对路径（lib/xxx.so），资源名也用相对路径，两者对齐。
+            copyResourceAtomically(version, relative, destination, expected[relative])
         }
         // Arthas ProfilerCommand 按闭包目录下 `async-profiler/<平台库>` 的相对布局查找（基于 core jar 的 codeSource 定位），
         // 同时 AsyncProfiler.loadLibrary 按 one.profiler.libraryPath 加载（Linux 用无后缀 libasyncProfiler.so；

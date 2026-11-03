@@ -34,46 +34,50 @@ class ArthasMemoryShellRunner(
         }
     }
 
-    /** 读取指定类的当前已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。
+    /** 读取指定类的已加载字节码（补丁前自动备份）；类未加载或读取失败返回 null。
      *
-     * 为什么不用 Arthas 的 `dump` 命令：这里要的是「补丁前的字节码」——必须拿到**当前已加载**
-     * 的那份，而不是磁盘上的原文件（可能已被前一次补丁改过）。`Instrumentation.getBytecodes`
-     * 正是唯一能拿到它的入口。
+     * ## 为什么不是 Instrumentation.getBytecodes
      *
-     * 失败原因必须可诊断：返回 null 时补给方会跳过备份直接替换（有风险），所以每一步都单独
-     * 告警，而不是吞成一句 runCatching。
+     * 该方法**不存在**。`java.lang.instrument.Instrumentation` 只能改字节码
+     * （redefine/retransform），没有任何读取入口——真机实证：
+     * `Instrumentation.getMethod("getBytecodes")` 恒抛 NoSuchMethodException。
+     * 旧实现就建在这个错误假设上，所以自动备份从来没生效过（日志一直是
+     * 「当前 Arthas 控制器未提供字节码备份能力」）。
+     *
+     * 可行做法：经已加载 Class 拿它的 ClassLoader，用 getResourceAsStream
+     * 读 `a/b/C.class`——这是该加载器当前可见的那份字节码，正是打补丁前需要备案的东西。
+     * 局限：它等于「加载器眼里的源字节码」，若之前已被别的工具 redefine 过内存副本，
+     * 这里拿到的是从资源的原始版本。对「回滚到官版」这个目的而言，这正是想要的。
      */
     fun dumpClassBytes(className: String): ByteArray? {
         val inst = instrumentation()
         if (inst == null) {
-            ProbeLogger.warn("字节码备份失败：当前 JVM 未提供 Instrumentation（$className）")
+            ProbeLogger.warn("字节码备份失败：当前 JVM 未提供 Instrumentation，无法枚举已加载类（$className）")
             return null
         }
-        // 同一类名可能被多次加载（插件重载、类加载器隔离），取当前存活的那个即可；
-        // allLoadedClasses 不保证顺序，优先取类加载器非 bootstrap 的实例（插件类总是这样加载）。
+        // 同名类可能被多次加载（插件重载/类加载器隔离）；优先取非 bootstrap 加载器的那份，
+        // 因为插件类必然由插件自己的 ClassLoader 加载。
         val candidates = inst.allLoadedClasses.filter { it.name == className }
         val target = candidates.firstOrNull { it.classLoader != null } ?: candidates.firstOrNull()
         if (target == null) {
             ProbeLogger.warn("字节码备份失败：类未加载（$className）")
             return null
         }
-        val method = runCatching {
-            Instrumentation::class.java.getMethod("getBytecodes", Class::class.java)
-        }.getOrNull()
-        if (method == null) {
-            // Java 8 及更早的 Instrumentation 没有 getBytecodes（JDK 9 才加），只能跳过备份。
-            ProbeLogger.warn("字节码备份失败：当前 JVM 的 Instrumentation 不提供 getBytecodes（需 JDK 9+，$className）")
-            return null
-        }
+        val resource = className.replace('.', '/') + ".class"
+        val loader = target.classLoader
         return runCatching {
-            val ret = method.invoke(inst, target)
-            val bytes = (ret as? Array<*>)?.firstOrNull() as? ByteArray
-            if (bytes == null) {
-                ProbeLogger.warn("字节码备份失败：getBytecodes 未返回字节（$className）")
+            val stream = if (loader != null) {
+                loader.getResourceAsStream(resource)
+            } else {
+                ClassLoader.getSystemResourceAsStream(resource)
             }
-            bytes
+            stream?.use { it.readBytes() }
+        }.onSuccess { bytes ->
+            if (bytes == null) {
+                ProbeLogger.warn("字节码备份失败：加载器拿不到资源 $resource（$className）")
+            }
         }.onFailure { error ->
-            ProbeLogger.warn("字节码备份失败：getBytecodes 抛异常（$className）：${error.javaClass.simpleName}: ${error.message}")
+            ProbeLogger.warn("字节码备份失败：读取 $resource 抛异常（$className）：${error.javaClass.simpleName}: ${error.message}")
         }.getOrNull()
     }
 
