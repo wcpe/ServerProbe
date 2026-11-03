@@ -227,6 +227,18 @@ class BridgeClient {
     fun isUplinkReady(): Boolean = uplinkReady && sender != null
 
     /**
+     * 发送器状态快照（桥自身的中转指标）；未装配时返回 null。
+     *
+     * 供指标上报使用：把通道自己的队列深度与拒绝计数随 `metric_snapshot` 一起送上去，
+     * 这样 JM 侧才有历史曲线回答“上次高峰到底堵没堵”——
+     * 只靠 `bridge_status` 的瞬时值答不了这个问题。
+     *
+     * 读取刻意**不拿锁**：这是心跳线程每周期都调的热路径，拿锁会与发送路径争抢；
+     * `sender.status()` 内部已经是一次无锁快照。
+     */
+    fun senderStatus(): SenderStatus? = sender?.status()
+
+    /**
      * 当前连接态（协议的四态）。
      *
      * 判据取一个快照，避免并发下拼出"在线 + 认证失败"这种自相矛盾的组合。

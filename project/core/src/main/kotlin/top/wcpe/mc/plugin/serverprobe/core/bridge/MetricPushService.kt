@@ -118,6 +118,9 @@ class MetricPushService {
             instance = { bridge.instanceId },
             // 编码收口到统一 JSON 适配器（ADR-14），推送器只负责帧树
             send = { frame -> bridge.sendUplink(Json.encode(frame)) },
+            // 桥自身的中转指标随帧上报：队列深度与拒绝计数。
+            // 不并进 MetricSnapshot——那是“服务器/JVM 的快照”，这是“通道的快照”。
+            senderStatus = { bridge.senderStatus() },
         )
         synchronized(startLock) {
             // stop 已先到：不再注册动作、不再起推送线程。两件事必须在同一临界区里判，

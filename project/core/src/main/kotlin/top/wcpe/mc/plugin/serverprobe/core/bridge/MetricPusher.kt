@@ -23,12 +23,17 @@ import java.util.concurrent.atomic.AtomicReference
  * @property instance 当前上行实例标识（用于 `dedupKey`）。
  * @property send 上行一帧帧树；生产侧在这里做 JSON 编码并写入桥连接。
  * @property clockSeconds 当前时刻（epoch 秒）；仅供单测固定时间。
+ * @property senderStatus 发送器状态快照（桥自身的中转指标）；
+ *   null = 不随帧上报，保持旧行为。
+ *   把它做成独立参数而不是并进 MetricSnapshot：后者是“服务器/JVM 的快照”，
+ *   这个是“通道的快照”，两者采样时机与生命周期不同。
  */
 internal class MetricPusher(
     private val snapshots: () -> MetricSnapshot?,
     private val instance: () -> String,
     private val send: (Map<String, Any?>) -> UplinkOutcome,
     private val clockSeconds: () -> Long = { System.currentTimeMillis() / 1000L },
+    private val senderStatus: () -> SenderStatus? = { null },
 ) {
 
     /** 进程内单调递增序号（协议规格 §3.4.4 的 `sequence`）。 */
@@ -50,7 +55,7 @@ internal class MetricPusher(
         val snapshot = readSnapshot() ?: return null
         val seconds = clockSeconds()
         val current = sequence.incrementAndGet()
-        val frame = MetricSnapshotFrame.of(instance(), seconds, current, snapshot)
+        val frame = MetricSnapshotFrame.of(instance(), seconds, current, snapshot, readSenderStatus())
         return when (val outcome = send(frame)) {
             UplinkOutcome.Sent -> {
                 onSent()
@@ -67,6 +72,20 @@ internal class MetricPusher(
                 null
             }
         }
+    }
+
+    /**
+     * 取发送器状态；同样广捕降级。
+     *
+     * 桥状态读不到（管道未装配、发送器已停止等）不应该阻断整帧指标上报：
+     * 服务器本身的 TPS/堆/线程仍然值得上报。桥字段缺失时 CP 侧只是曲线断点，
+     * 不会把“不知道”当成“健康”。
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun readSenderStatus(): SenderStatus? = try {
+        senderStatus()
+    } catch (e: Exception) {
+        null
     }
 
     /** 取快照；读取异常一律降级为"无快照"，探针不因推送链路拖累宿主。 */

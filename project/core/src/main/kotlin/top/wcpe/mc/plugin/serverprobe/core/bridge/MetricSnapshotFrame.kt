@@ -42,7 +42,13 @@ object MetricSnapshotFrame {
      * @param snapshot 指标快照；调用方应保证非空（为空时不推帧，避免发空指标）。
      * @return 有序帧树（可被 [Json.encode] 直接序列化为紧凑单行 JSON）。
      */
-    fun of(instance: String, tsSeconds: Long, sequence: Long, snapshot: MetricSnapshot?): Map<String, Any?> = linkedMapOf(
+    fun of(
+        instance: String,
+        tsSeconds: Long,
+        sequence: Long,
+        snapshot: MetricSnapshot?,
+        senderStatus: SenderStatus? = null,
+    ): Map<String, Any?> = linkedMapOf(
         "type" to "event",
         "event" to EVENT,
         // 与其它上行事件一致地自报实例；Worker 侧亦可直接用连接上的实例
@@ -52,7 +58,7 @@ object MetricSnapshotFrame {
         "payload" to linkedMapOf(
             "ts" to tsSeconds,
             "sequence" to sequence,
-            "metrics" to metrics(snapshot),
+            "metrics" to metrics(snapshot, senderStatus),
         ),
     )
 
@@ -76,7 +82,7 @@ object MetricSnapshotFrame {
      * @param snapshot 指标快照；null 时返回空对象。
      * @return 有序的 `metrics` 键值表。
      */
-    fun metrics(snapshot: MetricSnapshot?): Map<String, Any?> {
+    fun metrics(snapshot: MetricSnapshot?, senderStatus: SenderStatus? = null): Map<String, Any?> {
         val metrics = linkedMapOf<String, Any?>()
         if (snapshot == null) {
             return metrics
@@ -85,7 +91,36 @@ object MetricSnapshotFrame {
         appendPlayers(metrics, snapshot)
         appendJvm(metrics, snapshot)
         appendGc(metrics, snapshot)
+        // 桥自身的中转指标：与上面几项不同，它不来自 MetricSnapshot，而是发送器的运行状态。
+        // 不并进 snapshot 是因为后者是“服务器 / JVM 的快照”，而这是“通道的快照”，
+        // 两者的生命周期、采样时机都不同，混在一起会让采集层职责变浑。
+        senderStatus?.let { appendBridge(metrics, it) }
         return metrics
+    }
+
+    /**
+     * 桥（业务通道）自身的中转指标。
+     *
+     * ## 为何这几项必须上报
+     *
+     * 本通道的约定是「不可靠 / 幂等 / 不堵塞」：丢弃是**设计内的降级**，
+     * 但「丢了多少、什么时候开始丢」必须可观测——静默丢数据比丢数据本身更危险。
+     * `bridge_status` 只能看当下这一瞬，回答不了「下午三点那次高峰堵了没有」。
+     *
+     * ## 为什么计数传累计值而不是速率
+     *
+     * 速率需要时间窗口，而探针的推送间隔可能变化；在探针侧算速率会把
+     * 「间隔变化」误读成「流量变化」。差分交给 CP —— 它有固定的心跳节奏。
+     */
+    private fun appendBridge(metrics: MutableMap<String, Any?>, status: SenderStatus) {
+        metrics[KEY_BRIDGE_RELIABLE_QUEUE] = status.reliableQueue
+        metrics[KEY_BRIDGE_BEST_EFFORT_QUEUE] = status.bestEffortQueue
+        metrics[KEY_BRIDGE_RELIABLE_REJECTED_TOTAL] = status.reliableRejected
+        metrics[KEY_BRIDGE_BEST_EFFORT_DROPPED_TOTAL] = status.bestEffortDropped
+        metrics[KEY_BRIDGE_RECEIPT_REJECTED_TOTAL] = status.commandResultRejected
+        metrics[KEY_BRIDGE_SPILL_DROPPED_TOTAL] = status.spillDropped
+        metrics[KEY_BRIDGE_WRITE_FAILURES_TOTAL] = status.writeFailures
+        metrics[KEY_BRIDGE_WRITE_TIMEOUTS_TOTAL] = status.writeTimeouts
     }
 
     /** TPS（取 1m 窗口）与 MSPT 分位（秒，与 `/metrics` 同口径）。 */
@@ -172,6 +207,24 @@ object MetricSnapshotFrame {
     private const val KEY_WORLDS = "worlds"
     private const val KEY_GC_COUNT_TOTAL = "gcCountTotal"
     private const val KEY_GC_TIME_MILLIS = "gcTimeMillis"
+
+    // ── 桥中转指标（本通道自身）────────────────────────────────
+    /** 可靠事件队列深度（帧）。 */
+    private const val KEY_BRIDGE_RELIABLE_QUEUE = "bridgeReliableQueue"
+    /** 可丢事件队列深度（帧）。 */
+    private const val KEY_BRIDGE_BEST_EFFORT_QUEUE = "bridgeBestEffortQueue"
+    /** 可靠事件因队列满被拒累计数（单调递增，CP 侧差分）。 */
+    private const val KEY_BRIDGE_RELIABLE_REJECTED_TOTAL = "bridgeReliableRejectedTotal"
+    /** 可丢事件被丢累计数（单调递增）。 */
+    private const val KEY_BRIDGE_BEST_EFFORT_DROPPED_TOTAL = "bridgeBestEffortDroppedTotal"
+    /** 命令回执被拒累计数——回执被拒会让 JM 误判业务失败。 */
+    private const val KEY_BRIDGE_RECEIPT_REJECTED_TOTAL = "bridgeReceiptRejectedTotal"
+    /** 已受理但被落盘缓冲挤掉的累计数（仅 spill 开启时非零）。 */
+    private const val KEY_BRIDGE_SPILL_DROPPED_TOTAL = "bridgeSpillDroppedTotal"
+    /** 写出失败累计数。 */
+    private const val KEY_BRIDGE_WRITE_FAILURES_TOTAL = "bridgeWriteFailuresTotal"
+    /** 写超时累计数（强关 socket 次数）。 */
+    private const val KEY_BRIDGE_WRITE_TIMEOUTS_TOTAL = "bridgeWriteTimeoutsTotal"
 
     /** `worlds.<name>` 下的字段名（与 `/metrics` 的 `serverprobe_world_*` 一一对应）。 */
     private const val KEY_WORLD_LOADED_CHUNKS = "loadedChunks"
