@@ -42,6 +42,36 @@ class McpAuditTrailTest {
         assertTrue(archives.all { it.length() > 0 })
     }
 
+    /**
+     * 连续轮转时每个归档都必须是独立文件，不能被同名覆盖。
+     *
+     * 回归防线：归档名原本只用 System.currentTimeMillis()，同一毫秒内轮转两次
+     * 会指向同一路径，后写入的 GZIPOutputStream（默认 TRUNCATE）直接覆盖上一个——
+     * 审计数据静默丢失，而且不报错。真机上高频 MCP 调用很容易在同一毫秒内
+     * 多次触发轮转（即之前的 `过期审计归档自动删除` 偶发失败）。
+     */
+    @Test
+    fun `同一毫秒内连续轮转不会覆盖已有归档`() {
+        val directory = tempDirectory()
+        // 阈值取很小，每条记录都会触发一次轮转 —— 必然在毫秒级密集发生
+        val trail = McpAuditTrail(directory, maxFileBytes = 1, retentionDays = 0)
+        try {
+            repeat(20) { index ->
+                trail.record(McpAuditRecord("127.0.0.1", "tool$index", null, 1L, "SUCCEEDED", "{}"))
+            }
+            trail.flush()
+        } finally {
+            trail.close()
+        }
+
+        val archives = directory.toFile().listFiles { f -> f.name.endsWith(".jsonl.gz") } ?: emptyArray()
+        // 每个非空归档都应是独立文件；同名覆盖会表现为数量明显偏少且内容丢失。
+        assertTrue(archives.size >= 2, "多次轮转应产生多个独立归档，实际 ${archives.size} 个")
+        assertTrue(archives.all { it.length() > 0 }, "归档不应为空（空文件说明被同名覆盖后只写了部分内容）")
+        val names = archives.map { it.name }
+        assertTrue(names.size == names.toSet().size, "归档文件名不得重复")
+    }
+
     @Test
     fun `过期审计归档自动删除`() {
         val directory = tempDirectory()

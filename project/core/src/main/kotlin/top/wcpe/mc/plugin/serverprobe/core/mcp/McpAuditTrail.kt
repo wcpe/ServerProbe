@@ -60,14 +60,51 @@ class McpAuditTrail(
             if (!Files.isRegularFile(file) || Files.size(file) < maxFileBytes) {
                 return
             }
-            val archive = directory.resolve("mcp-audit-${System.currentTimeMillis()}.jsonl.gz")
-            java.util.zip.GZIPOutputStream(Files.newOutputStream(archive), 8192).use { out ->
-                Files.copy(file, out)
+            val archive = uniqueArchivePath()
+            try {
+                // uniqueArchivePath 已用 createFile 原子占位，这里直接覆盖那个空占位文件。
+                // 不能用 CREATE_NEW：文件已存在会抛 FileAlreadyExistsException。
+                java.util.zip.GZIPOutputStream(
+                    Files.newOutputStream(archive, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING),
+                    8192,
+                ).use { out ->
+                    Files.copy(file, out)
+                }
+            } catch (error: Throwable) {
+                // 写失败则删掉占位，不留一个空归档（空文件会被误认为“轮转成功但无内容”）。
+                runCatching { Files.deleteIfExists(archive) }
+                throw error
             }
             Files.deleteIfExists(file)
         }.onFailure { error ->
             ProbeLogger.warn("MCP 审计轮转失败：${error.javaClass.simpleName}")
         }
+    }
+
+    /**
+     * 选一个不会覆盖已有归档的文件名。
+     *
+     * 只用 System.currentTimeMillis() 做文件名是不够的：同一毫秒内轮转两次就会指向
+     * 同一个路径，后写入的 GZIPOutputStream（默认 TRUNCATE）会覆盖掉已有归档——
+     * **审计数据被静默丢弃**，而且不报错。
+     *
+     * 做法：先 CREATE_NEW 占位（原子操作，冲突时抛 FileAlreadyExistsException），
+     * 冲突就递增序号重试。上限只是防死循环，不是预期路径。
+     */
+    private fun uniqueArchivePath(): Path {
+        val stamp = System.currentTimeMillis()
+        for (suffix in 0 until ARCHIVE_NAME_ATTEMPTS) {
+            val name = if (suffix == 0) "mcp-audit-$stamp.jsonl.gz" else "mcp-audit-$stamp-$suffix.jsonl.gz"
+            val candidate = directory.resolve(name)
+            try {
+                Files.createFile(candidate)
+                return candidate
+            } catch (_: java.nio.file.FileAlreadyExistsException) {
+                // 该毫秒已被占用，尝试下一个序号
+                continue
+            }
+        }
+        error("无法为审计归档分配唯一文件名（同一毫秒冲突 $ARCHIVE_NAME_ATTEMPTS 次）")
     }
 
     /** 删除超过保留期的 gzip 审计归档(retentionDays<=0 时不清理)。 */
@@ -124,5 +161,8 @@ class McpAuditTrail(
 
         /** 一天的毫秒数。 */
         const val MILLIS_PER_DAY = 86_400_000L
+
+        /** 同一毫秒内的归档文件名冲突最多尝试几个序号。 */
+        const val ARCHIVE_NAME_ATTEMPTS = 64
     }
 }
