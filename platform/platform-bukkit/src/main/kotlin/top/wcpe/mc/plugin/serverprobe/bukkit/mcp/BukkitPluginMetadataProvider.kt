@@ -168,14 +168,17 @@ class BukkitPluginMetadataProvider : PluginMetadataProvider, PluginClassResolver
         }.getOrNull()
     }
 
-    /**
-     * 取插件 ClassLoader 摘要(展示用)。
+    /** 取插件 ClassLoader 摘要(展示用)。
+     *
+     * 插件名 → 加载器是**正向查表**（`loaderOf`，O(1)）。不要用 `ownerOf`——
+     * 那是「类名 → 所属插件」的反查，会对每个入参遍历全部 ClassLoader 并试加载。
+     * 曾误把插件名传给 ownerOf，60+ 插件时直接把 plugin_list 拖过 MCP 同步超时。
      *
      * @param pluginName 插件名。
      * @return 摘要文本;未注册时返回"未注册"。
      */
     private fun loaderSummary(pluginName: String): String {
-        val loader = classLoaderRegistry.ownerOf(pluginName) ?: return "未注册"
+        val loader = classLoaderRegistry.loaderOf(pluginName) ?: return "未注册"
         return loader.javaClass.simpleName.ifEmpty { loader.javaClass.name }
     }
 

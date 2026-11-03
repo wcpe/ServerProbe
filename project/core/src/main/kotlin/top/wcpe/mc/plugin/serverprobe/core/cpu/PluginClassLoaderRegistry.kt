@@ -36,6 +36,19 @@ class PluginClassLoaderRegistry {
         loaders[name] = loader
     }
 
+    /** 按插件名取 ClassLoader。
+     *
+     * 这里是「插件名 → 加载器」的**正向 O(1) 查表**，与 [ownerOf] 的「类名 → 所属插件」
+     * 反查是两回事：反查需要遍历全部 CL 并试加载，正向只需一次 map 查找。
+     * 插件元数据（如 loaderSummary）**必须**走这个入口——
+     * 曾误把插件名当类名丢给 ownerOf，导致每个插件都做一轮全量 CL 遍历 + 无效类加载，
+     * 60+ 插件时直接拖过 MCP 同步调用超时。
+     *
+     * @param name 插件名。
+     * @return 该插件的 ClassLoader；未注册时为 null。
+     */
+    fun loaderOf(name: String): ClassLoader? = loaders[name]
+
     /**
      * 注销一个插件(插件禁用/卸载时调用),同时清空其相关的类归属缓存。
      *
