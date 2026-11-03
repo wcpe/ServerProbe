@@ -70,7 +70,7 @@ class McpAuditTrail(
                 ).use { out ->
                     Files.copy(file, out)
                 }
-            } catch (error: Throwable) {
+            } catch (error: java.io.IOException) {
                 // 写失败则删掉占位，不留一个空归档（空文件会被误认为“轮转成功但无内容”）。
                 runCatching { Files.deleteIfExists(archive) }
                 throw error

@@ -81,10 +81,12 @@ internal class MetricPusher(
      * 服务器本身的 TPS/堆/线程仍然值得上报。桥字段缺失时 CP 侧只是曲线断点，
      * 不会把“不知道”当成“健康”。
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun readSenderStatus(): SenderStatus? = try {
         senderStatus()
     } catch (e: Exception) {
+        // 有意吞掉：桥状态读不到只意味着本帧不带桥字段（CP 侧断点），
+        // 不能因此丢掉整帧 TPS/堆/线程。异常本身无补救动作可做。
         null
     }
 
