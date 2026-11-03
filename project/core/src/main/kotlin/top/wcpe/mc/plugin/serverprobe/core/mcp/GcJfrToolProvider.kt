@@ -6,6 +6,8 @@ import top.wcpe.taboolib.ioc.annotation.Inject
 import top.wcpe.taboolib.ioc.annotation.PostConstruct
 import top.wcpe.taboolib.ioc.annotation.Service
 import java.lang.management.ManagementFactory
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -41,6 +43,18 @@ class GcJfrToolProvider(
     lateinit var mcpToolProviderRegistry: McpToolProviderRegistry
 
     private val lastSample = AtomicReference<List<GcSample>?>(null)
+
+    /** 最近一次 `jfr start` 拿到的 recording id，供 `jfr_stop` 使用。
+     *
+     * JFR 的 id 由 JVM 分配（从 1 递增，**不是**进程内可预测的），而 ArthasControl 只有
+     * **异步**接口（submit 返回 taskId，输出要另外轮询）——stop 时无法可靠地同步读到
+     * start 的输出。所以在 start 发出后自行记账，stop 时直接引用。
+     * 初值 1：进程内尚未 start 过时，第一个 recording 的 id 就是 1。
+     */
+    private val lastRecordingId = AtomicLong(1L)
+
+    /** 已 start 过几次；用于在 stop 时判断是否需要带 --recording。 */
+    private val startedRecordings = AtomicInteger(0)
 
     @PostConstruct
     fun register() {
@@ -104,16 +118,33 @@ class GcJfrToolProvider(
         )
     }
 
-    /** 封装 Arthas jfr 命令；产物路径经工作区白名单校验；jfr_stop 支持默认命名。 */
+    /** 封装 Arthas jfr 命令；产物路径经工作区白名单校验；jfr_stop 支持默认命名。
+     *
+     * ## `jfr stop` 必须带 `--recording`
+     *
+     * Arthas 的 JFRCommand 有**两个独立参数**：`recording`（Long，目标 recording 的 id）
+     * 与 `filename`（String，落盘路径）。缺 `--recording` 时它无从判断该停哪一个，
+     * 直接报 `Failed to stop. please input recording id`——真机实测踩过：
+     * start 成功、status 能看到 recording 在跑，唯独 stop 恒失败。
+     *
+     * 另两条实测约束：
+     *   - 路径**不能加引号**。命令串不是 shell，引号会被当作文件名的一部分传下去。
+     *   - jfr start 的输出形如 `Started recording 1`，id 从 1 起递增；本工具每次 start
+     *     只有一个活动 recording，取当前最大 id 即目标。
+     */
     private fun jfrCommand(operation: String, arguments: JsonObject?): Map<String, Any?> {
         val workspace = currentWorkspace()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         val command = if (operation == "start") {
+            // JVM 分配的 recording id 从 1 递增。多次 start 累计下去，这里按已启动次数推断本次 id。
+            lastRecordingId.set(startedRecordings.incrementAndGet().toLong())
             "jfr start"
         } else {
             val name = arguments?.getString("artifactName")?.trim()?.takeIf(String::isNotBlank)
                 ?: "jfr-${System.currentTimeMillis()}.jfr"
-            "jfr stop --filename '${arthasPath(workspace.outputPath(name))}'"
+            // 调用方可显式覆盖 id（多 recording 并存时）；否则用 start 时记下的那个。
+            val recordingId = arguments?.getLong("recordingId", 0L)?.takeIf { it > 0L } ?: lastRecordingId.get()
+            "jfr stop --recording $recordingId --filename ${arthasPath(workspace.outputPath(name))}"
         }
         return taskSnapshot(arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
     }
@@ -138,7 +169,10 @@ class GcJfrToolProvider(
                 usageExample = "{}", workflow = "异步：返回 taskId → arthas_task_status 轮询 → jfr_stop",
                 outputFields = mapOf("taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明")),
             McpTool(JFR_STOP, "停止 JFR 并写产物到工作区（异步任务，默认命名 jfr-<epoch>.jfr）",
-                mapOf("artifactName" to mapOf("type" to "string", "description" to "产物名，默认 jfr-<epochMillis>.jfr")),
+                mapOf(
+                    "artifactName" to mapOf("type" to "string", "description" to "产物名，默认 jfr-<epochMillis>.jfr"),
+                    "recordingId" to mapOf("type" to "integer", "description" to "要停止的 recording id；默认取 jfr_start 启动的那个"),
+                ),
                 usageExample = "{}", workflow = "异步：返回 taskId → 完成后用 artifact_read_binary 取回 JFR",
                 outputFields = mapOf("taskId" to "任务 ID", "state" to "任务状态", "message" to "状态说明")),
         )
