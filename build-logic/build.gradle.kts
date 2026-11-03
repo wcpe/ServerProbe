@@ -7,7 +7,7 @@ group = "top.wcpe.mc.plugin.serverprobe.buildlogic"
 dependencies {
     // 外部插件以 marker 坐标引入（group = 插件 id，artifact = 插件 id + ".gradle.plugin"），
     // 使 precompiled script plugins 可以在编译期引用其类型与 DSL。
-    implementation("org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin:2.1.0")
+    implementation("org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin:2.4.21")
     // 2.0.38-wcpe.3 起修复了「运行期模块（taboolib/module、taboolib/library）被整包重定位」
     // 导致动态下载的依赖永远匹配不上的问题（RelocateRemapper.skipRuntimeModulePrefixes）。
     // 未升到它之前，@Surgeon/@Lead/@Trail 会被改写到插件命名空间而运行期不存在，
