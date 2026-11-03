@@ -1439,8 +1439,24 @@ object ProbeConfig {
     /** 默认回执有界阻塞预算(毫秒)。 */
     private const val DEFAULT_BRIDGE_LINE_RECEIPT_OFFER_BUDGET_MS = 500L
 
-    /** 默认启用不可丢事件落盘兜底。 */
-    private const val DEFAULT_BRIDGE_LINE_SPILL_ENABLED = true
+    /**
+     * 默认**关闭**不可丢事件落盘兜底。
+     *
+     * 曾默认为 true，为「断线不丢数据」设计；但本通道的语义约定是
+     * **不可靠 / 幂等 / 不堵塞**，落盘与这三条都相反：
+     *
+     * - **与幂等重复**：业务事件带 dedupKey，重复到达不会产生重复扣款；
+     *   断线窗口丢的事件由重连后的全量同步补齐（重放安全）。落盘只是把
+     *   “重连后重新拉一遍”换成“从磁盘回放”，语义上没多出任何保证。
+     * - **与不堵塞冲突**：`spill.append()` 跑在发送线程的 `write()` 里（见 FrameWriter），
+     *   是**同步磁盘写**。常见部署是机械盘（ROTA=1），断线时每条可靠事件都要
+     *   等一次寻道，发送线程被拖住，队列迅速回满，回执也会跟着挤不上。
+     * - **收益极小、风险集中**：落盘只在“已断线”时发生，而那段窗口本来就丢；
+     *   保留它等于用“不堵”换“可能会丢的少量事件”，与需求相反。
+     *
+     * 需要的宿主仍可在 config.yml 里显式 `bridge.line.spill-enabled: true` 打开。
+     */
+    private const val DEFAULT_BRIDGE_LINE_SPILL_ENABLED = false
 
     /** 默认落盘目录。 */
     private const val DEFAULT_BRIDGE_LINE_SPILL_DIR = "data/bridge-spill"

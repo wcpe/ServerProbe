@@ -217,8 +217,15 @@ bridge:
     receipt-capacity: 256
     # 池线程提交回执时的有界阻塞预算;读线程不用它(走非阻塞入口)。
     receipt-offer-budget-ms: 500
-    # 不可丢事件落盘兜底:队列满时写盘,重连后回放(至少一次,由 dedupKey 去重)。
-    spill-enabled: true
+    # 不可丢事件落盘兜底：队列满时写盘，重连后回放（至少一次，由 dedupKey 去重）。
+    #
+    # **默认关闭**。本通道的语义是「不可靠 / 幂等 / 不堵塞」，落盘与这三条都相反：
+    #   · 幂等事件重复到达不会重复生效，断线窗口丢的由重连后全量同步补齐，
+    #     落盘换不来任何额外保证；
+    #   · `spill.append()` 是**同步磁盘写**，跑在发送线程里；机械盘（ROTA=1）上
+    #     断线时每条事件都要等寻道，发送线程被拖住 → 队列回满 → 回执也挤不上。
+    # 需要「断线也不丢」的宿主可显式改为 true。
+    spill-enabled: false
     spill-dir: data/bridge-spill
     spill-max-files: 8
     spill-max-bytes: 8388608

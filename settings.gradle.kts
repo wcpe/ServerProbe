@@ -78,3 +78,5 @@ include("e2e:harness-mcp-bukkit")
 include("e2e:harness-mcp-bungee")
 include("e2e:harness-mcp-velocity")
 include("e2e:harness-mcp-java8")
+// 桥链路压测桩（外置插件）：不改 ServerProbe 内部，通过公开 API 注洪峰并采集延迟分位。
+include("e2e:harness-bridge-load")
