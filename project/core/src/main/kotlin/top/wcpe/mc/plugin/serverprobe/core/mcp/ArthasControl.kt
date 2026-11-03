@@ -99,6 +99,14 @@ class ArthasControlRegistry : ArthasControl, ArthasControlRegistration {
         ?.cancel(taskId)
         ?: unavailableSnapshot(taskId)
 
+    /**
+     * 转发同步执行。**必须重写**：不重写就会落到接口的默认实现 `= null`，
+     * 真实控制器的实现永远走不到——调用方会一直拿到 null 并默默降级，
+     * 看起来像“能力未提供”，实际是注册表没转发。
+     */
+    override fun executeSync(command: String, timeoutMillis: Long): String? = controlOrNull()
+        ?.executeSync(command, timeoutMillis)
+
     override fun retryAttach(): ArthasInstrumentationSnapshot = controlOrNull()
         ?.retryAttach()
         ?: ArthasInstrumentationSnapshot(false, "UNAVAILABLE", "当前未注册 Arthas 诊断控制器")
