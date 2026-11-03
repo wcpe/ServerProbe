@@ -1,0 +1,195 @@
+# 预览：手动触发的临时发布，供联调与测试——不打正式版本、不写 CHANGELOG、不占 Latest，
+# 不打扰正式发布流程（正式版走 release.yml 的 v* tag）。
+#
+# 标记形如 preview-<yyyyMMdd>-<HHmmss>-<sha8>（UTC），同一提交重复触发各成一次预览、互不覆盖。
+# 构建强度与 release.yml 一致（完整构建 + 单测 + 静态检查）：预览版若跑不起来就失去测试价值。
+# 预览 Release 会累积，需要时在 Releases 页面手动删旧的（连 tag 一起删）。
+#
+# dry_run 只构建与打包，不创建 Release，用于在 PR 上验证本流水线。
+name: Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要构建的 ref（分支 / tag / SHA），留空则用触发工作流时界面上选择的 ref
+        required: false
+        default: ""
+      note:
+        description: 本次预览的补充说明（会写进 Release 正文）
+        required: false
+        default: ""
+      dry_run:
+        description: "只构建与打包，不创建 Release。用于在 PR 上验证流水线本身"
+        type: boolean
+        default: false
+
+concurrency:
+  group: preview-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    name: 构建并发布预览版
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码（含完整历史）
+        uses: actions/checkout@v4
+        with:
+          # 留空时回落到 workflow_dispatch 界面选定的 ref
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      # 探针运行于 JDK 21、编译 toolchain 用 JDK 8（核心 Java 8 字节码），e2e 夹具与部分模块要 17。
+      - name: 安装 JDK 8 / 17 / 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+            21
+
+      - name: 配置 Gradle（含缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 计算预览标记
+        id: meta
+        shell: bash
+        run: |
+          commit="$(git rev-parse HEAD)"
+          sha="$(git rev-parse --short=8 HEAD)"
+          stamp="$(date -u +%Y%m%d-%H%M%S)"
+          tag="preview-${stamp}-${sha}"
+          {
+            echo "tag=${tag}"
+            echo "sha=${sha}"
+            echo "commit=${commit}"
+          } >> "$GITHUB_OUTPUT"
+          echo "预览标记：${tag}（提交 ${commit}）"
+
+      - name: 构建 + 单元测试 + detekt 静态检查
+        run: >-
+          ./gradlew build --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 字节码门禁（产物 major version <= 52）
+        run: >-
+          ./gradlew verifyBytecodeGate --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 汇总构建产物与校验和
+        id: dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release
+          # 发行 jar 是唯一面向使用者的交付物；文件名里的版本号随 gradle.properties 变化，故用通配符。
+          jar_count=0
+          for jar in plugin/build/libs/ServerProbe-*.jar; do
+            [ -f "$jar" ] || continue
+            # 去掉 -sources / -javadoc 之类的旁车，只留可运行的发行 jar
+            case "$jar" in
+              *-sources.jar|*-javadoc.jar) continue ;;
+            esac
+            cp "$jar" "build/release/ServerProbe-${{ steps.meta.outputs.tag }}.jar"
+            jar_count=$((jar_count + 1))
+          done
+          if [ "$jar_count" -eq 0 ]; then
+            echo "::error::未找到发行 jar（plugin/build/libs/ServerProbe-*.jar），构建是否成功？"
+            exit 1
+          fi
+          if [ "$jar_count" -gt 1 ]; then
+            echo "::error::发行 jar 多于一个（$jar_count），产物命名可能已变更，需同步本步骤"
+            exit 1
+          fi
+          rm -f build/release/SHA256SUMS.txt
+          (cd build/release && sha256sum ./* > SHA256SUMS.txt)
+          echo "----- SHA256SUMS.txt -----"
+          cat build/release/SHA256SUMS.txt
+
+      - name: 生成预览说明
+        id: notes
+        shell: bash
+        env:
+          PREVIEW_NOTE: ${{ inputs.note }}
+          PREVIEW_TAG: ${{ steps.meta.outputs.tag }}
+          PREVIEW_COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/preview-notes.md"
+          {
+            echo "## 预览版"
+            echo
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 预览标记 | \`${PREVIEW_TAG}\` |"
+            echo "| 提交 | \`${PREVIEW_COMMIT}\` |"
+            echo
+            if [ -n "${PREVIEW_NOTE}" ]; then
+              echo "## 本次说明"
+              echo
+              echo "${PREVIEW_NOTE}"
+            fi
+            echo
+            echo "## 本页产物"
+            echo
+            echo "- \`ServerProbe-${{ steps.meta.outputs.tag }}.jar\`：服务端插件发行 jar（Bukkit / Paper / Folia、BungeeCord、Velocity 同一份）"
+            echo
+            echo "## 产物校验"
+            echo
+            echo '```'
+            cat build/release/SHA256SUMS.txt
+            echo '```'
+          } > "${notes_file}"
+          echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
+          echo "----- 预览说明 -----"
+          # 回显日志前把 `::` 拆成 `: :`：GitHub 会把日志里行首的 `::name::` 当工作流命令解析，
+          # 而 note 是用户输入，原样回显等于允许伪造注解行（例如伪造 ::error:: 干扰值守判读）。
+          # 只对日志这一份做替换——Release 正文读的是原文件，正文不经过工作流命令解析。
+          sed 's/::/: :/g' "${notes_file}"
+
+      - name: 创建 GitHub Release（预览版）
+        # dry_run 时不发布：只为验证流水线，不该产生 Release 与 tag。
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          # 显式指向被检出的提交：指定了 ref 输入时 GITHUB_SHA 未必等于它，不写会把 tag 打到错误的提交上
+          target_commitish: ${{ steps.meta.outputs.commit }}
+          name: ${{ steps.meta.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          # 不开原生自动笔记：它按"上一个 tag → 本次"聚合 PR，对时间点式的预览没有意义
+          generate_release_notes: false
+          draft: false
+          # 标为预发布：不占 Latest，正式流程不受影响
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            build/release/*.jar
+            build/release/SHA256SUMS.txt
+
+      - name: 上传预览产物（dry_run 时留作证据）
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-dry-run-${{ steps.meta.outputs.sha }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 清理本次构建产物（降低 runner 磁盘占用）
+        # 发行 jar 已复制到 build/release 并发布，中间产物留着只会吃盘。
+        # 用 always() 保证失败的一轮（往往留下最多垃圾）同样清理；
+        # 保留 .gradle/ 项目缓存供后续运行 UP-TO-DATE 复用。
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          echo "已清理 build/（保留 .gradle 项目缓存，供后续运行 UP-TO-DATE 复用）"

@@ -1,14 +1,19 @@
-# 持续集成：分支与 PR 验证构建；推送 v* 标签时额外创建 GitHub Release。
-# 纯文档改动（README/docs/wiki/.github/CHANGELOG 等）不触发构建；标签推送不受过滤、始终发版。
+# 持续集成：分支与 PR 验证构建（构建 + 单测 + detekt 静态检查）。
+# 纯文档改动（README/docs/wiki/.github/CHANGELOG 等）不触发构建。
+#
+# 正式发布由 release.yml 在 v* tag 时完成，副本不在这里构建，也不上传 Actions 产物
+# （发布产物由 release.yml 发到 GitHub Release，不占 Actions artifact 配额）。
 name: CI
 
 on:
-  # 手动触发用于验证 CI 自身配置改动：push 的 paths-ignore 含 .github/**，
-  # 改工作流文件时不会自动触发，需在此手动跑一次确认。
+  # 手动触发用于：验证 CI 自身配置改动（push 的 paths-ignore 含 .github/**，
+  # 改工作流文件时不会自动触发）；以及与基分支冲突、GitHub 不再为其创建 pull_request 运行时补跑。
   workflow_dispatch:
   push:
     branches: [ master, main ]
-    tags: [ 'v*' ]
+    # 正式发布 tag 由 release.yml 处理，CI 不重复构建
+    tags-ignore:
+      - 'v*'
     paths-ignore:
       - 'README.md'
       - 'CHANGELOG.md'
@@ -42,28 +47,24 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码)
-      - name: 安装 JDK 8 与 21
+      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码),
+      # e2e 夹具与部分模块要 17。
+      - name: 安装 JDK 8 / 17 / 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: |
             8
+            17
             21
 
       - name: 配置 Gradle(含缓存)
         uses: gradle/actions/setup-gradle@v4
 
       - name: 构建 + 单元测试 + detekt 静态检查
-        run: ./gradlew build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
-
-      - name: 上传发行 jar
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
-        with:
-          name: serverprobe-jar
-          path: plugin/build/libs/ServerProbe-*.jar
-          if-no-files-found: error
+        run: >-
+          ./gradlew build --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
 
   # Windows 交叉验证：项目日常在 Windows 开发，历史上出现过平台相关缺陷在 Windows 上被掩盖、
   # 只在 Linux 暴露的情况(如 HttpServer backlog=0 在 Linux 挂起而 Windows 掩盖、async-profiler
@@ -76,13 +77,15 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码)
-      - name: 安装 JDK 8 与 21
+      # Gradle 运行于 JDK 21(detekt 需 11+),编译 toolchain 用 JDK 8(核心 Java 8 字节码),
+      # e2e 夹具与部分模块要 17。
+      - name: 安装 JDK 8 / 17 / 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: |
             8
+            17
             21
 
       - name: 配置 Gradle(含缓存)
@@ -106,12 +109,13 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装 JDK 8 与 21
+      - name: 安装 JDK 8 / 17 / 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: |
             8
+            17
             21
 
       - name: 配置 Gradle(含缓存)
@@ -120,7 +124,9 @@ jobs:
       # coverageSummary 已把各模块 JaCoCo 报告声明为任务输入并挂上 jacocoTestReport 依赖，
       # 故一条命令即可：先跑测试与报告，再打印行/分支覆盖率概览（不用于判定通过与否）。
       - name: 汇总覆盖率概览
-        run: ./gradlew coverageSummary --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+        run: >-
+          ./gradlew coverageSummary --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v4
@@ -129,28 +135,3 @@ jobs:
           path: '*/build/reports/jacoco/'
           if-no-files-found: warn
           retention-days: 90
-
-  release:
-    name: 发布 GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: 下载发行 jar
-        uses: actions/download-artifact@v4
-        with:
-          name: serverprobe-jar
-          path: release
-
-      - name: 创建或更新 GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release/ServerProbe-*.jar --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG_NAME" release/ServerProbe-*.jar --title "ServerProbe $TAG_NAME" --generate-notes --repo "$GITHUB_REPOSITORY"
-          fi
