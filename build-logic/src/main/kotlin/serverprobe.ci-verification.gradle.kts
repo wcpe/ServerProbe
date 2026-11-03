@@ -99,6 +99,9 @@ tasks.register<VerifyE2eResultsTask>("verifyE2eResults") {
     group = "verification"
     description = "断言 build/mc-testkit/results 下的 E2E 结果文件全部 PASS"
     resultsDirectory.convention(layout.buildDirectory.dir("mc-testkit/results"))
+    // 输入快照走文件集合而非 @InputDirectory：目录不存在时解析为空集合，任务照常执行，
+    // 由动作报出「缺哪些场景」（@InputDirectory 会在输入校验阶段直接报 Input file does not exist）。
+    resultsFiles.from(resultsDirectory)
     expectedScenarios.convention(
         providers.gradleProperty("expectedScenarios")
             .orElse(providers.environmentVariable("EXPECTED_SCENARIOS"))
