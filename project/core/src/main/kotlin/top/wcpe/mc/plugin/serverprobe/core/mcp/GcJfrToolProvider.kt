@@ -44,16 +44,17 @@ class GcJfrToolProvider(
 
     private val lastSample = AtomicReference<List<GcSample>?>(null)
 
-    /** 最近一次 `jfr start` 拿到的 recording id，供 `jfr_stop` 使用。
+    /** 当前活跃 recording 的 id，供 `jfr_stop` 使用。
      *
-     * JFR 的 id 由 JVM 分配（从 1 递增，**不是**进程内可预测的），而 ArthasControl 只有
-     * **异步**接口（submit 返回 taskId，输出要另外轮询）——stop 时无法可靠地同步读到
-     * start 的输出。所以在 start 发出后自行记账，stop 时直接引用。
-     * 初值 1：进程内尚未 start 过时，第一个 recording 的 id 就是 1。
+     * JFR 的 recording 是**进程级共享**的（不是本探针私有），id 由 JVM 分配且只增不减。
+     * 早先用「本工具 start 过几次」来推断 id，但别人（人、其他工具）也可能 start，
+     * 一错位就会停错 recording。现在改成以 JVM 实际状态为准：
+     * start 前先读 `jfr status` 拿当前最大 id，start 后预期 id = 它 + 1。
+     * 读不到状态时退回自增计数（不阻断采集），仍可由调用方显式指定覆盖。
      */
     private val lastRecordingId = AtomicLong(1L)
 
-    /** 已 start 过几次；用于在 stop 时判断是否需要带 --recording。 */
+    /** status 读取失败时的退化计数；仅在 executeSync 不可用时使用。 */
     private val startedRecordings = AtomicInteger(0)
 
     @PostConstruct
@@ -136,8 +137,9 @@ class GcJfrToolProvider(
         val workspace = currentWorkspace()
             ?: return linkedMapOf("available" to false, "reason" to "当前未启用 MCP 工件工作区")
         val command = if (operation == "start") {
-            // JVM 分配的 recording id 从 1 递增。多次 start 累计下去，这里按已启动次数推断本次 id。
-            lastRecordingId.set(startedRecordings.incrementAndGet().toLong())
+            // 先从 JVM 实际状态取当前最大 id，本次 start 后应为其 +1。
+            // 读不到（控制台未提供 executeSync / status 失败）才退回自增计数。
+            lastRecordingId.set(nextRecordingIdAfterStart())
             "jfr start"
         } else {
             val name = arguments?.getString("artifactName")?.trim()?.takeIf(String::isNotBlank)
@@ -149,7 +151,33 @@ class GcJfrToolProvider(
         return taskSnapshot(arthas().submit(ArthasCommandRequest(command, timeoutMillis(arguments))))
     }
 
+    /**
+     * 估算本条 `jfr start` 将分配的 recording id。
+     *
+     * JFR recording 是**进程级共享**的，id 由 JVM 单调递增分配、停掉也不回收。
+     * 早先按「本工具 start 过几次」推断 id，一旦有人/其他工具也 start 过就会错位，
+     * stop 时停到别的 recording。现在以 JVM 实际状态为准：读 `jfr status`
+     * 拿当前最大 id，本次 start 后应为它 +1。
+     *
+     * 读不到（executeSync 不可用、命令超时、输出格式变化）时退回自增计数——
+     * 宁可 id 可能不准也别阻断采集，反正调用方仍可用 recordingId 显式覆盖。
+     *
+     * `jfr status` 输出形如：`Recording: recording=1 name=Recording-1 (running)`。
+     * 无活动 recording 时输出 `No available recordings.`。
+     *
+     * @return 预期的新 recording id（至少 1）。
+     */
+    private fun nextRecordingIdAfterStart(): Long {
+        val status = runCatching { arthas().executeSync("jfr status", STATUS_TIMEOUT_MILLIS) }.getOrNull()
+        val maxExisting = status
+            ?.let { Regex("recording=(\\d+)").findAll(it).mapNotNull { m -> m.groupValues.getOrNull(1)?.toLongOrNull() }.maxOrNull() }
+        return if (maxExisting != null) maxExisting + 1 else (startedRecordings.incrementAndGet()).toLong()
+    }
+
     private companion object {
+        /** 读 jfr status 的同步超时；只是一条查询命令，取小值。 */
+        const val STATUS_TIMEOUT_MILLIS = 5_000L
+
         const val GC_EVENTS = "gc_events"
         const val GC_STATS = "gc_stats"
         const val JFR_START = "jfr_start"

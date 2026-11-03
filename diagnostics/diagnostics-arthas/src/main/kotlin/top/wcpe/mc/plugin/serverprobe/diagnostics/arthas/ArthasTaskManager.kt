@@ -101,6 +101,33 @@ class ArthasTaskManager(
     /** 读取已加载类字节码（补丁前自动备份）；未提供读取器或类未加载时返回 null。 */
     override fun dumpClassBytes(className: String): ByteArray? = bytecodeReader(className)
 
+    /**
+     * 同步执行一条命令并返回输出文本。
+     *
+     * 复用同一 [runner]（它本身就是同步的，异步只是被包在外层线程池里），
+     * 但**不进任务表**：这种调用不产生 taskId，也不被 cancel 语义覆盖——
+     * 调用方给的 timeout 已经是保守的短值，超时就返回 null 由调用方降级。
+     *
+     * 不在心跳/包循环线程上调用（会阻塞），调用方需自己保证上下文。
+     */
+    override fun executeSync(command: String, timeoutMillis: Long): String? {
+        val buffer = ArthasTaskOutputBuffer(maxOutputChars)
+        val worker = java.util.concurrent.FutureTask {
+            runner.run(command, buffer)
+        }
+        val thread = Thread(worker, "serverprobe-arthas-sync").apply { isDaemon = true }
+        return try {
+            thread.start()
+            worker.get(timeoutMillis, TimeUnit.MILLISECONDS)
+            buffer.toString()
+        } catch (_: java.util.concurrent.TimeoutException) {
+            worker.cancel(true)
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun execute(task: Task) {
         if (task.state == ArthasTaskState.CANCELLED) return
         task.state = ArthasTaskState.RUNNING
