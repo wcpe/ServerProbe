@@ -37,6 +37,11 @@ class ArthasStartupAsyncContractTest {
         lifecycle = ArthasDiagnosticsLifecycle()
         lifecycle.runtimeRegistration = RecordingRuntimeRegistration()
         lifecycle.autoLoadGate = { true }
+        // 配置就绪必须也打桩：真实实现是 ProbeConfig.awaitLoaded()，
+        // 无平台环境下 conf 永远注入不了，会空转 5 秒后返回 false，
+        // 导致 loadAfterStartup 根本不执行——测试就会把「加载 0 次」
+        // 误报成「实现没异步化」。
+        lifecycle.configReadyGate = { true }
         dispatched = mutableListOf()
         lifecycle.autoLoadScheduler = { task -> dispatched += task }
         loadCount = 0

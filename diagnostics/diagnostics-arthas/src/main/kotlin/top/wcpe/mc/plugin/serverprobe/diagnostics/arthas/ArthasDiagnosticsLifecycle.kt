@@ -75,6 +75,15 @@ class ArthasDiagnosticsLifecycle {
     /** 启动期是否需要自动加载；默认读 `mcp.enabled`（托管/独立判定不变），测试可替换。 */
     internal var autoLoadGate: () -> Boolean = { ProbeConfig.mcpEnabled() }
 
+    /**
+     * 配置是否已就绪；默认 [ProbeConfig.awaitLoaded]（真机上会阻塞等待，最长 5s）。
+     *
+     * 单独抽出为接缝的理由：无平台环境下 [ProbeConfig.conf] 永远注入不了，
+     * 单测若走真实实现会在 awaitConfigReady 里空转 5 秒才返回 false，
+     * 于是断言看到的「加载 0 次」被误读成实现没异步化。
+     */
+    internal var configReadyGate: () -> Boolean = { ProbeConfig.awaitLoaded() }
+
     /** 实际加载动作；默认 [startRuntime]，测试可替换以免在无平台环境下触碰宿主目录。 */
     internal var runtimeLoader: () -> ArthasInstrumentationSnapshot = ::startRuntime
 
@@ -135,7 +144,7 @@ class ArthasDiagnosticsLifecycle {
         // `McpControlPlane` / `McpBridgeService` / `WebPanelServer` / `PrometheusExporter` 全都先过
         // `awaitLoaded()`，之前本类漏了这一步，才出现“config.yml 里 mcp.enabled: true，
         // 这里却读到默认 false、Arthas 永不自动加载”的真机故障。
-        if (!ProbeConfig.awaitLoaded()) {
+        if (!configReadyGate()) {
             println(
                 "[ServerProbe][Arthas] 等待配置就绪超时，按未启用处理；" +
                     "可稍后用 retry_attach 或控制台手动加载",
