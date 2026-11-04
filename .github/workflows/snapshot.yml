@@ -1,0 +1,224 @@
+# 开发版（快照）：随 dev 推送产出开发版产物，供测试者直接拿起来跑。
+#
+# 与正式发布（release.yml 的 v* tag）互不影响：版本号沿用 gradle.properties 里的 -SNAPSHOT
+#（不 bump、不提交版本变更）；GitHub Release 是滚动的（覆盖同一个 snapshot 预发布，不累积）；
+# 不打正式 tag、不改 CHANGELOG。
+#
+# 手动触发的 dry_run 只构建与打包，不动 Release/tag，用于在 PR 上验证本流水线。
+name: Snapshot
+
+on:
+  push:
+    branches:
+      - dev
+    # 只在可能影响产物的路径变更时触发，避免纯文档 / 记录改动也跑一次全量发布。
+    # 清单必须覆盖「改了就影响产物」的全部真源，漏一项的后果是静默的：
+    # 模块注册表或构建脚本变了，流水线却安静地不跑，发出去的快照与仓库当前状态脱节且没有任何提示。
+    paths:
+      - "**/src/main/**"
+      - "**/build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "build-logic/**"
+      - "plugin/src/main/resources/**"
+      - "gradle/**"
+      - ".github/workflows/snapshot.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只构建与打包，不发布（不动 Release/tag）。用于在 PR 上验证流水线本身"
+        type: boolean
+        default: false
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  # 连续推送只保留最后一次：快照的语义是「当前最新状态」，中间态没有发布价值。
+  # 中途取消可能留下半份快照，但 Release 是整份重建，下次补齐。
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    name: 发布开发版
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码（含完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 JDK 8 / 17 / 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+            21
+
+      - name: 配置 Gradle（含缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 计算快照标记
+        id: meta
+        shell: bash
+        run: |
+          commit="$(git rev-parse HEAD)"
+          sha="$(git rev-parse --short=8 HEAD)"
+          stamp="$(date -u +%Y%m%d-%H%M%S)"
+          # 版本号取 gradle.properties 的真值（带 -SNAPSHOT），不硬编码——它随版本演进变化。
+          version="$(sed -n 's/^version=//p' gradle.properties | head -1 | tr -d '[:space:]')"
+          if [ -z "${version}" ]; then
+            echo "::error::无法从 gradle.properties 读取 version"
+            exit 1
+          fi
+          {
+            echo "version=${version}"
+            echo "sha=${sha}"
+            echo "commit=${commit}"
+            echo "stamp=${stamp}"
+          } >> "$GITHUB_OUTPUT"
+          echo "快照标记：${version}（提交 ${commit}，构建于 ${stamp}）"
+
+      - name: 构建 + 单元测试 + detekt 静态检查
+        run: >-
+          ./gradlew build --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 字节码门禁（产物 major version <= 52）
+        run: >-
+          ./gradlew verifyBytecodeGate --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 汇总构建产物与校验和
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release
+          jar_count=0
+          for jar in plugin/build/libs/ServerProbe-*.jar; do
+            [ -f "$jar" ] || continue
+            case "$jar" in
+              *-sources.jar|*-javadoc.jar) continue ;;
+            esac
+            # 快照产物带构建时间戳，便于区分同一版本号下的不同构建
+            cp "$jar" "build/release/ServerProbe-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.stamp }}.jar"
+            jar_count=$((jar_count + 1))
+          done
+          if [ "$jar_count" -ne 1 ]; then
+            echo "::error::期望恰好一个发行 jar，实际 $jar_count 个（plugin/build/libs/ServerProbe-*.jar）"
+            exit 1
+          fi
+          rm -f build/release/SHA256SUMS.txt
+          (cd build/release && sha256sum ./* > SHA256SUMS.txt)
+          echo "----- SHA256SUMS.txt -----"
+          cat build/release/SHA256SUMS.txt
+
+      - name: 生成快照说明
+        id: notes
+        shell: bash
+        env:
+          SNAPSHOT_VERSION: ${{ steps.meta.outputs.version }}
+          SNAPSHOT_SHA: ${{ steps.meta.outputs.sha }}
+          SNAPSHOT_COMMIT: ${{ steps.meta.outputs.commit }}
+          SNAPSHOT_STAMP: ${{ steps.meta.outputs.stamp }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/snapshot-notes.md"
+          {
+            echo "## 开发版（快照）"
+            echo
+            echo "本页为滚动更新的开发版产物，每次推送自动重建，**不代表已发布版本**，请勿用于生产。"
+            echo
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 版本 | \`${SNAPSHOT_VERSION}\` |"
+            echo "| 提交 | \`${SNAPSHOT_COMMIT}\` |"
+            echo "| 构建于 | ${SNAPSHOT_STAMP}（UTC） |"
+            echo
+            echo "## 安装"
+            echo
+            echo "1. 下载 \`ServerProbe-*.jar\`，放入服端 \`plugins/\` 目录（Bukkit / Paper / Folia 与 BungeeCord / Velocity 同一份 jar）。"
+            echo "2. 重启服端。首次启用会生成 \`plugins/ServerProbe/config.yml\`。"
+            echo "3. 校验下载文件：\`sha256sum -c SHA256SUMS.txt\`。"
+            echo
+            echo "## 产物校验"
+            echo
+            echo '```'
+            cat build/release/SHA256SUMS.txt
+            echo '```'
+          } > "${notes_file}"
+          echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
+          echo "----- 快照说明 -----"
+          sed 's/::/: :/g' "${notes_file}"
+
+      - name: 清理旧附件（保证真滚动）
+        # 只换 tag/正文不够：附件按文件名增量上传、从不删旧的。而快照产物名带构建时间戳，
+        # 每次都是新名字，于是旧 jar 会一直沉积在同一个 Release 下面（实测第二次构建后就两个 jar 了）。
+        # 构建前先把该 Release 的旧附件删空，才使其名副其实地“滚动覆盖”。
+        if: ${{ github.event_name == 'push' || inputs.dry_run != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: snapshot
+        run: |
+          set -euo pipefail
+          # Release 可能还不存在（首次运行），gh release view 会失败，这是正常情况。
+          if ! gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            echo "Release ${TAG} 尚不存在，无需清理"
+            exit 0
+          fi
+          # 取**数字**后缀而不是 id 字段：`gh release view` 的 assets[].id 给的是 GraphQL
+          # node ID（形如 RA_kwDO…），直接拿去 DELETE /releases/assets/{id} 会 404；
+          # apiUrl 末尾的才是 REST 接口认的数据库 id。
+          api_urls="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].apiUrl')"
+          if [ -z "${api_urls}" ]; then
+            echo "Release ${TAG} 没有旧附件，无需清理"
+            exit 0
+          fi
+          echo "准备删除旧附件：$(echo "${api_urls}" | wc -l) 个"
+          for api_url in ${api_urls}; do
+            gh api -X DELETE "${api_url#https://api.github.com/}"
+          done
+          echo "旧附件已清理，随后重新上传本次产物"
+
+      - name: 更新开发版 Release（滚动，不累积）
+        # dry_run 时不发布：只为验证流水线，不该产生或改动 Release 与 tag。
+        # push 触发时 inputs.dry_run 为空，显式用 == true 判断：只有手动勾选 dry_run 才不发布。
+        if: ${{ github.event_name == 'push' || inputs.dry_run != true }}
+        uses: softprops/action-gh-release@v3
+        with:
+          # 固定 tag：同一个 Release 被反复覆盖，不累积成一堆快照页
+          tag_name: snapshot
+          target_commitish: ${{ steps.meta.outputs.commit }}
+          name: 开发版 ${{ steps.meta.outputs.version }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          generate_release_notes: false
+          draft: false
+          # 标为预发布：不占 Latest，正式流程不受影响
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            build/release/*.jar
+            build/release/SHA256SUMS.txt
+
+      - name: 上传快照产物（dry_run 时留作证据）
+        if: ${{ github.event_name != 'push' && inputs.dry_run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-dry-run-${{ steps.meta.outputs.sha }}
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 清理本次构建产物（降低 runner 磁盘占用）
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          echo "已清理 build/（保留 .gradle 项目缓存，供后续运行 UP-TO-DATE 复用）"

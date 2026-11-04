@@ -1,0 +1,234 @@
+# 发布：只在 master 分支上的 v* tag 触发，构建（构建 + 质量门禁 + 全量单测）后
+# 把发行 jar 发布到 GitHub Release。
+# Release 正文 = 工作流内置的产物校验块 + GitHub 原生自动笔记（What's Changed，只认合并的 PR）。
+# tag 祖先校验作业只有 git 操作，无构建负载。
+#
+# 手动 dry_run：只做发布前的完整校验与产物打包，不发布（不创建 GitHub Release、不校验 tag），
+# 也不打 tag。用于在 PR 未合并时验证发版链路能否完整构建。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只做发布前的完整校验与产物打包，不发布（不创建 GitHub Release、不校验 tag）"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: 校验 tag 分支
+    # tag 祖先校验只对真实发布有意义：手动 dry_run 没有 tag 可校验，跳过整个 job。
+    # 跳过是安全的——本 job 的唯一职责是把「tag 必须落在 master 上」这条前置条件挡在构建之前；
+    # dry_run 本就不产出任何发布物，绕开它不会让本该被拦的发布漏出去。
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.branch_check.outputs.allowed }}
+    steps:
+      - name: 检出代码（含完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 校验 tag 是否在 master 分支上
+        id: branch_check
+        shell: bash
+        run: |
+          tag_sha="$(git rev-parse HEAD)"
+          allowed_branches=("main" "master")
+          for branch in "${allowed_branches[@]}"; do
+            remote_ref="origin/${branch}"
+            if git show-ref --verify --quiet "refs/remotes/${remote_ref}"; then
+              if git merge-base --is-ancestor "${tag_sha}" "${remote_ref}"; then
+                echo "tag ${GITHUB_REF_NAME} 位于 ${remote_ref}"
+                echo "allowed=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          done
+          echo "::error::跳过发布：tag ${GITHUB_REF_NAME} 未指向 main 或 master 分支上的 commit"
+          echo "allowed=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+  release:
+    name: 构建并发布 Release
+    needs: check
+    # 两种进入方式：
+    #   · 真实 tag 推送：沿用祖先校验结果（check.outputs.allowed）
+    #   · 手动 dry_run：check 已被跳过，其 outputs 为空，故这里按「非 push 事件一律放行」处理。
+    if: >-
+      always() &&
+      (github.event_name != 'push' || needs.check.outputs.allowed == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码（含完整历史）
+        uses: actions/checkout@v4
+        with:
+          # tag 发布必须检出 tag 指向的提交；手动触发用当前 ref
+          fetch-depth: 0
+
+      - name: 安装 JDK 8 / 17 / 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: |
+            8
+            17
+            21
+
+      - name: 配置 Gradle（含缓存）
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 计算发布标记
+        id: meta
+        shell: bash
+        run: |
+          commit="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # tag 推送：版本号以 tag 为准（vX.Y.Z），不取 gradle.properties 的 -SNAPSHOT
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="dry-run-$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short=8 HEAD)"
+          fi
+          {
+            echo "tag=${tag}"
+            echo "commit=${commit}"
+          } >> "$GITHUB_OUTPUT"
+          echo "发布标记：${tag}（提交 ${commit}）"
+
+      - name: 校验发布版本与 tag 一致
+        # 只在真实 tag 推送时校：tag 是 vX.Y.Z，gradle.properties 的 version 必须是同一个 X.Y.Z
+        #（不带 -SNAPSHOT），否则发出去的 jar 内部版本号与 Release 标题对不上。
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          declared="$(sed -n 's/^version=//p' gradle.properties | head -1 | tr -d '[:space:]')"
+          expected="${GITHUB_REF_NAME#v}"
+          echo "gradle.properties version=${declared}"
+          echo "tag 对应版本=${expected}"
+          if [ "${declared}" != "${expected}" ]; then
+            echo "::error::版本不一致：gradle.properties 为 ${declared}，tag 为 ${GITHUB_REF_NAME}（应发 ${expected}）"
+            exit 1
+          fi
+          case "${declared}" in
+            *-SNAPSHOT)
+              echo "::error::发布版本不得带 -SNAPSHOT 后缀（当前 ${declared}）"
+              exit 1
+              ;;
+          esac
+
+      - name: 构建 + 单元测试 + detekt 静态检查
+        run: >-
+          ./gradlew build --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 字节码门禁（产物 major version <= 52）
+        run: >-
+          ./gradlew verifyBytecodeGate --stacktrace
+          -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
+
+      - name: 汇总构建产物与校验和
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release
+          jar_count=0
+          for jar in plugin/build/libs/ServerProbe-*.jar; do
+            [ -f "$jar" ] || continue
+            case "$jar" in
+              *-sources.jar|*-javadoc.jar) continue ;;
+            esac
+            cp "$jar" "build/release/ServerProbe-${{ steps.meta.outputs.tag }}.jar"
+            jar_count=$((jar_count + 1))
+          done
+          if [ "$jar_count" -ne 1 ]; then
+            echo "::error::期望恰好一个发行 jar，实际 $jar_count 个（plugin/build/libs/ServerProbe-*.jar）"
+            exit 1
+          fi
+          rm -f build/release/SHA256SUMS.txt
+          (cd build/release && sha256sum ./* > SHA256SUMS.txt)
+          echo "----- SHA256SUMS.txt -----"
+          cat build/release/SHA256SUMS.txt
+
+      - name: 生成发布说明
+        id: notes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+          {
+            echo "## 产物"
+            echo
+            echo "- \`ServerProbe-${RELEASE_TAG}.jar\`：服务端插件发行 jar（Bukkit / Paper / Folia、BungeeCord、Velocity 同一份）"
+            echo
+            echo "## 安装"
+            echo
+            echo "1. 下载 \`ServerProbe-${RELEASE_TAG}.jar\`，放入服端 \`plugins/\` 目录。"
+            echo "2. 重启服端。首次启用会生成 \`plugins/ServerProbe/config.yml\`。"
+            echo "3. 校验下载文件：\`sha256sum -c SHA256SUMS.txt\`。"
+            echo
+            echo "## 产物校验"
+            echo
+            echo '```'
+            cat build/release/SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "---"
+            echo
+            echo "提交：\`${RELEASE_COMMIT}\`"
+          } > "${notes_file}"
+          echo "notes_file=${notes_file}" >> "$GITHUB_OUTPUT"
+          echo "----- 发布说明 -----"
+          sed 's/::/: :/g' "${notes_file}"
+
+      - name: 创建或更新 GitHub Release
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ steps.meta.outputs.commit }}
+          name: ServerProbe ${{ steps.meta.outputs.tag }}
+          body_path: ${{ steps.notes.outputs.notes_file }}
+          # 开原生自动笔记：正式发布需要 What's Changed / Contributors（只统计合并的 PR）
+          generate_release_notes: true
+          draft: false
+          # 正式版：占 Latest
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            build/release/*.jar
+            build/release/SHA256SUMS.txt
+
+      - name: 上传发布产物（dry_run 时留作证据）
+        if: ${{ github.event_name != 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 清理本次构建产物（降低 runner 磁盘占用）
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          echo "已清理 build/（保留 .gradle 项目缓存，供后续运行 UP-TO-DATE 复用）"
