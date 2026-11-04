@@ -6,35 +6,42 @@
 name: CI
 
 on:
-  # 手动触发用于：验证 CI 自身配置改动（push 的 paths-ignore 含 .github/**，
-  # 改工作流文件时不会自动触发）；以及与基分支冲突、GitHub 不再为其创建 pull_request 运行时补跑。
+  # 手动触发用于：与基分支冲突、GitHub 不再为其创建 pull_request 运行时补跑。
   workflow_dispatch:
   push:
     branches: [ master, main ]
     # 正式发布 tag 由 release.yml 处理，CI 不重复构建
     tags-ignore:
       - 'v*'
-    paths-ignore:
-      - 'README.md'
-      - 'CHANGELOG.md'
-      - 'SECURITY.md'
-      - 'LICENSE'
-      - 'docs/**'
-      - '.github/**'
-      - '.claude/**'
-      - '.editorconfig'
-      - '.gitignore'
+    # 用 paths + 取反而不是 paths-ignore：后者无法单独把某个子目录排除在忽略之外，
+    # 而 `.github/workflows/**` 必须能触发 CI——否则改工作流本身时 CI 一声不吞，
+    # 验证只能在合并后或靠人工手动点，等于给自己留了一个“改门禁不用过门禁”的口子。
+    # 取反按声明顺序生效、后面的命中覆盖前面的，故工作流目录用一条正向规则重新包含。
+    paths:
+      - '**'
+      - '!README.md'
+      - '!CHANGELOG.md'
+      - '!SECURITY.md'
+      - '!LICENSE'
+      - '!docs/**'
+      - '!.claude/**'
+      - '!.github/**'
+      - '.github/workflows/**'
+      - '!.editorconfig'
+      - '!.gitignore'
   pull_request:
-    paths-ignore:
-      - 'README.md'
-      - 'CHANGELOG.md'
-      - 'SECURITY.md'
-      - 'LICENSE'
-      - 'docs/**'
-      - '.github/**'
-      - '.claude/**'
-      - '.editorconfig'
-      - '.gitignore'
+    paths:
+      - '**'
+      - '!README.md'
+      - '!CHANGELOG.md'
+      - '!SECURITY.md'
+      - '!LICENSE'
+      - '!docs/**'
+      - '!.claude/**'
+      - '!.github/**'
+      - '.github/workflows/**'
+      - '!.editorconfig'
+      - '!.gitignore'
 
 permissions:
   contents: read
@@ -97,7 +104,7 @@ jobs:
       # 故显式用 gradlew.bat 并指定 cmd shell，确保走仓库自带的 Gradle 版本。
       - name: 构建 + 单元测试 + detekt 静态检查
         shell: cmd
-        run: gradlew.bat build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_21_X64
+        run: gradlew.bat build --stacktrace -Dorg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64
 
   # 覆盖率统计：只产出报告、不设门槛(JaCoCo 已在 serverprobe.base 约定插件中统一应用)。
   # 目的：先积累几个月的真实基线数据，再据此讨论阈值；避免凭空定一个数把 PR 卡住或催生凑数测试。
