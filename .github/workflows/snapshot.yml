@@ -155,6 +155,33 @@ jobs:
           echo "----- 快照说明 -----"
           sed 's/::/: :/g' "${notes_file}"
 
+      - name: 清理旧附件（保证真滚动）
+        # 只换 tag/正文不够：附件按文件名增量上传、从不删旧的。而快照产物名带构建时间戳，
+        # 每次都是新名字，于是旧 jar 会一直沉积在同一个 Release 下面（实测第二次构建后就两个 jar 了）。
+        # 构建前先把该 Release 的旧附件删空，才使其名副其实地“滚动覆盖”。
+        if: ${{ github.event_name == 'push' || inputs.dry_run != true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: snapshot
+        run: |
+          set -euo pipefail
+          # Release 可能还不存在（首次运行），gh release view 会失败，这是正常情况。
+          if ! gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            echo "Release ${TAG} 尚不存在，无需清理"
+            exit 0
+          fi
+          ids="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].id')"
+          if [ -z "${ids}" ]; then
+            echo "Release ${TAG} 没有旧附件，无需清理"
+            exit 0
+          fi
+          echo "准备删除旧附件：$(echo "${ids}" | wc -l) 个"
+          for id in ${ids}; do
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
+          done
+          echo "旧附件已清理，随后重新上传本次产物"
+
       - name: 更新开发版 Release（滚动，不累积）
         # dry_run 时不发布：只为验证流水线，不该产生或改动 Release 与 tag。
         # push 触发时 inputs.dry_run 为空，显式用 == true 判断：只有手动勾选 dry_run 才不发布。
