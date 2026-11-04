@@ -171,14 +171,17 @@ jobs:
             echo "Release ${TAG} 尚不存在，无需清理"
             exit 0
           fi
-          ids="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].id')"
-          if [ -z "${ids}" ]; then
+          # 取**数字**后缀而不是 id 字段：`gh release view` 的 assets[].id 给的是 GraphQL
+          # node ID（形如 RA_kwDO…），直接拿去 DELETE /releases/assets/{id} 会 404；
+          # apiUrl 末尾的才是 REST 接口认的数据库 id。
+          api_urls="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].apiUrl')"
+          if [ -z "${api_urls}" ]; then
             echo "Release ${TAG} 没有旧附件，无需清理"
             exit 0
           fi
-          echo "准备删除旧附件：$(echo "${ids}" | wc -l) 个"
-          for id in ${ids}; do
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
+          echo "准备删除旧附件：$(echo "${api_urls}" | wc -l) 个"
+          for api_url in ${api_urls}; do
+            gh api -X DELETE "${api_url#https://api.github.com/}"
           done
           echo "旧附件已清理，随后重新上传本次产物"
 
