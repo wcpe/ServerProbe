@@ -1,0 +1,52 @@
+# https://docs.devin.ai/onboard-devin/environment-yaml
+initialize:
+  - uses: github.com/actions/setup-java@v4
+    with:
+      java-version: "21"
+      distribution: "temurin"
+  - name: gradle init 脚本（镜像改写 + 私仓注入）
+    run: |
+      mkdir -p ~/.gradle/init.d
+      cat > ~/.gradle/init.d/extra-repos.gradle <<'GRADLEINIT'
+      gradle.beforeSettings { settings ->
+          [settings.pluginManagement.repositories, settings.dependencyResolutionManagement.repositories].each { repos ->
+              repos.withType(MavenArtifactRepository).configureEach { r ->
+                  def u = r.url.toString()
+                  if (u.startsWith('https://repo.maven.apache.org/maven2') || u.startsWith('https://repo1.maven.org/maven2')) {
+                      r.url = 'https://maven.aliyun.com/repository/central/'
+                  } else if (u.startsWith('https://plugins.gradle.org/m2')) {
+                      r.url = 'https://maven.aliyun.com/repository/gradle-plugin/'
+                  }
+              }
+          }
+      }
+      allprojects {
+          repositories.withType(MavenArtifactRepository).configureEach { r ->
+              def u = r.url.toString()
+              if (u.startsWith('https://repo.maven.apache.org/maven2') || u.startsWith('https://repo1.maven.org/maven2')) {
+                  r.url = 'https://maven.aliyun.com/repository/central/'
+              } else if (u.startsWith('https://plugins.gradle.org/m2')) {
+                  r.url = 'https://maven.aliyun.com/repository/gradle-plugin/'
+              }
+          }
+          repositories {
+              maven { url = uri("https://maven.aliyun.com/repository/central") }
+              maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+              maven { url = uri("https://mirrors.huaweicloud.com/repository/maven/") }
+              maven { url = uri("https://repo.wcpe.top/repository/maven-public/") }
+              maven { url = uri("https://r.irepo.space/maven/") }
+              maven { url = uri("https://repo.tabooproject.org/repository/releases/") }
+          }
+      }
+      GRADLEINIT
+maintenance: |
+  ./gradlew dependencies --no-daemon --console=plain -q > /dev/null
+knowledge:
+  - name: build
+    contents: |
+      ./gradlew build   # 产物 plugin/build/libs/ServerProbe-*.jar（约 41MB 单 jar 多平台）
+  - name: notes
+    contents: |
+      勿删 ~/.gradle/init.d/extra-repos.gradle：apache/repo1/plugins.gradle.org 间歇 429，无镜像则构建必挂
+      wcpe 私有构件（taboolib-ioc、mc-testkit、io.izzel.taboolib-wcpe.*）只在 repo.wcpe.top
+      MCP 控制面：/probe mcp on → POST http://127.0.0.1:9942/mcp（Bearer 鉴权，42 工具）
