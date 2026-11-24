@@ -44,7 +44,13 @@ initialize:
       }
       GRADLEINIT
 maintenance: |
-  ./gradlew dependencies --no-daemon --console=plain -q > /dev/null
+  # 增量快照可能不继承 initialize 的 JAVA_HOME/PATH，先兜底定位 javac
+  if [ -z "$JAVA_HOME" ]; then
+    JAVAC=$(command -v javac || ls /usr/lib/jvm/java-21*/bin/javac 2>/dev/null | head -1)
+    [ -n "$JAVAC" ] && export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVAC")")")
+  fi
+  # build -x test 真实下载编译与打包全部 JAR（dependencies 只解析依赖图，预热不完整）
+  ./gradlew build -x test --no-daemon --console=plain -q
 knowledge:
   - name: build
     contents: |
