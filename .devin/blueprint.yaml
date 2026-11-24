@@ -50,7 +50,8 @@ maintenance: |
     [ -n "$JAVAC" ] && export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVAC")")")
   fi
   # build -x test 真实下载编译与打包全部 JAR（dependencies 只解析依赖图，预热不完整）
-  ./gradlew build -x test --no-daemon --console=plain -q
+  # -x test 只排根构建的 test；根 check 另挂纳入构建的 :build-logic:test，须按全路径再排一次
+  ./gradlew build -x test -x :build-logic:test --no-daemon --console=plain -q
 knowledge:
   - name: build
     contents: |
