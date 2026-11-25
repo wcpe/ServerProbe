@@ -173,15 +173,6 @@ jobs:
             build/release/*.jar
             build/release/SHA256SUMS.txt
 
-      - name: 上传预览产物（dry_run 时留作证据）
-        if: ${{ inputs.dry_run }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: preview-dry-run-${{ steps.meta.outputs.sha }}
-          path: build/release/
-          if-no-files-found: error
-          retention-days: 7
-
       - name: 清理本次构建产物（降低 runner 磁盘占用）
         # 发行 jar 已复制到 build/release 并发布，中间产物留着只会吃盘。
         # 用 always() 保证失败的一轮（往往留下最多垃圾）同样清理；

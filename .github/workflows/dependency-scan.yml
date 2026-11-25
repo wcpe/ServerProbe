@@ -69,14 +69,3 @@ jobs:
           else
             echo "OSV-Scanner 未报告漏洞。"
           fi
-
-      - name: 上传扫描结果
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: osv-scan-results
-          path: |
-            deps.txt
-            osv-scanner.json
-            osv-results.json
-          if-no-files-found: warn

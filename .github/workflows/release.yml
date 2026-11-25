@@ -215,15 +215,6 @@ jobs:
             build/release/*.jar
             build/release/SHA256SUMS.txt
 
-      - name: 上传发布产物（dry_run 时留作证据）
-        if: ${{ github.event_name != 'push' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-dry-run
-          path: build/release/
-          if-no-files-found: error
-          retention-days: 7
-
       - name: 清理本次构建产物（降低 runner 磁盘占用）
         if: always()
         continue-on-error: true
